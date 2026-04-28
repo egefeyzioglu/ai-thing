@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Button } from "src/components/ui/button";
@@ -16,8 +16,6 @@ export const dynamic = "force-dynamic";
 
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const next = searchParams.get("next") ?? "/";
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -41,7 +39,7 @@ export default function LoginPage() {
         setError(data?.error ?? "Login failed");
         return;
       }
-      router.replace(next);
+      router.replace("/");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
