@@ -59,11 +59,11 @@ export default function Home() {
     });
   };
 
-  const isGenerating = createPrompt.isPending || Object.keys(pending).length > 0;
+  // const isGenerating = createPrompt.isPending || Object.keys(pending).length > 0;
 
   const handleSubmit = async () => {
     const trimmed = prompt.trim();
-    if (!trimmed || isGenerating) return;
+    if (!trimmed) return;
     setErrorMessage(null);
 
     let promptRow;
@@ -123,14 +123,13 @@ export default function Home() {
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Describe what you want to see…  (Ctrl+Enter to submit)"
-            disabled={isGenerating}
             className="flex-1"
           />
           <Button
             onClick={() => void handleSubmit()}
-            disabled={isGenerating || prompt.trim().length === 0}
+            disabled={prompt.trim().length === 0}
           >
-            {isGenerating ? "Generating…" : "Generate"}
+            Generate
           </Button>
         </div>
 
