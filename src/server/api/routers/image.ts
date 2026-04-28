@@ -1,12 +1,12 @@
 import { TRPCError } from "@trpc/server";
+import { desc } from "drizzle-orm";
+import { z } from "zod";
 
 import { env } from "src/env";
 import { createTRPCRouter, publicProcedure } from "src/server/api/trpc";
-
-import { z } from "zod"
-
-const PROMPT =
-  "Generate an image of gray tabby cat hugging an otter with an orange scarf";
+import { db } from "src/server/db";
+import { images, type Image } from "src/server/db/schema";
+import { utapi, UTFile } from "src/server/uploadthing";
 
 type ResponsesApiOutputItem = {
   type: string;
@@ -35,15 +35,12 @@ type GeminiResponse = {
   error?: { message?: string };
 };
 
-/**
- * Module-level caches. The first caller for each provider kicks off the
- * request; every subsequent caller awaits the same promise, so each image is
- * generated exactly once per server process.
- */
-let cachedOpenAIImage: Promise<string> | null = null;
-let cachedNanoBananaImage: Promise<string> | null = null;
+type GeneratedImage = {
+  base64: string;
+  mimeType: string;
+};
 
-async function generateCatOtterImage(prompt: string): Promise<string> {
+async function generateCatOtterImage(prompt: string): Promise<GeneratedImage> {
   const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -78,10 +75,12 @@ async function generateCatOtterImage(prompt: string): Promise<string> {
     });
   }
 
-  return `data:image/png;base64,${imageCall.result}`;
+  return { base64: imageCall.result, mimeType: "image/png" };
 }
 
-async function generateCatOtterImageNanoBanana(prompt: string): Promise<string> {
+async function generateCatOtterImageNanoBanana(
+  prompt: string,
+): Promise<GeneratedImage> {
   // "Nano Banana" = gemini-2.5-flash-image, Google's image-gen Gemini variant.
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${env.GEMINI_API_KEY}`,
@@ -116,28 +115,89 @@ async function generateCatOtterImageNanoBanana(prompt: string): Promise<string> 
     });
   }
 
-  const mime = inline.mimeType ?? "image/png";
-  return `data:${mime};base64,${inline.data}`;
+  return { base64: inline.data, mimeType: inline.mimeType ?? "image/png" };
+}
+
+function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
+  const buf = Buffer.from(b64, "base64");
+  const out = new Uint8Array(new ArrayBuffer(buf.byteLength));
+  out.set(buf);
+  return out;
+}
+
+function extensionFor(mimeType: string): string {
+  if (mimeType.includes("jpeg") || mimeType.includes("jpg")) return "jpg";
+  if (mimeType.includes("webp")) return "webp";
+  return "png";
+}
+
+async function persistImage(args: {
+  generated: GeneratedImage;
+  prompt: string;
+  model: string;
+}): Promise<Image> {
+  const id = crypto.randomUUID();
+  const ext = extensionFor(args.generated.mimeType);
+  const file = new UTFile(
+    [base64ToBytes(args.generated.base64)],
+    `${id}.${ext}`,
+    { type: args.generated.mimeType },
+  );
+
+  const uploaded = await utapi.uploadFiles(file);
+
+  if (uploaded.error || !uploaded.data) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: `UploadThing upload failed: ${uploaded.error?.message ?? "unknown error"}`,
+    });
+  }
+
+  const [row] = await db
+    .insert(images)
+    .values({
+      id,
+      url: uploaded.data.ufsUrl,
+      key: uploaded.data.key,
+      prompt: args.prompt,
+      model: args.model,
+    })
+    .returning();
+
+  if (!row) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Failed to insert image row",
+    });
+  }
+
+  return row;
 }
 
 export const imageRouter = createTRPCRouter({
-  catOtter: publicProcedure.input(z.object({ prompt: z.string().min(1).max(1000) }))
-    .query(async ({ input }) => {
-      const image = generateCatOtterImage(input.prompt).catch((err) => {
-        throw err;
-      });
+  list: publicProcedure.query(async () => {
+    return db.select().from(images).orderBy(desc(images.createdAt));
+  }),
 
-      const dataUrl = await image;
-      return { dataUrl, prompt: input};
+  catOtter: publicProcedure
+    .input(z.object({ prompt: z.string().min(1).max(1000) }))
+    .mutation(async ({ input }) => {
+      const generated = await generateCatOtterImage(input.prompt);
+      return persistImage({
+        generated,
+        prompt: input.prompt,
+        model: "gpt-5.4-mini",
+      });
     }),
 
-  catOtterNanoBanana: publicProcedure.input(z.object({ prompt: z.string().min(1).max(1000) }))
-  .query(async ({ input }) => {
-    const image = generateCatOtterImageNanoBanana(input.prompt).catch((err) => {
-      throw err;
-    });
-
-    const dataUrl = await image;
-    return { dataUrl, prompt: input};
-  }),
+  catOtterNanoBanana: publicProcedure
+    .input(z.object({ prompt: z.string().min(1).max(1000) }))
+    .mutation(async ({ input }) => {
+      const generated = await generateCatOtterImageNanoBanana(input.prompt);
+      return persistImage({
+        generated,
+        prompt: input.prompt,
+        model: "gemini-2.5-flash-image",
+      });
+    }),
 });
