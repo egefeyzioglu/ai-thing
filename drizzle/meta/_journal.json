@@ -8,6 +8,13 @@
       "when": 1777352456903,
       "tag": "0000_green_unicorn",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777355269440,
+      "tag": "0001_open_solo",
+      "breakpoints": true
     }
   ]
 }

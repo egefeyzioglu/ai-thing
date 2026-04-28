@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { api } from "src/trpc/react";
@@ -33,9 +34,16 @@ function modelLabel(model: string): string {
 type PendingMap = Record<string, Set<ModelId>>;
 
 export default function Home() {
+  const router = useRouter();
   const [prompt, setPrompt] = useState("");
   const [pending, setPending] = useState<PendingMap>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.replace("/login");
+    router.refresh();
+  };
 
   const utils = api.useUtils();
   const promptsQuery = api.prompt.list.useQuery();
@@ -109,12 +117,20 @@ export default function Home() {
   return (
     <main className="flex min-h-screen flex-col items-center bg-neutral-950 p-8 text-neutral-100">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-        <header className="flex flex-col items-center gap-2 text-center">
+        <header className="relative flex flex-col items-center gap-2 text-center">
           <h1 className="text-3xl font-semibold tracking-tight">AI Thing</h1>
           <p className="text-sm text-neutral-400">
             Generate images side-by-side with GPT and Gemini. They&apos;re saved
             to UploadThing automatically.
           </p>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void handleLogout()}
+            className="absolute right-0 top-0 text-neutral-400 hover:text-neutral-100"
+          >
+            Sign out
+          </Button>
         </header>
 
         <div className="flex flex-col gap-2 sm:flex-row">

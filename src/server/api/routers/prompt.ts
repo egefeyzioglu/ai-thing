@@ -1,12 +1,12 @@
 import { desc } from "drizzle-orm";
 import { z } from "zod";
 
-import { createTRPCRouter, publicProcedure } from "src/server/api/trpc";
+import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import { prompts } from "src/server/db/schema";
 
 export const promptRouter = createTRPCRouter({
-  create: publicProcedure
+  create: protectedProcedure
     .input(z.object({ text: z.string().min(1).max(1000) }))
     .mutation(async ({ input }) => {
       const id = crypto.randomUUID();
@@ -18,7 +18,7 @@ export const promptRouter = createTRPCRouter({
       return row;
     }),
 
-  list: publicProcedure.query(async () => {
+  list: protectedProcedure.query(async () => {
     return db.query.prompts.findMany({
       orderBy: [desc(prompts.createdAt)],
       with: {
