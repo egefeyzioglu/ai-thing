@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { env } from "src/env";
-import { createTRPCRouter, publicProcedure } from "src/server/api/trpc";
+import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import { images, prompts, type Image } from "src/server/db/schema";
 import { utapi, UTFile } from "src/server/uploadthing";
@@ -187,7 +187,7 @@ async function persistImage(args: {
 }
 
 export const imageRouter = createTRPCRouter({
-  generateOpenAI: publicProcedure
+  generateOpenAI: protectedProcedure
     .input(z.object({ promptId: z.string().min(1) }))
     .mutation(async ({ input }) => {
       const text = await loadPromptText(input.promptId);
@@ -199,7 +199,7 @@ export const imageRouter = createTRPCRouter({
       });
     }),
 
-  generateGemini: publicProcedure
+  generateGemini: protectedProcedure
     .input(z.object({ promptId: z.string().min(1) }))
     .mutation(async ({ input }) => {
       const text = await loadPromptText(input.promptId);
