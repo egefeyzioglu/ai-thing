@@ -3,6 +3,8 @@ import { TRPCError } from "@trpc/server";
 import { env } from "src/env";
 import { createTRPCRouter, publicProcedure } from "src/server/api/trpc";
 
+import { z } from "zod"
+
 const PROMPT =
   "Generate an image of gray tabby cat hugging an otter with an orange scarf";
 
@@ -41,7 +43,7 @@ type GeminiResponse = {
 let cachedOpenAIImage: Promise<string> | null = null;
 let cachedNanoBananaImage: Promise<string> | null = null;
 
-async function generateCatOtterImage(): Promise<string> {
+async function generateCatOtterImage(prompt: string): Promise<string> {
   const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -50,7 +52,7 @@ async function generateCatOtterImage(): Promise<string> {
     },
     body: JSON.stringify({
       model: "gpt-5.4-mini",
-      input: PROMPT,
+      input: prompt,
       tools: [{ type: "image_generation" }],
     }),
   });
@@ -79,7 +81,7 @@ async function generateCatOtterImage(): Promise<string> {
   return `data:image/png;base64,${imageCall.result}`;
 }
 
-async function generateCatOtterImageNanoBanana(): Promise<string> {
+async function generateCatOtterImageNanoBanana(prompt: string): Promise<string> {
   // "Nano Banana" = gemini-2.5-flash-image, Google's image-gen Gemini variant.
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${env.GEMINI_API_KEY}`,
@@ -87,7 +89,7 @@ async function generateCatOtterImageNanoBanana(): Promise<string> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: PROMPT }] }],
+        contents: [{ parts: [{ text: prompt }] }],
       }),
     },
   );
@@ -119,25 +121,23 @@ async function generateCatOtterImageNanoBanana(): Promise<string> {
 }
 
 export const imageRouter = createTRPCRouter({
-  catOtter: publicProcedure.query(async () => {
-    cachedOpenAIImage ??= generateCatOtterImage().catch((err) => {
-      // Reset on failure so the next request can retry instead of being stuck
-      // returning a rejected promise forever.
-      cachedOpenAIImage = null;
+  catOtter: publicProcedure.input(z.object({ prompt: z.string().min(1).max(1000) }))
+    .query(async ({ input }) => {
+      const image = generateCatOtterImage(input.prompt).catch((err) => {
+        throw err;
+      });
+
+      const dataUrl = await image;
+      return { dataUrl, prompt: input};
+    }),
+
+  catOtterNanoBanana: publicProcedure.input(z.object({ prompt: z.string().min(1).max(1000) }))
+  .query(async ({ input }) => {
+    const image = generateCatOtterImageNanoBanana(input.prompt).catch((err) => {
       throw err;
     });
 
-    const dataUrl = await cachedOpenAIImage;
-    return { dataUrl, prompt: PROMPT };
-  }),
-
-  catOtterNanoBanana: publicProcedure.query(async () => {
-    cachedNanoBananaImage ??= generateCatOtterImageNanoBanana().catch((err) => {
-      cachedNanoBananaImage = null;
-      throw err;
-    });
-
-    const dataUrl = await cachedNanoBananaImage;
-    return { dataUrl, prompt: PROMPT };
+    const dataUrl = await image;
+    return { dataUrl, prompt: input};
   }),
 });
