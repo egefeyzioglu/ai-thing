@@ -1,5 +1,5 @@
-import { relations, sql } from "drizzle-orm";
-import { index, sqliteTableCreator } from "drizzle-orm/sqlite-core";
+import { relations } from "drizzle-orm";
+import { index, pgTableCreator } from "drizzle-orm/pg-core";
 
 /**
  * This is an example of how to use the multi-project schema feature of Drizzle ORM. Use the same
@@ -7,7 +7,7 @@ import { index, sqliteTableCreator } from "drizzle-orm/sqlite-core";
  *
  * @see https://orm.drizzle.team/docs/goodies#multi-project-schema
  */
-export const createTable = sqliteTableCreator((name) => `ai-thing_${name}`);
+export const createTable = pgTableCreator((name) => `ai-thing_${name}`);
 
 export const prompts = createTable(
   "prompt",
@@ -15,9 +15,9 @@ export const prompts = createTable(
     id: d.text("id").primaryKey(),
     text: d.text("text").notNull(),
     createdAt: d
-      .integer("created_at", { mode: "timestamp" })
+      .timestamp("created_at", { withTimezone: true })
       .notNull()
-      .default(sql`(unixepoch())`),
+      .defaultNow(),
   }),
   (t) => [index("prompt_created_at_idx").on(t.createdAt)],
 );
@@ -34,9 +34,9 @@ export const images = createTable(
     key: d.text("key").notNull(),
     model: d.text("model").notNull(),
     createdAt: d
-      .integer("created_at", { mode: "timestamp" })
+      .timestamp("created_at", { withTimezone: true })
       .notNull()
-      .default(sql`(unixepoch())`),
+      .defaultNow(),
   }),
   (t) => [
     index("image_created_at_idx").on(t.createdAt),

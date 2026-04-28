@@ -1,5 +1,5 @@
-import { createClient, type Client } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 
 import { env } from "src/env";
 import * as schema from "./schema";
@@ -9,11 +9,16 @@ import * as schema from "./schema";
  * update.
  */
 const globalForDb = globalThis as unknown as {
-  client: Client | undefined;
+  client: ReturnType<typeof postgres> | undefined;
 };
 
 export const client =
-  globalForDb.client ?? createClient({ url: env.DATABASE_URL });
+  globalForDb.client ??
+  postgres(env.DATABASE_URL, {
+    // Supabase's pooler (port 6543) requires prepared statements off.
+    // Harmless for local Postgres / direct connections.
+    prepare: false,
+  });
 if (env.NODE_ENV !== "production") globalForDb.client = client;
 
 export const db = drizzle(client, { schema });
