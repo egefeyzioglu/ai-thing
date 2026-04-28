@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import { index, sqliteTableCreator } from "drizzle-orm/sqlite-core";
 
 /**
@@ -9,20 +9,51 @@ import { index, sqliteTableCreator } from "drizzle-orm/sqlite-core";
  */
 export const createTable = sqliteTableCreator((name) => `ai-thing_${name}`);
 
+export const prompts = createTable(
+  "prompt",
+  (d) => ({
+    id: d.text("id").primaryKey(),
+    text: d.text("text").notNull(),
+    createdAt: d
+      .integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  }),
+  (t) => [index("prompt_created_at_idx").on(t.createdAt)],
+);
+
 export const images = createTable(
   "image",
   (d) => ({
     id: d.text("id").primaryKey(),
+    promptId: d
+      .text("prompt_id")
+      .notNull()
+      .references(() => prompts.id, { onDelete: "cascade" }),
     url: d.text("url").notNull(),
     key: d.text("key").notNull(),
-    prompt: d.text("prompt").notNull(),
     model: d.text("model").notNull(),
     createdAt: d
       .integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),
   }),
-  (t) => [index("image_created_at_idx").on(t.createdAt)],
+  (t) => [
+    index("image_created_at_idx").on(t.createdAt),
+    index("image_prompt_id_idx").on(t.promptId),
+  ],
 );
 
+export const promptsRelations = relations(prompts, ({ many }) => ({
+  images: many(images),
+}));
+
+export const imagesRelations = relations(images, ({ one }) => ({
+  prompt: one(prompts, {
+    fields: [images.promptId],
+    references: [prompts.id],
+  }),
+}));
+
+export type Prompt = typeof prompts.$inferSelect;
 export type Image = typeof images.$inferSelect;

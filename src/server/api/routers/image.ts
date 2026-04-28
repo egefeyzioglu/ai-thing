@@ -1,11 +1,11 @@
 import { TRPCError } from "@trpc/server";
-import { desc } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { env } from "src/env";
 import { createTRPCRouter, publicProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
-import { images, type Image } from "src/server/db/schema";
+import { images, prompts, type Image } from "src/server/db/schema";
 import { utapi, UTFile } from "src/server/uploadthing";
 
 type ResponsesApiOutputItem = {
@@ -40,7 +40,7 @@ type GeneratedImage = {
   mimeType: string;
 };
 
-async function generateCatOtterImage(prompt: string): Promise<GeneratedImage> {
+async function generateImageOpenAI(prompt: string): Promise<GeneratedImage> {
   const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -78,7 +78,7 @@ async function generateCatOtterImage(prompt: string): Promise<GeneratedImage> {
   return { base64: imageCall.result, mimeType: "image/png" };
 }
 
-async function generateCatOtterImageNanoBanana(
+async function generateImageGemini(
   prompt: string,
 ): Promise<GeneratedImage> {
   // "Nano Banana" = gemini-2.5-flash-image, Google's image-gen Gemini variant.
@@ -131,9 +131,21 @@ function extensionFor(mimeType: string): string {
   return "png";
 }
 
+async function loadPromptText(promptId: string): Promise<string> {
+  const [row] = await db
+    .select({ text: prompts.text })
+    .from(prompts)
+    .where(eq(prompts.id, promptId))
+    .limit(1);
+  if (!row) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Prompt not found" });
+  }
+  return row.text;
+}
+
 async function persistImage(args: {
   generated: GeneratedImage;
-  prompt: string;
+  promptId: string;
   model: string;
 }): Promise<Image> {
   const id = crypto.randomUUID();
@@ -157,9 +169,9 @@ async function persistImage(args: {
     .insert(images)
     .values({
       id,
+      promptId: args.promptId,
       url: uploaded.data.ufsUrl,
       key: uploaded.data.key,
-      prompt: args.prompt,
       model: args.model,
     })
     .returning();
@@ -175,28 +187,26 @@ async function persistImage(args: {
 }
 
 export const imageRouter = createTRPCRouter({
-  list: publicProcedure.query(async () => {
-    return db.select().from(images).orderBy(desc(images.createdAt));
-  }),
-
-  catOtter: publicProcedure
-    .input(z.object({ prompt: z.string().min(1).max(1000) }))
+  generateOpenAI: publicProcedure
+    .input(z.object({ promptId: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      const generated = await generateCatOtterImage(input.prompt);
+      const text = await loadPromptText(input.promptId);
+      const generated = await generateImageOpenAI(text);
       return persistImage({
         generated,
-        prompt: input.prompt,
+        promptId: input.promptId,
         model: "gpt-5.4-mini",
       });
     }),
 
-  catOtterNanoBanana: publicProcedure
-    .input(z.object({ prompt: z.string().min(1).max(1000) }))
+  generateGemini: publicProcedure
+    .input(z.object({ promptId: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      const generated = await generateCatOtterImageNanoBanana(input.prompt);
+      const text = await loadPromptText(input.promptId);
+      const generated = await generateImageGemini(text);
       return persistImage({
         generated,
-        prompt: input.prompt,
+        promptId: input.promptId,
         model: "gemini-2.5-flash-image",
       });
     }),
