@@ -56,10 +56,7 @@ async function generateImageOpenAI(prompt: string): Promise<GeneratedImage> {
 
   if (!res.ok) {
     const text = await res.text();
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: `OpenAI API error (${res.status}): ${text}`,
-    });
+    throw new Error(`OpenAI API error (${res.status}): ${text}`);
   }
 
   const data = (await res.json()) as ResponsesApiResponse;
@@ -69,18 +66,13 @@ async function generateImageOpenAI(prompt: string): Promise<GeneratedImage> {
   );
 
   if (!imageCall?.result) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "OpenAI response did not contain an image",
-    });
+    throw new Error("OpenAI response did not contain an image");
   }
 
   return { base64: imageCall.result, mimeType: "image/png" };
 }
 
-async function generateImageGemini(
-  prompt: string,
-): Promise<GeneratedImage> {
+async function generateImageGemini(prompt: string): Promise<GeneratedImage> {
   // "Nano Banana" = gemini-2.5-flash-image, Google's image-gen Gemini variant.
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${env.GEMINI_API_KEY}`,
@@ -95,10 +87,7 @@ async function generateImageGemini(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: `Gemini API error (${res.status}): ${text}`,
-    });
+    throw new Error(`Gemini API error (${res.status}): ${text}`);
   }
 
   const data = (await res.json()) as GeminiResponse;
@@ -109,10 +98,7 @@ async function generateImageGemini(
     .find((d): d is GeminiInlineData => !!d?.data);
 
   if (!inline?.data) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Gemini response did not contain an image",
-    });
+    throw new Error("Gemini response did not contain an image");
   }
 
   return { base64: inline.data, mimeType: inline.mimeType ?? "image/png" };
@@ -131,83 +117,141 @@ function extensionFor(mimeType: string): string {
   return "png";
 }
 
-async function loadPromptText(promptId: string): Promise<string> {
-  const [row] = await db
-    .select({ text: prompts.text })
-    .from(prompts)
-    .where(eq(prompts.id, promptId))
-    .limit(1);
-  if (!row) {
-    throw new TRPCError({ code: "NOT_FOUND", message: "Prompt not found" });
-  }
-  return row.text;
-}
-
-async function persistImage(args: {
+async function uploadGeneratedImage(args: {
+  imageId: string;
   generated: GeneratedImage;
-  promptId: string;
-  model: string;
-}): Promise<Image> {
-  const id = crypto.randomUUID();
+}): Promise<{ url: string; key: string }> {
   const ext = extensionFor(args.generated.mimeType);
   const file = new UTFile(
     [base64ToBytes(args.generated.base64)],
-    `${id}.${ext}`,
+    `${args.imageId}.${ext}`,
     { type: args.generated.mimeType },
   );
 
   const uploaded = await utapi.uploadFiles(file);
 
   if (uploaded.error || !uploaded.data) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: `UploadThing upload failed: ${uploaded.error?.message ?? "unknown error"}`,
-    });
+    throw new Error(
+      `UploadThing upload failed: ${uploaded.error?.message ?? "unknown error"}`,
+    );
   }
 
-  const [row] = await db
-    .insert(images)
-    .values({
-      id,
-      promptId: args.promptId,
-      url: uploaded.data.ufsUrl,
-      key: uploaded.data.key,
-      model: args.model,
-    })
-    .returning();
+  return { url: uploaded.data.ufsUrl, key: uploaded.data.key };
+}
 
-  if (!row) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Failed to insert image row",
-    });
+async function generateForModel(
+  model: string,
+  prompt: string,
+): Promise<GeneratedImage> {
+  switch (model) {
+    case "gpt-5.4-mini":
+      return generateImageOpenAI(prompt);
+    case "gemini-2.5-flash-image":
+      return generateImageGemini(prompt);
+    default:
+      throw new Error(`Unsupported model: ${model}`);
   }
-
-  return row;
 }
 
 export const imageRouter = createTRPCRouter({
-  generateOpenAI: protectedProcedure
-    .input(z.object({ promptId: z.string().min(1) }))
-    .mutation(async ({ input }) => {
-      const text = await loadPromptText(input.promptId);
-      const generated = await generateImageOpenAI(text);
-      return persistImage({
-        generated,
-        promptId: input.promptId,
-        model: "gpt-5.4-mini",
-      });
-    }),
+  /**
+   * Run the generation for a pending image row. Resolves the row to either
+   * `succeeded` (with url/key) or `failed` (with an error message). Always
+   * returns the final row; only throws on input/lookup problems.
+   */
+  runGeneration: protectedProcedure
+    .input(
+      z.object({
+        imageId: z.string().min(1),
+        retry: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ input }): Promise<Image> => {
+      const [imageRow] = await db
+        .select()
+        .from(images)
+        .where(eq(images.id, input.imageId))
+        .limit(1);
+      if (!imageRow) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Image row not found",
+        });
+      }
 
-  generateGemini: protectedProcedure
-    .input(z.object({ promptId: z.string().min(1) }))
-    .mutation(async ({ input }) => {
-      const text = await loadPromptText(input.promptId);
-      const generated = await generateImageGemini(text);
-      return persistImage({
-        generated,
-        promptId: input.promptId,
-        model: "gemini-2.5-flash-image",
-      });
+      // Idempotent for completed rows. For failed rows, only re-run if
+      // the caller explicitly opts in via `retry`. Pending rows normally
+      // proceed straight to generation, but `retry: true` is also honored
+      // there to let the client recover orphaned rows (e.g. ones whose
+      // original handler died because the server restarted mid-flight).
+      if (imageRow.status === "succeeded") return imageRow;
+      if (imageRow.status === "failed" && !input.retry) return imageRow;
+      if (imageRow.status === "failed" || input.retry) {
+        // Reset to pending so the row reflects the in-flight (re-)run.
+        await db
+          .update(images)
+          .set({ status: "pending", error: null, updatedAt: new Date() })
+          .where(eq(images.id, imageRow.id));
+      }
+
+      const [promptRow] = await db
+        .select({ text: prompts.text })
+        .from(prompts)
+        .where(eq(prompts.id, imageRow.promptId))
+        .limit(1);
+      if (!promptRow) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Prompt not found",
+        });
+      }
+
+      try {
+        const generated = await generateForModel(
+          imageRow.model,
+          promptRow.text,
+        );
+        const { url, key } = await uploadGeneratedImage({
+          imageId: imageRow.id,
+          generated,
+        });
+
+        const [updated] = await db
+          .update(images)
+          .set({
+            status: "succeeded",
+            url,
+            key,
+            error: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(images.id, imageRow.id))
+          .returning();
+        if (!updated) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to update image row",
+          });
+        }
+        return updated;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const [updated] = await db
+          .update(images)
+          .set({
+            status: "failed",
+            error: message,
+            updatedAt: new Date(),
+          })
+          .where(eq(images.id, imageRow.id))
+          .returning();
+        if (!updated) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to record image failure",
+          });
+        }
+        return updated;
+      }
     }),
 });

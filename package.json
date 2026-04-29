@@ -8,7 +8,7 @@
     "check": "next lint && tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push",
+    "db:push": "exec ./scripts/db-push-to-prod.sh",
     "db:studio": "drizzle-kit studio",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",

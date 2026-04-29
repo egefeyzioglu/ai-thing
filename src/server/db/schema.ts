@@ -22,6 +22,9 @@ export const prompts = createTable(
   (t) => [index("prompt_created_at_idx").on(t.createdAt)],
 );
 
+export const IMAGE_STATUSES = ["pending", "succeeded", "failed"] as const;
+export type ImageStatus = (typeof IMAGE_STATUSES)[number];
+
 export const images = createTable(
   "image",
   (d) => ({
@@ -30,11 +33,17 @@ export const images = createTable(
       .text("prompt_id")
       .notNull()
       .references(() => prompts.id, { onDelete: "cascade" }),
-    url: d.text("url").notNull(),
-    key: d.text("key").notNull(),
     model: d.text("model").notNull(),
+    status: d.text("status").notNull().default("pending").$type<ImageStatus>(),
+    url: d.text("url"),
+    key: d.text("key"),
+    error: d.text("error"),
     createdAt: d
       .timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: d
+      .timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   }),
