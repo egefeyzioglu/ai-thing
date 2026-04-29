@@ -49,7 +49,7 @@ async function generateImageOpenAI(prompt: string): Promise<GeneratedImage> {
     },
     body: JSON.stringify({
       model: "gpt-5.4-mini",
-      input: prompt,
+      input: "Generate an image based on the following user input:" + prompt,
       tools: [{ type: "image_generation" }],
     }),
   });
@@ -80,7 +80,7 @@ async function generateImageGemini(prompt: string): Promise<GeneratedImage> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: [{ parts: [{ text: "Generate an image based on the following user input" + prompt }] }],
       }),
     },
   );
