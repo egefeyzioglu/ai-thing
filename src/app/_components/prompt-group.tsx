@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useState } from "react";
 
 import { Button } from "src/components/ui/button";
 import {
@@ -17,6 +18,47 @@ import { modelLabel } from "src/app/_components/models";
 
 type PromptWithImages = RouterOutputs["prompt"]["list"][number];
 type ImageRow = PromptWithImages["images"][number];
+
+/** Pull an extension off a URL path, falling back to "png". */
+function extensionFromUrl(url: string): string {
+  try {
+    const path = new URL(url).pathname;
+    const m = /\.([a-z0-9]+)$/i.exec(path);
+    if (m?.[1]) return m[1].toLowerCase();
+  } catch {
+    // fall through
+  }
+  return "png";
+}
+
+/** Make a filesystem-safe filename from a prompt + model. */
+function buildDownloadName(promptText: string, model: string, ext: string) {
+  const slug = promptText
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  const base = slug.length > 0 ? slug : "image";
+  return `${base}-${model}.${ext}`;
+}
+
+async function downloadImage(url: string, filename: string) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+  const blob = await res.blob();
+  const objUrl = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = objUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    // Defer revoke a tick so the click has actually been processed.
+    setTimeout(() => URL.revokeObjectURL(objUrl), 0);
+  }
+}
 
 type PromptGroupProps = {
   prompt: PromptWithImages;
@@ -54,9 +96,26 @@ function ImageCard({
       void utils.prompt.list.invalidate();
     },
   });
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const handleRetry = () => {
     retry.mutate({ imageId: image.id, retry: true });
+  };
+
+  const handleDownload = async () => {
+    if (!image.url) return;
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const ext = extensionFromUrl(image.url);
+      const filename = buildDownloadName(prompt.text, image.model, ext);
+      await downloadImage(image.url, filename);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDownloading(false);
+    }
   };
 
   // While a retry is in flight, the row may still read as `failed` until the
@@ -102,7 +161,7 @@ function ImageCard({
           <Skeleton className="aspect-square w-full rounded-none" />
         )}
       </CardContent>
-      <CardFooter className="px-4 py-3">
+      <CardFooter className="flex items-center justify-between gap-2 px-4 py-3">
         <p className="text-[10px] uppercase tracking-wide text-neutral-600">
           {displayStatus === "pending"
             ? "Generating…"
@@ -110,6 +169,22 @@ function ImageCard({
               ? "Failed"
               : new Date(image.createdAt).toLocaleString()}
         </p>
+        {displayStatus === "succeeded" && image.url ? (
+          <div className="flex flex-col items-end gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void handleDownload()}
+              disabled={downloading}
+              className="h-7 px-2 text-xs text-neutral-300 hover:text-neutral-100"
+            >
+              {downloading ? "Downloading…" : "Download"}
+            </Button>
+            {downloadError ? (
+              <p className="text-[10px] text-red-400">{downloadError}</p>
+            ) : null}
+          </div>
+        ) : null}
       </CardFooter>
     </Card>
   );
