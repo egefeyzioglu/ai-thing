@@ -26,7 +26,7 @@ export const promptRouter = createTRPCRouter({
         const promptId = crypto.randomUUID();
         const [promptRow] = await tx
           .insert(prompts)
-          .values({ id: promptId, text: input.text })
+          .values({ id: promptId, text: ("Generate an image for the following user input: " + input.text) })
           .returning();
         if (!promptRow) throw new Error("Failed to insert prompt");
 
