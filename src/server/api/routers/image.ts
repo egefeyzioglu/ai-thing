@@ -179,12 +179,15 @@ export const imageRouter = createTRPCRouter({
         });
       }
 
-      // Idempotent for completed rows. For failed rows, retry only if
-      // the caller explicitly opts in.
+      // Idempotent for completed rows. For failed rows, only re-run if
+      // the caller explicitly opts in via `retry`. Pending rows normally
+      // proceed straight to generation, but `retry: true` is also honored
+      // there to let the client recover orphaned rows (e.g. ones whose
+      // original handler died because the server restarted mid-flight).
       if (imageRow.status === "succeeded") return imageRow;
-      if (imageRow.status === "failed") {
-        if (!input.retry) return imageRow;
-        // Reset to pending so the row reflects the in-flight retry.
+      if (imageRow.status === "failed" && !input.retry) return imageRow;
+      if (imageRow.status === "failed" || input.retry) {
+        // Reset to pending so the row reflects the in-flight (re-)run.
         await db
           .update(images)
           .set({ status: "pending", error: null, updatedAt: new Date() })

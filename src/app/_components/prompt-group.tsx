@@ -1,7 +1,14 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+/**
+ * How long a `pending` row can sit before we treat it as stuck. Real
+ * generations resolve in well under this; anything older is almost
+ * certainly an orphan from a server restart or crash mid-flight.
+ */
+const STALE_PENDING_MS = 90_000;
 
 import { Button } from "src/components/ui/button";
 import {
@@ -99,6 +106,25 @@ function ImageCard({
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
+  // Flip `isStale` once a pending row has been pending too long. We rely on
+  // the row's `updatedAt` (server bumps it on retry) so a fresh retry resets
+  // the staleness clock.
+  const [isStale, setIsStale] = useState(false);
+  useEffect(() => {
+    if (image.status !== "pending") {
+      setIsStale(false);
+      return;
+    }
+    const elapsed = Date.now() - new Date(image.updatedAt).getTime();
+    if (elapsed >= STALE_PENDING_MS) {
+      setIsStale(true);
+      return;
+    }
+    setIsStale(false);
+    const t = setTimeout(() => setIsStale(true), STALE_PENDING_MS - elapsed);
+    return () => clearTimeout(t);
+  }, [image.status, image.updatedAt]);
+
   const handleRetry = () => {
     retry.mutate({ imageId: image.id, retry: true });
   };
@@ -120,9 +146,19 @@ function ImageCard({
 
   // While a retry is in flight, the row may still read as `failed` until the
   // server-side update lands and the list query refetches. Treat that window
-  // as pending in the UI so the user gets immediate feedback.
-  const displayStatus =
-    retry.isPending && image.status === "failed" ? "pending" : image.status;
+  // as pending in the UI so the user gets immediate feedback. Conversely,
+  // a row that has been pending too long is almost certainly orphaned, so
+  // surface it as "failed" to expose the Retry button.
+  const displayStatus: ImageRow["status"] =
+    retry.isPending && image.status !== "succeeded"
+      ? "pending"
+      : image.status === "pending" && isStale
+        ? "failed"
+        : image.status;
+  const stuckMessage =
+    image.status === "pending" && isStale && !retry.isPending
+      ? "Generation appears stuck — the server may have restarted."
+      : null;
 
   return (
     <Card className="overflow-hidden border-neutral-800 bg-neutral-900 py-0 text-neutral-100">
@@ -146,7 +182,7 @@ function ImageCard({
         ) : displayStatus === "failed" ? (
           <div className="flex aspect-square w-full flex-col items-center justify-center gap-3 bg-neutral-950 px-4 text-center">
             <p className="text-xs text-red-400">
-              {image.error ?? "Generation failed"}
+              {stuckMessage ?? image.error ?? "Generation failed"}
             </p>
             <Button
               variant="outline"
