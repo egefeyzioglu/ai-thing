@@ -8,6 +8,7 @@ import { api } from "src/trpc/react";
 import { Gallery } from "src/app/_components/gallery";
 import { type GenerateOptions } from "src/app/_components/models";
 import { Sidebar } from "src/app/_components/sidebar";
+import { notifyPromptDone } from "src/lib/notify";
 
 export function Workspace() {
   const router = useRouter();
@@ -55,6 +56,8 @@ export function Workspace() {
           }),
       ),
     );
+
+    notifyPromptDone();
   };
 
   return (
