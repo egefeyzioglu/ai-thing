@@ -31,15 +31,34 @@ export function Sidebar({
   errorMessage,
   setErrorMessage,
 }: SidebarProps) {
-  const [prompt, setPrompt] = useState("");
-  const [selectedModels, setSelectedModels] = useState<Set<ModelId>>(
+  const [prompt, setPromptRaw] = useState("");
+  const [selectedModels, setSelectedModelsRaw] = useState<Set<ModelId>>(
     () => new Set(MODELS),
   );
-  const [resolution, setResolution] = useState<Resolution>("1024");
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
+  const [resolution, setResolutionRaw] = useState<Resolution>("1024");
+  const [aspectRatio, setAspectRatioRaw] = useState<AspectRatio>("1:1");
+  // Tracks whether the current form state has been edited since the last
+  // submission. Goes false on submit and true on any user edit; the generate
+  // button (and Ctrl+Enter shortcut) are gated on it so the same prompt
+  // can't be fired twice without a change.
+  const [dirty, setDirty] = useState(true);
+
+  const setPrompt = (v: string) => {
+    setDirty(true);
+    setPromptRaw(v);
+  };
+  const setResolution = (v: Resolution) => {
+    setDirty(true);
+    setResolutionRaw(v);
+  };
+  const setAspectRatio = (v: AspectRatio) => {
+    setDirty(true);
+    setAspectRatioRaw(v);
+  };
 
   const toggleModel = (model: ModelId) => {
-    setSelectedModels((prev) => {
+    setDirty(true);
+    setSelectedModelsRaw((prev) => {
       const next = new Set(prev);
       if (next.has(model)) next.delete(model);
       else next.add(model);
@@ -47,21 +66,20 @@ export function Sidebar({
     });
   };
 
+  const canSubmit =
+    dirty && prompt.trim().length > 0 && selectedModels.size > 0;
+
   const handleSubmit = async () => {
+    if (!canSubmit) return;
     const trimmed = prompt.trim();
-    if (!trimmed) return;
-    if (selectedModels.size === 0) {
-      setErrorMessage("Select at least one model.");
-      return;
-    }
     setErrorMessage(null);
+    setDirty(false);
     await onSubmit({
       prompt: trimmed,
       models: new Set(selectedModels),
       resolution,
       aspectRatio,
     });
-    setPrompt("");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -157,10 +175,7 @@ export function Sidebar({
         </select>
       </div>
 
-      <Button
-        onClick={() => void handleSubmit()}
-        disabled={prompt.trim().length === 0 || selectedModels.size === 0}
-      >
+      <Button onClick={() => void handleSubmit()} disabled={!canSubmit}>
         Generate
       </Button>
 
