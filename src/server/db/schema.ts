@@ -53,6 +53,18 @@ export const images = createTable(
   ],
 );
 
+export const referenceImages = createTable(
+  "reference",
+  (d) => ({
+    id: d.text("id").primaryKey(),
+    url: d.text("url"),
+    uploadedAt: d
+    .timestamp("uploaded_at", {withTimezone: true})
+    .notNull()
+    .defaultNow(),
+  })
+);
+
 export const promptsRelations = relations(prompts, ({ many }) => ({
   images: many(images),
 }));
@@ -64,5 +76,8 @@ export const imagesRelations = relations(images, ({ one }) => ({
   }),
 }));
 
+export const referenceImageRelations = relations(referenceImages, () => ({}));
+
 export type Prompt = typeof prompts.$inferSelect;
 export type Image = typeof images.$inferSelect;
+export type ReferenceImage = typeof referenceImages.$inferSelect;
