@@ -7,7 +7,13 @@ import { api } from "src/trpc/react";
 export default function ReferenceGallery() {
   const utils = api.useUtils();
   const referenceImagesQuery = api.referenceImage.getReferenceImages.useQuery();
-  const referenceImageMutation = api.referenceImage.createReferenceImage.useMutation({ onSuccess() { utils.referenceImage.invalidate() } });
+  const referenceImageMutation = api.referenceImage.createReferenceImage.useMutation({
+    onSuccess() {
+      utils.referenceImage.invalidate().catch(
+        (reason) => { console.warn("Error invalidating reference image query, user will have to refresh", reason) }
+      )
+    }
+  });
   return (
     <div className="flex flex-col gap-5">
       {
