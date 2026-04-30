@@ -214,14 +214,6 @@ export function Sidebar({
             <p>{user.user?.fullName}</p>
           </div>
         </Show>
-        {/* <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => void onLogout()}
-          className="w-full text-neutral-400 hover:text-neutral-100"
-        >
-          Sign out
-        </Button> */}
       </div>
     </aside>
   );
