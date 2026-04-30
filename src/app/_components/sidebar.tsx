@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 
+import { ChevronDown, ChevronUp } from "lucide-react"
+
 import { Button } from "src/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "src/components/ui/collapsible";
+
+import ReferenceGallery from "./reference-gallery";
 
 import {
   ASPECT_RATIOS,
@@ -42,6 +47,7 @@ export function Sidebar({
   // button (and Ctrl+Enter shortcut) are gated on it so the same prompt
   // can't be fired twice without a change.
   const [dirty, setDirty] = useState(true);
+  const [referenceImagesOpen, setReferenceImagesOpen] = useState(false);
 
   const setPrompt = (v: string) => {
     setDirty(true);
@@ -112,6 +118,22 @@ export function Sidebar({
           className="w-full resize-y rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none transition placeholder:text-neutral-600 focus:border-neutral-600"
         />
       </div>
+      <fieldset className="flex flex-col gap-2">
+        <Collapsible
+          open={referenceImagesOpen}
+          onOpenChange={setReferenceImagesOpen}
+        >
+          <CollapsibleTrigger className="w-full">
+            <legend className="text-xs font-medium uppercase tracking-wide text-neutral-400 flex justify-between w-full">
+              Reference Images
+              {referenceImagesOpen ? <ChevronDown/> : <ChevronUp/>}
+            </legend>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <ReferenceGallery/>
+          </CollapsibleContent>
+        </Collapsible>
+      </fieldset>
 
       <fieldset className="flex flex-col gap-2">
         <legend className="text-xs font-medium uppercase tracking-wide text-neutral-400">
