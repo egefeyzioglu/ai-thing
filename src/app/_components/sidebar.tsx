@@ -19,6 +19,7 @@ import {
   RESOLUTIONS,
   type Resolution,
 } from "src/app/_components/models";
+import { Show, UserButton, useUser } from "@clerk/nextjs";
 
 type SidebarProps = {
   onSubmit: (opts: GenerateOptions) => void | Promise<void>;
@@ -32,7 +33,6 @@ const selectClass =
 
 export function Sidebar({
   onSubmit,
-  onLogout,
   errorMessage,
   setErrorMessage,
 }: SidebarProps) {
@@ -91,6 +91,8 @@ export function Sidebar({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && e.ctrlKey) void handleSubmit();
   };
+
+  const user = useUser();
 
   return (
     <aside className="sticky top-0 flex h-screen w-80 shrink-0 flex-col gap-5 overflow-y-auto border-r border-neutral-800 bg-neutral-950 p-6">
@@ -205,15 +207,21 @@ export function Sidebar({
         <p className="text-sm text-red-400">{errorMessage}</p>
       ) : null}
 
-      <div className="mt-auto pt-4">
-        <Button
+      <div className="mt-auto">
+        <Show when="signed-in">
+          <div className="flex flex-row gap-2">
+            <UserButton/>
+            <p>{user.user?.fullName}</p>
+          </div>
+        </Show>
+        {/* <Button
           variant="ghost"
           size="sm"
           onClick={() => void onLogout()}
           className="w-full text-neutral-400 hover:text-neutral-100"
         >
           Sign out
-        </Button>
+        </Button> */}
       </div>
     </aside>
   );

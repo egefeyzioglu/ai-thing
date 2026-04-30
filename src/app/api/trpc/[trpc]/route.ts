@@ -10,9 +10,7 @@ import { createTRPCContext } from "src/server/api/trpc";
  * handling a HTTP request (e.g. when you make requests from Client Components).
  */
 const createContext = async (req: NextRequest) => {
-  return createTRPCContext({
-    headers: req.headers,
-  });
+  return createTRPCContext();
 };
 
 const handler = (req: NextRequest) =>
@@ -20,7 +18,7 @@ const handler = (req: NextRequest) =>
     endpoint: "/api/trpc",
     req,
     router: appRouter,
-    createContext: () => createContext(req),
+    createContext: createTRPCContext,
     onError:
       env.NODE_ENV === "development"
         ? ({ path, error }) => {

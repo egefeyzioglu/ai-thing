@@ -10,7 +10,8 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
 
-import { SESSION_COOKIE_NAME, getSessionUser } from "src/server/auth";
+import { auth } from "@clerk/nextjs/server";
+
 import { db } from "src/server/db";
 
 /**
@@ -25,27 +26,12 @@ import { db } from "src/server/db";
  *
  * @see https://trpc.io/docs/server/context
  */
-function parseSessionCookie(cookieHeader: string | null): string | undefined {
-  if (!cookieHeader) return undefined;
-  for (const part of cookieHeader.split(";")) {
-    const [rawName, ...rest] = part.split("=");
-    if (!rawName) continue;
-    if (rawName.trim() === SESSION_COOKIE_NAME) {
-      return decodeURIComponent(rest.join("=").trim());
-    }
-  }
-  return undefined;
+
+export const createTRPCContext = async () => {
+  return { auth: await auth() }
 }
 
-export const createTRPCContext = async (opts: { headers: Headers }) => {
-  const sessionId = parseSessionCookie(opts.headers.get("cookie"));
-  const user = await getSessionUser(sessionId);
-  return {
-    db,
-    user,
-    ...opts,
-  };
-};
+export type Context = Awaited<ReturnType<typeof createTRPCContext>>
 
 /**
  * 2. INITIALIZATION
@@ -127,8 +113,8 @@ export const publicProcedure = t.procedure.use(timingMiddleware);
 export const protectedProcedure = t.procedure
   .use(timingMiddleware)
   .use(({ ctx, next }) => {
-    if (!ctx.user) {
+    if(!ctx.auth.isAuthenticated){
       throw new TRPCError({ code: "UNAUTHORIZED" });
     }
-    return next({ ctx: { ...ctx, user: ctx.user } });
+    return next({ ctx: { ...ctx, user: ctx.auth.userId} });
   });
