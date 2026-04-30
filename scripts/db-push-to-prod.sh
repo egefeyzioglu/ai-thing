@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 echo "Fetching password from Bitwarden"
 SUPABASE_PASSWORD=$(bw list items --search "ai thing supabase password" | jq -r .[0].login.password)
 echo "$ pnpm drizzle-kit push"
