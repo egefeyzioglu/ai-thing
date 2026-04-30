@@ -64,58 +64,5 @@ export const imagesRelations = relations(images, ({ one }) => ({
   }),
 }));
 
-/**
- * Auth tables.
- *
- * There is no admin panel and no signup endpoint: users are managed by
- * editing this table directly. To create a user, insert a row with a
- * scrypt-hashed password. See `scripts/hash-password.mjs`.
- */
-export const users = createTable(
-  "user",
-  (d) => ({
-    id: d.text("id").primaryKey(),
-    username: d.text("username").notNull().unique(),
-    passwordHash: d.text("password_hash").notNull(),
-    createdAt: d
-      .timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  }),
-  (t) => [index("user_username_idx").on(t.username)],
-);
-
-export const sessions = createTable(
-  "session",
-  (d) => ({
-    id: d.text("id").primaryKey(),
-    userId: d
-      .text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    expiresAt: d
-      .timestamp("expires_at", { withTimezone: true })
-      .notNull(),
-    createdAt: d
-      .timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  }),
-  (t) => [index("session_user_id_idx").on(t.userId)],
-);
-
-export const usersRelations = relations(users, ({ many }) => ({
-  sessions: many(sessions),
-}));
-
-export const sessionsRelations = relations(sessions, ({ one }) => ({
-  user: one(users, {
-    fields: [sessions.userId],
-    references: [users.id],
-  }),
-}));
-
 export type Prompt = typeof prompts.$inferSelect;
 export type Image = typeof images.$inferSelect;
-export type User = typeof users.$inferSelect;
-export type Session = typeof sessions.$inferSelect;
