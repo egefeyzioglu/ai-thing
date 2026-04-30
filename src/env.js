@@ -18,6 +18,7 @@ export const env = createEnv({
     OPENAI_API_KEY: z.string().min(1),
     GEMINI_API_KEY: z.string().min(1),
     UPLOADTHING_TOKEN: z.string().min(1),
+    CLERK_SECRET_KEY: z.string().min(1),
   },
 
   /**
@@ -26,7 +27,7 @@ export const env = createEnv({
    * `NEXT_PUBLIC_`.
    */
   client: {
-    // NEXT_PUBLIC_CLIENTVAR: z.string(),
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().min(1),
   },
 
   /**
@@ -40,6 +41,8 @@ export const env = createEnv({
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     UPLOADTHING_TOKEN: process.env.UPLOADTHING_TOKEN,
+    CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
     // NEXT_PUBLIC_CLIENTVAR: process.env.NEXT_PUBLIC_CLIENTVAR,
   },
   /**

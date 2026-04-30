@@ -19,6 +19,7 @@ import {
   RESOLUTIONS,
   type Resolution,
 } from "src/app/_components/models";
+import { Show, UserButton } from "@clerk/nextjs";
 
 type SidebarProps = {
   onSubmit: (opts: GenerateOptions) => void | Promise<void>;
@@ -32,7 +33,6 @@ const selectClass =
 
 export function Sidebar({
   onSubmit,
-  onLogout,
   errorMessage,
   setErrorMessage,
 }: SidebarProps) {
@@ -205,15 +205,18 @@ export function Sidebar({
         <p className="text-sm text-red-400">{errorMessage}</p>
       ) : null}
 
-      <div className="mt-auto pt-4">
-        <Button
+      <div className="mt-auto">
+        <Show when="signed-in">
+          <UserButton/>
+        </Show>
+        {/* <Button
           variant="ghost"
           size="sm"
           onClick={() => void onLogout()}
           className="w-full text-neutral-400 hover:text-neutral-100"
         >
           Sign out
-        </Button>
+        </Button> */}
       </div>
     </aside>
   );
