@@ -124,7 +124,7 @@ export function PromptGroup({
       )
     : [];
   const referenceImagesQuery = api.referenceImage.getReferenceImages.useQuery(
-    undefined,
+    { ids: referenceImageIds },
     { enabled: referenceImageIds.length > 0 },
   );
   const referenceImageUrls = referenceImageIds
@@ -299,7 +299,9 @@ function ModelGroupCard({
 }) {
   const collapsedInteractive = hasHiddenImages && !isExpanded;
   const showToggleButton = isExpanded ? images.length > 1 : hasHiddenImages;
-  const pinnedCount = images.filter((image) => pinnedImageIds.has(image.id)).length;
+  const pinnedCount = images.filter((image) =>
+    pinnedImageIds.has(image.id),
+  ).length;
 
   return (
     <Card

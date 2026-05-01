@@ -13,16 +13,20 @@ export const prompts = createTable(
   "prompt",
   (d) => ({
     id: d.text("id").primaryKey(),
+    userId: d.text("user_id"),
     text: d.text("text").notNull(),
     createdAt: d
       .timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
-    referenceImages: d.json("reference_ids") // JSON array of strings
+    referenceImages: d.json("reference_ids"), // JSON array of strings
     // TODO: Make this work
     // .references(()=>referenceImages.id, {onDelete: "set null"}) // IDK honestly
   }),
-  (t) => [index("prompt_created_at_idx").on(t.createdAt)],
+  (t) => [
+    index("prompt_created_at_idx").on(t.createdAt),
+    index("prompt_user_id_idx").on(t.userId),
+  ],
 );
 
 export const IMAGE_STATUSES = ["pending", "succeeded", "failed"] as const;
@@ -32,6 +36,7 @@ export const images = createTable(
   "image",
   (d) => ({
     id: d.text("id").primaryKey(),
+    userId: d.text("user_id"),
     promptId: d
       .text("prompt_id")
       .notNull()
@@ -53,6 +58,7 @@ export const images = createTable(
   (t) => [
     index("image_created_at_idx").on(t.createdAt),
     index("image_prompt_id_idx").on(t.promptId),
+    index("image_user_id_idx").on(t.userId),
   ],
 );
 
@@ -60,12 +66,14 @@ export const referenceImages = createTable(
   "reference",
   (d) => ({
     id: d.text("id").primaryKey(),
+    userId: d.text("user_id"),
     url: d.text("url"),
     uploadedAt: d
-    .timestamp("uploaded_at", {withTimezone: true})
-    .notNull()
-    .defaultNow(),
-  })
+      .timestamp("uploaded_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  }),
+  (t) => [index("reference_user_id_idx").on(t.userId)],
 );
 
 export const promptsRelations = relations(prompts, ({ many }) => ({

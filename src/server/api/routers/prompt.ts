@@ -1,9 +1,10 @@
-import { desc } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
-import { images, prompts } from "src/server/db/schema";
+import { images, prompts, referenceImages } from "src/server/db/schema";
 
 export const SUPPORTED_MODELS = [
   "gpt-5.4-mini",
@@ -20,9 +21,32 @@ export const promptRouter = createTRPCRouter({
         referenceImages: z.array(z.string()).optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       // De-dupe in case the client double-checked a model.
       const models = Array.from(new Set(input.models));
+      const referenceImageIds = Array.from(
+        new Set(input.referenceImages ?? []),
+      );
+
+      if (referenceImageIds.length > 0) {
+        const ownedReferenceImages = await db
+          .select({ id: referenceImages.id })
+          .from(referenceImages)
+          .where(
+            and(
+              eq(referenceImages.userId, ctx.user),
+              inArray(referenceImages.id, referenceImageIds),
+            ),
+          );
+
+        if (ownedReferenceImages.length !== referenceImageIds.length) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "One or more reference images do not belong to the current user",
+          });
+        }
+      }
 
       return db.transaction(async (tx) => {
         const promptId = crypto.randomUUID();
@@ -30,8 +54,9 @@ export const promptRouter = createTRPCRouter({
           .insert(prompts)
           .values({
             id: promptId,
+            userId: ctx.user,
             text: input.text,
-            referenceImages: input.referenceImages,
+            referenceImages: referenceImageIds,
           })
           .returning();
         if (!promptRow) throw new Error("Failed to insert prompt");
@@ -42,6 +67,7 @@ export const promptRouter = createTRPCRouter({
             Array.from({ length: input.repeatCount }, () =>
               models.map((model) => ({
                 id: crypto.randomUUID(),
+                userId: ctx.user,
                 promptId,
                 model,
                 status: "pending" as const,
@@ -54,11 +80,14 @@ export const promptRouter = createTRPCRouter({
       });
     }),
 
-  list: protectedProcedure.query(async () => {
+  list: protectedProcedure.query(async ({ ctx }) => {
     return db.query.prompts.findMany({
+      where: eq(prompts.userId, ctx.user),
       orderBy: [desc(prompts.createdAt)],
       with: {
-        images: true,
+        images: {
+          where: eq(images.userId, ctx.user),
+        },
       },
     });
   }),

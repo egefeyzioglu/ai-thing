@@ -26,10 +26,10 @@ import { auth } from "@clerk/nextjs/server";
  */
 
 export const createTRPCContext = async () => {
-  return { auth: await auth() }
-}
+  return { auth: await auth() };
+};
 
-export type Context = Awaited<ReturnType<typeof createTRPCContext>>
+export type Context = Awaited<ReturnType<typeof createTRPCContext>>;
 
 /**
  * 2. INITIALIZATION
@@ -111,8 +111,14 @@ export const publicProcedure = t.procedure.use(timingMiddleware);
 export const protectedProcedure = t.procedure
   .use(timingMiddleware)
   .use(({ ctx, next }) => {
-    if(!ctx.auth.isAuthenticated){
+    const userId =
+      typeof ctx.auth.userId === "string" && ctx.auth.userId.length > 0
+        ? ctx.auth.userId
+        : null;
+
+    if (!ctx.auth.isAuthenticated || !userId) {
       throw new TRPCError({ code: "UNAUTHORIZED" });
     }
-    return next({ ctx: { ...ctx, user: ctx.auth.userId} });
+
+    return next({ ctx: { ...ctx, user: userId } });
   });

@@ -43,6 +43,13 @@
       "when": 1777613861439,
       "tag": "0005_aromatic_solo",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777672190330,
+      "tag": "0006_far_mac_gargan",
+      "breakpoints": true
     }
   ]
 }
