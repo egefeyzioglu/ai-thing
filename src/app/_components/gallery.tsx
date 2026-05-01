@@ -52,7 +52,7 @@ export function Gallery() {
 
   return (
     <div className="flex-1 overflow-x-hidden p-8">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <section className="flex flex-col gap-6">
           <h2 className="text-lg font-medium text-neutral-200">Gallery</h2>
 

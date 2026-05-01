@@ -143,7 +143,8 @@ export function PromptGroup({
     });
   };
 
-  const galleryItems: ReactElement[] = [];
+  const pinnedGalleryItems: ReactElement[] = [];
+  const albumGalleryItems: ReactElement[] = [];
   for (const group of modelGroups) {
     const isExpanded = expandedModels.has(group.model);
     const pinnedInGroup = group.images.filter((image) =>
@@ -151,7 +152,7 @@ export function PromptGroup({
     );
 
     if (isExpanded) {
-      galleryItems.push(
+      albumGalleryItems.push(
         <ModelGroupCard
           key={`${prompt.id}-${group.model}`}
           prompt={prompt}
@@ -169,7 +170,7 @@ export function PromptGroup({
     }
 
     if (pinnedInGroup.length === 0) {
-      galleryItems.push(
+      albumGalleryItems.push(
         <ModelGroupCard
           key={`${prompt.id}-${group.model}`}
           prompt={prompt}
@@ -191,7 +192,7 @@ export function PromptGroup({
     );
 
     if (unpinnedImages.length > 0) {
-      galleryItems.push(
+      albumGalleryItems.push(
         <ModelGroupCard
           key={`${prompt.id}-${group.model}`}
           prompt={prompt}
@@ -207,7 +208,7 @@ export function PromptGroup({
       );
     }
 
-    galleryItems.push(
+    pinnedGalleryItems.push(
       ...pinnedInGroup.map((image) => (
         <PinnedImageCard
           key={`${prompt.id}-${group.model}-${image.id}`}
@@ -220,6 +221,7 @@ export function PromptGroup({
       )),
     );
   }
+  const galleryItems = [...pinnedGalleryItems, ...albumGalleryItems];
 
   return (
     <li className="flex flex-col gap-3">
@@ -267,7 +269,7 @@ export function PromptGroup({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {galleryItems}
       </div>
     </li>
@@ -302,7 +304,7 @@ function ModelGroupCard({
     <Card
       className={cn(
         "overflow-hidden border-neutral-800 bg-neutral-900 py-0 text-neutral-100",
-        isExpanded && "xl:col-span-2",
+        isExpanded && "md:col-span-2 xl:col-span-3 2xl:col-span-4",
         collapsedInteractive &&
           "cursor-pointer transition hover:border-neutral-700 hover:bg-neutral-900/90",
       )}
