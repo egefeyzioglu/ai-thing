@@ -72,6 +72,25 @@ type PromptGroupProps = {
 };
 
 export function PromptGroup({ prompt }: PromptGroupProps) {
+  // Reference image IDs are stored as JSON on the prompt row. Look up the
+  // actual URLs from the cached reference-image query so we can render
+  // thumbnails alongside the prompt text.
+  const referenceImageIds = Array.isArray(prompt.referenceImages)
+    ? (prompt.referenceImages as unknown[]).filter(
+        (v): v is string => typeof v === "string",
+      )
+    : [];
+  const referenceImagesQuery = api.referenceImage.getReferenceImages.useQuery(
+    undefined,
+    { enabled: referenceImageIds.length > 0 },
+  );
+  const referenceImageUrls = referenceImageIds
+    .map(
+      (id) =>
+        referenceImagesQuery.data?.find((r) => r.id === id)?.url ?? null,
+    )
+    .filter((url): url is string => typeof url === "string" && url.length > 0);
+
   return (
     <li className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
@@ -80,6 +99,43 @@ export function PromptGroup({ prompt }: PromptGroupProps) {
           {new Date(prompt.createdAt).toLocaleString()}
         </p>
       </div>
+
+      {referenceImageIds.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          <p className="text-[10px] uppercase tracking-wide text-neutral-600">
+            References
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {referenceImageUrls.map((url) => (
+              <div
+                key={url}
+                className="relative h-12 w-12 overflow-hidden rounded border border-neutral-800 bg-neutral-900"
+              >
+                <Image
+                  src={url}
+                  alt="Reference image"
+                  fill
+                  sizes="48px"
+                  className="object-cover"
+                  unoptimized
+                />
+              </div>
+            ))}
+            {/* Show neutral placeholders while URLs are still loading so the
+                user knows references exist even before the lookup resolves. */}
+            {referenceImageUrls.length < referenceImageIds.length
+              ? Array.from({
+                  length: referenceImageIds.length - referenceImageUrls.length,
+                }).map((_, i) => (
+                  <Skeleton
+                    key={`ref-skel-${i}`}
+                    className="h-12 w-12 rounded"
+                  />
+                ))
+              : null}
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {prompt.images.map((img) => (
