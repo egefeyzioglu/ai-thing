@@ -1,14 +1,12 @@
 "use client";
 
-import Image from "next/image";
 import { UTUploadButton } from "src/lib/uploadthing";
 import { api } from "src/trpc/react";
 import ReferenceImage from "./reference-image";
-import { useState } from "react";
 
 type ReferenceGalleryProps = {
   selectedImages: string[],
-  setSelectedImages: Function,
+  setSelectedImages: React.Dispatch<React.SetStateAction<string[]>>
 }
 
 export default function ReferenceGallery(props: ReferenceGalleryProps) {
