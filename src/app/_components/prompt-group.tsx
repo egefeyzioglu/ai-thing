@@ -299,6 +299,7 @@ function ModelGroupCard({
 }) {
   const collapsedInteractive = hasHiddenImages && !isExpanded;
   const showToggleButton = isExpanded ? images.length > 1 : hasHiddenImages;
+  const pinnedCount = images.filter((image) => pinnedImageIds.has(image.id)).length;
 
   return (
     <Card
@@ -323,16 +324,27 @@ function ModelGroupCard({
       tabIndex={collapsedInteractive ? 0 : undefined}
     >
       <CardHeader className="px-4 pt-4 pb-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <CardTitle className="text-sm font-medium text-neutral-200">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <CardTitle className="text-sm leading-tight font-medium text-neutral-200">
               {modelLabel(model)}
             </CardTitle>
-            {hasHiddenImages && !isExpanded ? (
-              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-neutral-700 bg-neutral-950 text-neutral-400">
-                <Layers3 className="size-3.5" />
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="inline-flex min-w-6 items-center justify-center rounded-full border border-neutral-700 bg-neutral-950 px-2 text-[10px] tracking-wide text-neutral-400 uppercase">
+                {images.length} total
               </span>
-            ) : null}
+              {pinnedCount > 0 ? (
+                <span className="inline-flex min-w-6 items-center justify-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 text-[10px] tracking-wide text-amber-300 uppercase">
+                  <Pin className="size-3 fill-current" />
+                  {pinnedCount} pinned
+                </span>
+              ) : null}
+              {hasHiddenImages && !isExpanded ? (
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-neutral-700 bg-neutral-950 text-neutral-400">
+                  <Layers3 className="size-3.5" />
+                </span>
+              ) : null}
+            </div>
           </div>
           {showToggleButton ? (
             <Button
