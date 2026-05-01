@@ -3,8 +3,15 @@
 import Image from "next/image";
 import { UTUploadButton } from "src/lib/uploadthing";
 import { api } from "src/trpc/react";
+import ReferenceImage from "./reference-image";
+import { useState } from "react";
 
-export default function ReferenceGallery() {
+type ReferenceGalleryProps = {
+  selectedImages: string[],
+  setSelectedImages: Function,
+}
+
+export default function ReferenceGallery(props: ReferenceGalleryProps) {
   const utils = api.useUtils();
   const referenceImagesQuery = api.referenceImage.getReferenceImages.useQuery();
   const referenceImageMutation = api.referenceImage.createReferenceImage.useMutation({
@@ -14,6 +21,9 @@ export default function ReferenceGallery() {
       )
     }
   });
+
+  const {selectedImages, setSelectedImages} = props;
+
   return (
     <div className="flex flex-col gap-5">
       {
@@ -24,7 +34,15 @@ export default function ReferenceGallery() {
               referenceImagesQuery.data.length > 0 ?
                 <div className="grid gap-1 w-full grid-cols-3">
                   {referenceImagesQuery.data.map((row) => (
-                    <Image key={row.id} width={100} height={100} alt="Reference Image" src={row.url ?? ""} />
+                    <ReferenceImage url={row.url ?? ""} key={row.id}
+                      isSelected={selectedImages.includes(row.id)}
+                      onSelect={()=>{
+                        if(selectedImages.includes(row.id)){
+                          setSelectedImages(selectedImages.filter((item)=>(item !== row.id)));
+                        } else {
+                          setSelectedImages([...selectedImages, row.id]);
+                        }
+                      }} />
                   ))}
                 </div>
                 :

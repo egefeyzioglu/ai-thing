@@ -48,6 +48,7 @@ export function Sidebar({
   // can't be fired twice without a change.
   const [dirty, setDirty] = useState(true);
   const [referenceImagesOpen, setReferenceImagesOpen] = useState(false);
+  const [selectedReferenceImages, setSelectedReferenceImages] = useState<string[]>([]);
 
   const setPrompt = (v: string) => {
     setDirty(true);
@@ -132,7 +133,7 @@ export function Sidebar({
             </legend>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <ReferenceGallery/>
+            <ReferenceGallery selectedImages={selectedReferenceImages} setSelectedImages={setSelectedReferenceImages}/>
           </CollapsibleContent>
         </Collapsible>
       </fieldset>
