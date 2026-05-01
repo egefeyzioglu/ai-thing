@@ -21,4 +21,5 @@ export type GenerateOptions = {
   models: Set<ModelId>;
   resolution: Resolution;
   aspectRatio: AspectRatio;
+  referenceImages?: string[];
 };

@@ -12,8 +12,6 @@ import { ZodError } from "zod";
 
 import { auth } from "@clerk/nextjs/server";
 
-import { db } from "src/server/db";
-
 /**
  * 1. CONTEXT
  *

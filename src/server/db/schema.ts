@@ -18,6 +18,9 @@ export const prompts = createTable(
       .timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    referenceImages: d.json("reference_ids") // JSON array of strings
+    // TODO: Make this work
+    // .references(()=>referenceImages.id, {onDelete: "set null"}) // IDK honestly
   }),
   (t) => [index("prompt_created_at_idx").on(t.createdAt)],
 );
@@ -53,6 +56,18 @@ export const images = createTable(
   ],
 );
 
+export const referenceImages = createTable(
+  "reference",
+  (d) => ({
+    id: d.text("id").primaryKey(),
+    url: d.text("url"),
+    uploadedAt: d
+    .timestamp("uploaded_at", {withTimezone: true})
+    .notNull()
+    .defaultNow(),
+  })
+);
+
 export const promptsRelations = relations(prompts, ({ many }) => ({
   images: many(images),
 }));
@@ -64,5 +79,8 @@ export const imagesRelations = relations(images, ({ one }) => ({
   }),
 }));
 
+export const referenceImageRelations = relations(referenceImages, () => ({}));
+
 export type Prompt = typeof prompts.$inferSelect;
 export type Image = typeof images.$inferSelect;
+export type ReferenceImage = typeof referenceImages.$inferSelect;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ChevronDown, ChevronUp } from "lucide-react"
 
@@ -48,7 +48,7 @@ export function Sidebar({
   // can't be fired twice without a change.
   const [dirty, setDirty] = useState(true);
   const [referenceImagesOpen, setReferenceImagesOpen] = useState(false);
-
+  const [selectedReferenceImages, setSelectedReferenceImages] = useState<string[]>([]);
   const setPrompt = (v: string) => {
     setDirty(true);
     setPromptRaw(v);
@@ -80,11 +80,13 @@ export function Sidebar({
     const trimmed = prompt.trim();
     setErrorMessage(null);
     setDirty(false);
+    console.log("handleSubmit", "selectedReferenceImages: ", selectedReferenceImages)
     await onSubmit({
       prompt: trimmed,
       models: new Set(selectedModels),
       resolution,
       aspectRatio,
+      referenceImages: selectedReferenceImages,
     });
   };
 
@@ -132,7 +134,7 @@ export function Sidebar({
             </legend>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <ReferenceGallery/>
+            <ReferenceGallery selectedImages={selectedReferenceImages} setSelectedImages={setSelectedReferenceImages}/>
           </CollapsibleContent>
         </Collapsible>
       </fieldset>
@@ -199,7 +201,7 @@ export function Sidebar({
         </select>
       </div>
 
-      <Button onClick={() => void handleSubmit()} disabled={!canSubmit}>
+      <Button onClick={async () => {await handleSubmit()}} disabled={!canSubmit}>
         Generate
       </Button>
 

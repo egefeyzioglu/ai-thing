@@ -1,0 +1,1 @@
+ALTER TABLE "ai-thing_prompt" ADD COLUMN "reference_ids" json;
