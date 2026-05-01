@@ -109,7 +109,7 @@ async function generateImageGemini(prompt: string, referenceImageIds?: string[])
   const referenceImageB64s = (await Promise.all(
     referenceImages.map(
       async (image) => {
-        if(image === undefined || image.url === null) return undefined;
+        if(!image?.url) return undefined;
         const imageBytes = await (await fetch(image.url)).bytes()
         return Buffer.from(imageBytes).toString("base64")
       })

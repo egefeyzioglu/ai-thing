@@ -201,7 +201,7 @@ export function Sidebar({
         </select>
       </div>
 
-      <Button onClick={() => {handleSubmit()}} disabled={!canSubmit}>
+      <Button onClick={async () => {await handleSubmit()}} disabled={!canSubmit}>
         Generate
       </Button>
 
