@@ -18,6 +18,9 @@ export const prompts = createTable(
       .timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    referenceImages: d.json("reference_ids") // JSON array of strings
+    // TODO: Make this work
+    // .references(()=>referenceImages.id, {onDelete: "set null"}) // IDK honestly
   }),
   (t) => [index("prompt_created_at_idx").on(t.createdAt)],
 );

@@ -5,7 +5,7 @@ import { z } from "zod";
 import { env } from "src/env";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
-import { images, prompts, type Image } from "src/server/db/schema";
+import { images, prompts, referenceImages, type Image, type ReferenceImage } from "src/server/db/schema";
 import { utapi, UTFile } from "src/server/uploadthing";
 
 type ResponsesApiOutputItem = {
@@ -40,18 +40,48 @@ type GeneratedImage = {
   mimeType: string;
 };
 
-async function generateImageOpenAI(prompt: string): Promise<GeneratedImage> {
+async function referenceImageById(referenceId: string) : Promise<ReferenceImage | undefined> {
+  const referenceImage = await db.select().from(referenceImages).where(eq(referenceImages.id, referenceId));
+  return referenceImage.length > 0 ? referenceImage[0] : undefined;
+}
+
+async function generateImageOpenAI(prompt: string, referenceImageIds?: string[]): Promise<GeneratedImage> {
+  console.log(referenceImageIds)
+  const referenceImages = (
+    referenceImageIds !== undefined ?
+      await Promise.all(
+        referenceImageIds.map(
+          async (id)=>await referenceImageById(id)
+        )
+      ) : 
+      []
+  ).filter((x?: ReferenceImage)=>x!==undefined);
+  const modelInputs = [
+    {type: "input_text", text: `Generate an image for the following user prompt: ${prompt}`},
+    ...referenceImages.map(
+      (image) => ({
+        "type": "input_image",
+        "image_url": image.url
+      }))
+  ];
+  
+  const body = JSON.stringify({
+      model: "gpt-5.4-mini",
+      input: [{
+        role: "user",
+        content: [ ...modelInputs ]
+      }],
+      tools: [{ type: "image_generation" }],
+    });
+
   const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${env.OPENAI_API_KEY}`,
     },
-    body: JSON.stringify({
-      model: "gpt-5.4-mini",
-      input: "Generate an image based on the following user input:" + prompt,
-      tools: [{ type: "image_generation" }],
-    }),
+    // TODO: Make this typesafe
+    body: body,
   });
 
   if (!res.ok) {
@@ -72,7 +102,28 @@ async function generateImageOpenAI(prompt: string): Promise<GeneratedImage> {
   return { base64: imageCall.result, mimeType: "image/png" };
 }
 
-async function generateImageGemini(prompt: string): Promise<GeneratedImage> {
+async function generateImageGemini(prompt: string, referenceImageIds?: string[]): Promise<GeneratedImage> {
+  const referenceImages = referenceImageIds !== undefined ?
+    await Promise.all(referenceImageIds.map((id) => referenceImageById(id))) : 
+    [];
+  const referenceImageB64s = (await Promise.all(
+    referenceImages.map(
+      async (image) => {
+        if(image === undefined || image.url === null) return undefined;
+        const imageBytes = await (await fetch(image.url)).bytes()
+        return Buffer.from(imageBytes).toString("base64")
+      })
+    )).filter((x?: string) => x !== undefined);
+  const modelInputs = [
+    ...referenceImageB64s.map((b64: string) => ({
+      inline_data: {
+        // TODO: Don't hardcode the mime type
+        mime_type: "image/png",
+        data: b64
+      }}
+    )),
+    { text: "Generate an image based on the following user input:" + prompt }
+  ]
   // "Nano Banana" = gemini-2.5-flash-image, Google's image-gen Gemini variant.
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${env.GEMINI_API_KEY}`,
@@ -80,7 +131,7 @@ async function generateImageGemini(prompt: string): Promise<GeneratedImage> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: "Generate an image based on the following user input" + prompt }] }],
+        contents: [{ parts: [...modelInputs] }],
       }),
     },
   );
@@ -142,12 +193,13 @@ async function uploadGeneratedImage(args: {
 async function generateForModel(
   model: string,
   prompt: string,
+  referenceImageIds?: string[]
 ): Promise<GeneratedImage> {
   switch (model) {
     case "gpt-5.4-mini":
-      return generateImageOpenAI(prompt);
+      return generateImageOpenAI(prompt, referenceImageIds);
     case "gemini-2.5-flash-image":
-      return generateImageGemini(prompt);
+      return generateImageGemini(prompt, referenceImageIds);
     default:
       throw new Error(`Unsupported model: ${model}`);
   }
@@ -164,6 +216,7 @@ export const imageRouter = createTRPCRouter({
       z.object({
         imageId: z.string().min(1),
         retry: z.boolean().optional(),
+        referenceImageIds: z.array(z.string()).optional(),
       }),
     )
     .mutation(async ({ input }): Promise<Image> => {
@@ -210,6 +263,7 @@ export const imageRouter = createTRPCRouter({
         const generated = await generateForModel(
           imageRow.model,
           promptRow.text,
+          input.referenceImageIds,
         );
         const { url, key } = await uploadGeneratedImage({
           imageId: imageRow.id,

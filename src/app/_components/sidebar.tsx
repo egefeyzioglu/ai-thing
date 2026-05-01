@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ChevronDown, ChevronUp } from "lucide-react"
 
@@ -49,7 +49,6 @@ export function Sidebar({
   const [dirty, setDirty] = useState(true);
   const [referenceImagesOpen, setReferenceImagesOpen] = useState(false);
   const [selectedReferenceImages, setSelectedReferenceImages] = useState<string[]>([]);
-
   const setPrompt = (v: string) => {
     setDirty(true);
     setPromptRaw(v);
@@ -81,11 +80,13 @@ export function Sidebar({
     const trimmed = prompt.trim();
     setErrorMessage(null);
     setDirty(false);
+    console.log("handleSubmit", "selectedReferenceImages: ", selectedReferenceImages)
     await onSubmit({
       prompt: trimmed,
       models: new Set(selectedModels),
       resolution,
       aspectRatio,
+      referenceImages: selectedReferenceImages,
     });
   };
 
@@ -200,7 +201,7 @@ export function Sidebar({
         </select>
       </div>
 
-      <Button onClick={() => void handleSubmit()} disabled={!canSubmit}>
+      <Button onClick={() => {handleSubmit()}} disabled={!canSubmit}>
         Generate
       </Button>
 
