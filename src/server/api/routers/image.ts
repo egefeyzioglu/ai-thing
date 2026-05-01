@@ -1,11 +1,17 @@
 import { TRPCError } from "@trpc/server";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { env } from "src/env";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
-import { images, prompts, referenceImages, type Image, type ReferenceImage } from "src/server/db/schema";
+import {
+  images,
+  prompts,
+  referenceImages,
+  type Image,
+  type ReferenceImage,
+} from "src/server/db/schema";
 import { utapi, UTFile } from "src/server/uploadthing";
 
 type ResponsesApiOutputItem = {
@@ -40,39 +46,68 @@ type GeneratedImage = {
   mimeType: string;
 };
 
-async function referenceImageById(referenceId: string) : Promise<ReferenceImage | undefined> {
-  const referenceImage = await db.select().from(referenceImages).where(eq(referenceImages.id, referenceId));
-  return referenceImage.length > 0 ? referenceImage[0] : undefined;
+function parseReferenceImageIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((value): value is string => typeof value === "string");
 }
 
-async function generateImageOpenAI(prompt: string, referenceImageIds?: string[]): Promise<GeneratedImage> {
-  console.log(referenceImageIds)
-  const referenceImages = (
-    referenceImageIds !== undefined ?
-      await Promise.all(
-        referenceImageIds.map(
-          async (id)=>await referenceImageById(id)
-        )
-      ) : 
-      []
-  ).filter((x?: ReferenceImage)=>x!==undefined);
-  const modelInputs = [
-    {type: "input_text", text: `Generate an image for the following user prompt: ${prompt}`},
-    ...referenceImages.map(
-      (image) => ({
-        "type": "input_image",
-        "image_url": image.url
-      }))
-  ];
-  
-  const body = JSON.stringify({
-      model: "gpt-5.4-mini",
-      input: [{
-        role: "user",
-        content: [ ...modelInputs ]
-      }],
-      tools: [{ type: "image_generation" }],
+async function loadOwnedReferenceImages(
+  userId: string,
+  referenceImageIds?: string[],
+): Promise<ReferenceImage[]> {
+  const dedupedIds = Array.from(new Set(referenceImageIds ?? []));
+  if (dedupedIds.length === 0) return [];
+
+  const ownedReferenceImages = await db
+    .select()
+    .from(referenceImages)
+    .where(
+      and(
+        eq(referenceImages.userId, userId),
+        inArray(referenceImages.id, dedupedIds),
+      ),
+    );
+
+  if (ownedReferenceImages.length !== dedupedIds.length) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "One or more reference images do not belong to the current user",
     });
+  }
+
+  return ownedReferenceImages;
+}
+
+async function generateImageOpenAI(
+  userId: string,
+  prompt: string,
+  referenceImageIds?: string[],
+): Promise<GeneratedImage> {
+  const ownedReferenceImages = await loadOwnedReferenceImages(
+    userId,
+    referenceImageIds,
+  );
+  const modelInputs = [
+    {
+      type: "input_text",
+      text: `Generate an image for the following user prompt: ${prompt}`,
+    },
+    ...ownedReferenceImages.map((image) => ({
+      type: "input_image",
+      image_url: image.url,
+    })),
+  ];
+
+  const body = JSON.stringify({
+    model: "gpt-5.4-mini",
+    input: [
+      {
+        role: "user",
+        content: [...modelInputs],
+      },
+    ],
+    tools: [{ type: "image_generation" }],
+  });
 
   const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -102,28 +137,34 @@ async function generateImageOpenAI(prompt: string, referenceImageIds?: string[])
   return { base64: imageCall.result, mimeType: "image/png" };
 }
 
-async function generateImageGemini(prompt: string, referenceImageIds?: string[]): Promise<GeneratedImage> {
-  const referenceImages = referenceImageIds !== undefined ?
-    await Promise.all(referenceImageIds.map((id) => referenceImageById(id))) : 
-    [];
-  const referenceImageB64s = (await Promise.all(
-    referenceImages.map(
-      async (image) => {
-        if(!image?.url) return undefined;
-        const imageBytes = await (await fetch(image.url)).bytes()
-        return Buffer.from(imageBytes).toString("base64")
-      })
-    )).filter((x?: string) => x !== undefined);
+async function generateImageGemini(
+  userId: string,
+  prompt: string,
+  referenceImageIds?: string[],
+): Promise<GeneratedImage> {
+  const ownedReferenceImages = await loadOwnedReferenceImages(
+    userId,
+    referenceImageIds,
+  );
+  const referenceImageB64s = (
+    await Promise.all(
+      ownedReferenceImages.map(async (image) => {
+        if (!image?.url) return undefined;
+        const imageBytes = await (await fetch(image.url)).bytes();
+        return Buffer.from(imageBytes).toString("base64");
+      }),
+    )
+  ).filter((x?: string) => x !== undefined);
   const modelInputs = [
     ...referenceImageB64s.map((b64: string) => ({
       inline_data: {
         // TODO: Don't hardcode the mime type
         mime_type: "image/png",
-        data: b64
-      }}
-    )),
-    { text: "Generate an image based on the following user input:" + prompt }
-  ]
+        data: b64,
+      },
+    })),
+    { text: "Generate an image based on the following user input:" + prompt },
+  ];
   // "Nano Banana" = gemini-2.5-flash-image, Google's image-gen Gemini variant.
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${env.GEMINI_API_KEY}`,
@@ -192,14 +233,15 @@ async function uploadGeneratedImage(args: {
 
 async function generateForModel(
   model: string,
+  userId: string,
   prompt: string,
-  referenceImageIds?: string[]
+  referenceImageIds?: string[],
 ): Promise<GeneratedImage> {
   switch (model) {
     case "gpt-5.4-mini":
-      return generateImageOpenAI(prompt, referenceImageIds);
+      return generateImageOpenAI(userId, prompt, referenceImageIds);
     case "gemini-2.5-flash-image":
-      return generateImageGemini(prompt, referenceImageIds);
+      return generateImageGemini(userId, prompt, referenceImageIds);
     default:
       throw new Error(`Unsupported model: ${model}`);
   }
@@ -216,14 +258,13 @@ export const imageRouter = createTRPCRouter({
       z.object({
         imageId: z.string().min(1),
         retry: z.boolean().optional(),
-        referenceImageIds: z.array(z.string()).optional(),
       }),
     )
-    .mutation(async ({ input }): Promise<Image> => {
+    .mutation(async ({ ctx, input }): Promise<Image> => {
       const [imageRow] = await db
         .select()
         .from(images)
-        .where(eq(images.id, input.imageId))
+        .where(and(eq(images.id, input.imageId), eq(images.userId, ctx.user)))
         .limit(1);
       if (!imageRow) {
         throw new TRPCError({
@@ -244,13 +285,18 @@ export const imageRouter = createTRPCRouter({
         await db
           .update(images)
           .set({ status: "pending", error: null, updatedAt: new Date() })
-          .where(eq(images.id, imageRow.id));
+          .where(and(eq(images.id, imageRow.id), eq(images.userId, ctx.user)));
       }
 
       const [promptRow] = await db
-        .select({ text: prompts.text })
+        .select({
+          text: prompts.text,
+          referenceImages: prompts.referenceImages,
+        })
         .from(prompts)
-        .where(eq(prompts.id, imageRow.promptId))
+        .where(
+          and(eq(prompts.id, imageRow.promptId), eq(prompts.userId, ctx.user)),
+        )
         .limit(1);
       if (!promptRow) {
         throw new TRPCError({
@@ -259,11 +305,16 @@ export const imageRouter = createTRPCRouter({
         });
       }
 
+      const referenceImageIds = parseReferenceImageIds(
+        promptRow.referenceImages,
+      );
+
       try {
         const generated = await generateForModel(
           imageRow.model,
+          ctx.user,
           promptRow.text,
-          input.referenceImageIds,
+          referenceImageIds,
         );
         const { url, key } = await uploadGeneratedImage({
           imageId: imageRow.id,
@@ -279,7 +330,7 @@ export const imageRouter = createTRPCRouter({
             error: null,
             updatedAt: new Date(),
           })
-          .where(eq(images.id, imageRow.id))
+          .where(and(eq(images.id, imageRow.id), eq(images.userId, ctx.user)))
           .returning();
         if (!updated) {
           throw new TRPCError({
@@ -297,7 +348,7 @@ export const imageRouter = createTRPCRouter({
             error: message,
             updatedAt: new Date(),
           })
-          .where(eq(images.id, imageRow.id))
+          .where(and(eq(images.id, imageRow.id), eq(images.userId, ctx.user)))
           .returning();
         if (!updated) {
           throw new TRPCError({

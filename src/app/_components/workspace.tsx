@@ -51,7 +51,7 @@ export function Workspace() {
     await Promise.all(
       result.images.map((img) =>
         runGeneration
-          .mutateAsync({ imageId: img.id, referenceImageIds: referenceImages })
+          .mutateAsync({ imageId: img.id })
           .catch((err: unknown) => {
             // Network/transport failure (the server-side handler converts
             // generation errors into a `failed` row instead of throwing).
