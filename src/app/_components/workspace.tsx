@@ -15,8 +15,7 @@ export function Workspace() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const utils = api.useUtils();
-  const createWithGenerations =
-    api.prompt.createWithGenerations.useMutation();
+  const createWithGenerations = api.prompt.createWithGenerations.useMutation();
   const runGeneration = api.image.runGeneration.useMutation();
 
   const handleLogout = async () => {
@@ -25,13 +24,19 @@ export function Workspace() {
     router.refresh();
   };
 
-  const handleGenerate = async ({ prompt, models, referenceImages }: GenerateOptions) => {
+  const handleGenerate = async ({
+    prompt,
+    models,
+    repeatCount,
+    referenceImages,
+  }: GenerateOptions) => {
     let result;
     try {
       result = await createWithGenerations.mutateAsync({
         text: prompt,
         models: [...models],
-        referenceImages: referenceImages
+        repeatCount,
+        referenceImages: referenceImages,
       });
     } catch (err) {
       setErrorMessage(
@@ -46,7 +51,7 @@ export function Workspace() {
     await Promise.all(
       result.images.map((img) =>
         runGeneration
-          .mutateAsync({ imageId: img.id, referenceImageIds: referenceImages})
+          .mutateAsync({ imageId: img.id, referenceImageIds: referenceImages })
           .catch((err: unknown) => {
             // Network/transport failure (the server-side handler converts
             // generation errors into a `failed` row instead of throwing).

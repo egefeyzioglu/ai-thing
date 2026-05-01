@@ -1,63 +1,125 @@
 "use client";
 
-import { UTUploadButton } from "src/lib/uploadthing";
+import {
+  UTUploadButton,
+  useDropzone,
+  useUploadThing,
+} from "src/lib/uploadthing";
 import { api } from "src/trpc/react";
+
 import ReferenceImage from "./reference-image";
 
 type ReferenceGalleryProps = {
-  selectedImages: string[],
-  setSelectedImages: React.Dispatch<React.SetStateAction<string[]>>
-}
+  selectedImages: string[];
+  setSelectedImages: React.Dispatch<React.SetStateAction<string[]>>;
+};
 
 export default function ReferenceGallery(props: ReferenceGalleryProps) {
   const utils = api.useUtils();
   const referenceImagesQuery = api.referenceImage.getReferenceImages.useQuery();
-  const referenceImageMutation = api.referenceImage.createReferenceImage.useMutation({
-    onSuccess() {
-      utils.referenceImage.invalidate().catch(
-        (reason) => { console.warn("Error invalidating reference image query, user will have to refresh", reason) }
-      )
-    }
+  const referenceImageMutation =
+    api.referenceImage.createReferenceImage.useMutation();
+
+  const { selectedImages, setSelectedImages } = props;
+
+  const handleUploadComplete = async (res: { ufsUrl: string }[]) => {
+    await Promise.all(
+      res.map((file) =>
+        referenceImageMutation.mutateAsync({ url: file.ufsUrl }),
+      ),
+    );
+    await utils.referenceImage.invalidate().catch((reason) => {
+      console.warn(
+        "Error invalidating reference image query, user will have to refresh",
+        reason,
+      );
+    });
+  };
+
+  const handleUploadError = (error: Error) => {
+    alert(`ERROR! ${error.message}`);
+  };
+
+  const { startUpload, isUploading } = useUploadThing("imageUploader", {
+    onClientUploadComplete: handleUploadComplete,
+    onUploadError: handleUploadError,
   });
 
-  const {selectedImages, setSelectedImages} = props;
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    accept: {
+      "image/*": [],
+    },
+    disabled: isUploading,
+    maxFiles: 8,
+    multiple: true,
+    onDrop: (acceptedFiles) => {
+      void startUpload(acceptedFiles);
+    },
+  });
 
   return (
     <div className="flex flex-col gap-5">
-      {
-        referenceImagesQuery.isLoading ?
-          "Loading..." :
-          referenceImagesQuery.isSuccess ?
-            (
-              referenceImagesQuery.data.length > 0 ?
-                <div className="grid gap-1 w-full grid-cols-3">
-                  {referenceImagesQuery.data.map((row) => (
-                    <ReferenceImage url={row.url ?? ""} key={row.id}
-                      isSelected={selectedImages.includes(row.id)}
-                      onSelect={()=>{
-                        if(selectedImages.includes(row.id)){
-                          setSelectedImages(selectedImages.filter((item)=>(item !== row.id)));
-                        } else {
-                          setSelectedImages([...selectedImages, row.id]);
-                        }
-                      }} />
-                  ))}
-                </div>
-                :
-                "No reference images yet, try uploading one."
-            ) :
-            `Error fetching data ${referenceImagesQuery.error?.message}`
-      }
-      <UTUploadButton
-        endpoint="imageUploader"
-        onClientUploadComplete={(res) => {
-          res.map((file) => { referenceImageMutation.mutate({ url: file.ufsUrl }) });
+      <div
+        {...getRootProps()}
+        className={[
+          "min-h-24 w-full items-stretch justify-start rounded-md px-0 py-0 text-left transition",
+          isDragActive
+            ? "border border-dashed border-neutral-600 bg-neutral-900/70"
+            : "border-0 bg-transparent",
+        ].join(" ")}
+        onClick={() => undefined}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+          }
         }}
-        onUploadError={(error: Error) => {
-          // Do something with the error.
-          alert(`ERROR! ${error.message}`);
-        }}
-      />
+      >
+        <input {...getInputProps()} />
+        {referenceImagesQuery.isLoading ? (
+          <p className="text-sm text-neutral-500">Loading...</p>
+        ) : referenceImagesQuery.isSuccess ? (
+          referenceImagesQuery.data.length > 0 ? (
+            <div className="grid w-full grid-cols-3 gap-1">
+              {referenceImagesQuery.data.map((row) => (
+                <ReferenceImage
+                  url={row.url ?? ""}
+                  key={row.id}
+                  isSelected={selectedImages.includes(row.id)}
+                  onSelect={() => {
+                    if (selectedImages.includes(row.id)) {
+                      setSelectedImages(
+                        selectedImages.filter((item) => item !== row.id),
+                      );
+                    } else {
+                      setSelectedImages([...selectedImages, row.id]);
+                    }
+                  }}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-neutral-500">
+              {isDragActive
+                ? "Drop files to upload."
+                : "No reference images yet."}
+            </p>
+          )
+        ) : (
+          <p className="text-sm text-red-400">
+            Error fetching data {referenceImagesQuery.error?.message}
+          </p>
+        )}
+      </div>
+
+      <div className="flex flex-col items-center gap-1">
+        <UTUploadButton
+          endpoint="imageUploader"
+          appearance={{ allowedContent: "hidden" }}
+          onClientUploadComplete={handleUploadComplete}
+          onUploadError={handleUploadError}
+        />
+        <p className="text-xs text-neutral-500">or drop files here</p>
+      </div>
     </div>
   );
 }

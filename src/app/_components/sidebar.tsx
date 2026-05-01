@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { ChevronDown, ChevronUp } from "lucide-react"
+import { AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 
 import { Button } from "src/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "src/components/ui/collapsible";
+import { Card, CardContent } from "src/components/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "src/components/ui/collapsible";
 
 import ReferenceGallery from "./reference-gallery";
 
@@ -16,6 +21,8 @@ import {
   MODEL_LABELS,
   MODELS,
   type ModelId,
+  PROMPT_REPEAT_COUNTS,
+  type PromptRepeatCount,
   RESOLUTIONS,
   type Resolution,
 } from "src/app/_components/models";
@@ -42,13 +49,16 @@ export function Sidebar({
   );
   const [resolution, setResolutionRaw] = useState<Resolution>("1024");
   const [aspectRatio, setAspectRatioRaw] = useState<AspectRatio>("1:1");
+  const [repeatCount, setRepeatCountRaw] = useState<PromptRepeatCount>(1);
   // Tracks whether the current form state has been edited since the last
   // submission. Goes false on submit and true on any user edit; the generate
   // button (and Ctrl+Enter shortcut) are gated on it so the same prompt
   // can't be fired twice without a change.
   const [dirty, setDirty] = useState(true);
   const [referenceImagesOpen, setReferenceImagesOpen] = useState(false);
-  const [selectedReferenceImages, setSelectedReferenceImages] = useState<string[]>([]);
+  const [selectedReferenceImages, setSelectedReferenceImages] = useState<
+    string[]
+  >([]);
   const setPrompt = (v: string) => {
     setDirty(true);
     setPromptRaw(v);
@@ -60,6 +70,10 @@ export function Sidebar({
   const setAspectRatio = (v: AspectRatio) => {
     setDirty(true);
     setAspectRatioRaw(v);
+  };
+  const setRepeatCount = (v: PromptRepeatCount) => {
+    setDirty(true);
+    setRepeatCountRaw(v);
   };
 
   const toggleModel = (model: ModelId) => {
@@ -74,18 +88,20 @@ export function Sidebar({
 
   const canSubmit =
     dirty && prompt.trim().length > 0 && selectedModels.size > 0;
+  const totalRuns = selectedModels.size * repeatCount;
+  const showHighUsageWarning = repeatCount > 4;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
     const trimmed = prompt.trim();
     setErrorMessage(null);
     setDirty(false);
-    console.log("handleSubmit", "selectedReferenceImages: ", selectedReferenceImages)
     await onSubmit({
       prompt: trimmed,
       models: new Set(selectedModels),
       resolution,
       aspectRatio,
+      repeatCount,
       referenceImages: selectedReferenceImages,
     });
   };
@@ -108,7 +124,7 @@ export function Sidebar({
       <div className="flex flex-col gap-2">
         <label
           htmlFor="prompt"
-          className="text-xs font-medium uppercase tracking-wide text-neutral-400"
+          className="text-xs font-medium tracking-wide text-neutral-400 uppercase"
         >
           Prompt
         </label>
@@ -119,7 +135,7 @@ export function Sidebar({
           onKeyDown={handleKeyDown}
           placeholder="Describe what you want to see…  (Ctrl+Enter to submit)"
           rows={5}
-          className="w-full resize-y rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none transition placeholder:text-neutral-600 focus:border-neutral-600"
+          className="w-full resize-y rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 transition outline-none placeholder:text-neutral-600 focus:border-neutral-600"
         />
       </div>
       <fieldset className="flex flex-col gap-2">
@@ -128,19 +144,22 @@ export function Sidebar({
           onOpenChange={setReferenceImagesOpen}
         >
           <CollapsibleTrigger className="w-full">
-            <legend className="text-xs font-medium uppercase tracking-wide text-neutral-400 flex justify-between w-full">
+            <legend className="flex w-full justify-between text-xs font-medium tracking-wide text-neutral-400 uppercase">
               Reference Images
-              {referenceImagesOpen ? <ChevronDown/> : <ChevronUp/>}
+              {referenceImagesOpen ? <ChevronDown /> : <ChevronUp />}
             </legend>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <ReferenceGallery selectedImages={selectedReferenceImages} setSelectedImages={setSelectedReferenceImages}/>
+            <ReferenceGallery
+              selectedImages={selectedReferenceImages}
+              setSelectedImages={setSelectedReferenceImages}
+            />
           </CollapsibleContent>
         </Collapsible>
       </fieldset>
 
       <fieldset className="flex flex-col gap-2">
-        <legend className="text-xs font-medium uppercase tracking-wide text-neutral-400">
+        <legend className="text-xs font-medium tracking-wide text-neutral-400 uppercase">
           Models
         </legend>
         {MODELS.map((m) => (
@@ -162,7 +181,7 @@ export function Sidebar({
       <div className="flex flex-col gap-2">
         <label
           htmlFor="resolution"
-          className="text-xs font-medium uppercase tracking-wide text-neutral-400"
+          className="text-xs font-medium tracking-wide text-neutral-400 uppercase"
         >
           Resolution
         </label>
@@ -183,7 +202,7 @@ export function Sidebar({
       <div className="flex flex-col gap-2">
         <label
           htmlFor="aspect-ratio"
-          className="text-xs font-medium uppercase tracking-wide text-neutral-400"
+          className="text-xs font-medium tracking-wide text-neutral-400 uppercase"
         >
           Aspect ratio
         </label>
@@ -201,7 +220,55 @@ export function Sidebar({
         </select>
       </div>
 
-      <Button onClick={async () => {await handleSubmit()}} disabled={!canSubmit}>
+      <div className="flex flex-col gap-2">
+        <label
+          htmlFor="repeat-count"
+          className="text-xs font-medium tracking-wide text-neutral-400 uppercase"
+        >
+          Runs
+        </label>
+        <select
+          id="repeat-count"
+          value={repeatCount}
+          onChange={(e) =>
+            setRepeatCount(Number(e.target.value) as PromptRepeatCount)
+          }
+          className={selectClass}
+        >
+          {PROMPT_REPEAT_COUNTS.map((count) => (
+            <option key={count} value={count}>
+              {count}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-neutral-500">
+          This will start {totalRuns} generation{totalRuns === 1 ? "" : "s"}.
+        </p>
+        {showHighUsageWarning ? (
+          <Card
+            size="sm"
+            className="gap-0 rounded-lg border border-amber-500/30 bg-amber-500/12 py-0 text-amber-100 ring-0"
+          >
+            <CardContent className="flex items-start gap-2 px-3 py-3">
+              <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-300" />
+              <div className="flex min-w-0 flex-col gap-1">
+                <p className="text-xs leading-5 text-amber-100">
+                  Repeating prompts many times can lead to high usage.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setRepeatCount(3)}
+                  className="w-fit cursor-pointer text-xs font-medium text-amber-200 underline underline-offset-2 transition hover:text-amber-50"
+                >
+                  Reduce repeat count
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+      </div>
+
+      <Button onClick={() => void handleSubmit()} disabled={!canSubmit}>
         Generate
       </Button>
 
@@ -212,7 +279,7 @@ export function Sidebar({
       <div className="mt-auto">
         <Show when="signed-in">
           <div className="flex flex-row gap-2">
-            <UserButton/>
+            <UserButton />
             <p>{user.user?.fullName}</p>
           </div>
         </Show>

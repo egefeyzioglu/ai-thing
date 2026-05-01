@@ -11,6 +11,8 @@ export type Resolution = (typeof RESOLUTIONS)[number];
 
 export const ASPECT_RATIOS = ["1:1", "4:3", "3:4", "16:9", "9:16"] as const;
 export type AspectRatio = (typeof ASPECT_RATIOS)[number];
+export const PROMPT_REPEAT_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
+export type PromptRepeatCount = (typeof PROMPT_REPEAT_COUNTS)[number];
 
 export function modelLabel(model: string): string {
   return MODEL_LABELS[model as ModelId] ?? model;
@@ -21,5 +23,6 @@ export type GenerateOptions = {
   models: Set<ModelId>;
   resolution: Resolution;
   aspectRatio: AspectRatio;
+  repeatCount: PromptRepeatCount;
   referenceImages?: string[];
 };
