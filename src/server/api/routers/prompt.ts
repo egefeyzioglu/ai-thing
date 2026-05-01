@@ -16,7 +16,8 @@ export const promptRouter = createTRPCRouter({
       z.object({
         text: z.string().min(1).max(1000),
         models: z.array(z.enum(SUPPORTED_MODELS)).min(1),
-        referenceImages: z.array(z.string()).optional()
+        repeatCount: z.number().int().min(1).max(8),
+        referenceImages: z.array(z.string()).optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -27,19 +28,25 @@ export const promptRouter = createTRPCRouter({
         const promptId = crypto.randomUUID();
         const [promptRow] = await tx
           .insert(prompts)
-          .values({ id: promptId, text: input.text, referenceImages: input.referenceImages})
+          .values({
+            id: promptId,
+            text: input.text,
+            referenceImages: input.referenceImages,
+          })
           .returning();
         if (!promptRow) throw new Error("Failed to insert prompt");
 
         const imageRows = await tx
           .insert(images)
           .values(
-            models.map((model) => ({
-              id: crypto.randomUUID(),
-              promptId,
-              model,
-              status: "pending" as const,
-            })),
+            Array.from({ length: input.repeatCount }, () =>
+              models.map((model) => ({
+                id: crypto.randomUUID(),
+                promptId,
+                model,
+                status: "pending" as const,
+              })),
+            ).flat(),
           )
           .returning();
 
