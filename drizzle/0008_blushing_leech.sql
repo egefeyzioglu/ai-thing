@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "reference_user_id_url_idx" ON "ai-thing_reference" USING btree ("user_id","url");

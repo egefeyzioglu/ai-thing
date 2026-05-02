@@ -21,9 +21,28 @@ export const referenceImageRouter = createTRPCRouter({
           userId: ctx.user,
           url: input.url,
         })
+        .onConflictDoNothing({
+          target: [referenceImages.userId, referenceImages.url],
+        })
         .returning();
 
-      return referenceImageRow;
+      if (referenceImageRow) {
+        return referenceImageRow;
+      }
+
+      // Conflict: a row with the same (userId, url) already exists.
+      const [existing] = await db
+        .select()
+        .from(referenceImages)
+        .where(
+          and(
+            eq(referenceImages.userId, ctx.user),
+            eq(referenceImages.url, input.url),
+          ),
+        )
+        .limit(1);
+
+      return existing;
     }),
 
   /**
@@ -64,7 +83,26 @@ export const referenceImageRouter = createTRPCRouter({
         });
       }
 
-      // 2. Check for an existing reference with the same URL (dedup).
+      // 2. Attempt an atomic insert; the unique index on (userId, url)
+      //    ensures no duplicate can sneak in between a check and insert.
+      const [referenceImageRow] = await db
+        .insert(referenceImages)
+        .values({
+          id: crypto.randomUUID(),
+          userId: ctx.user,
+          url: generatedImage.url,
+          sourceImageId: generatedImage.id,
+        })
+        .onConflictDoNothing({
+          target: [referenceImages.userId, referenceImages.url],
+        })
+        .returning();
+
+      if (referenceImageRow) {
+        return { referenceImage: referenceImageRow, alreadyExisted: false };
+      }
+
+      // 3. Conflict – a row with this (userId, url) already exists; fetch it.
       const [existing] = await db
         .select()
         .from(referenceImages)
@@ -76,22 +114,7 @@ export const referenceImageRouter = createTRPCRouter({
         )
         .limit(1);
 
-      if (existing) {
-        return { referenceImage: existing, alreadyExisted: true };
-      }
-
-      // 3. Create a new reference image row pointing to the same URL.
-      const [referenceImageRow] = await db
-        .insert(referenceImages)
-        .values({
-          id: crypto.randomUUID(),
-          userId: ctx.user,
-          url: generatedImage.url,
-          sourceImageId: generatedImage.id,
-        })
-        .returning();
-
-      return { referenceImage: referenceImageRow!, alreadyExisted: false };
+      return { referenceImage: existing!, alreadyExisted: true };
     }),
 
   getReferenceImages: protectedProcedure

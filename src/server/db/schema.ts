@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { index, pgTableCreator } from "drizzle-orm/pg-core";
+import { index, pgTableCreator, uniqueIndex } from "drizzle-orm/pg-core";
 
 /**
  * This is an example of how to use the multi-project schema feature of Drizzle ORM. Use the same
@@ -78,7 +78,10 @@ export const referenceImages = createTable(
       .notNull()
       .defaultNow(),
   }),
-  (t) => [index("reference_user_id_idx").on(t.userId)],
+  (t) => [
+    index("reference_user_id_idx").on(t.userId),
+    uniqueIndex("reference_user_id_url_idx").on(t.userId, t.url),
+  ],
 );
 
 export const promptsRelations = relations(prompts, ({ many }) => ({
