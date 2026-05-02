@@ -249,6 +249,42 @@ async function generateForModel(
 
 export const imageRouter = createTRPCRouter({
   /**
+   * Delete a single generated image. Removes the file from UploadThing (if
+   * one was uploaded) and then deletes the database row. Only the owning
+   * user may delete.
+   */
+  deleteImage: protectedProcedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await db
+        .select()
+        .from(images)
+        .where(and(eq(images.id, input.id), eq(images.userId, ctx.user)))
+        .limit(1);
+
+      if (!row) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Image not found",
+        });
+      }
+
+      if (row.key) {
+        try {
+          await utapi.deleteFiles(row.key);
+        } catch {
+          // If the file is already gone we still want to remove the row.
+        }
+      }
+
+      await db
+        .delete(images)
+        .where(and(eq(images.id, input.id), eq(images.userId, ctx.user)));
+
+      return { success: true };
+    }),
+
+  /**
    * Run the generation for a pending image row. Resolves the row to either
    * `succeeded` (with url/key) or `failed` (with an error message). Always
    * returns the final row; only throws on input/lookup problems.

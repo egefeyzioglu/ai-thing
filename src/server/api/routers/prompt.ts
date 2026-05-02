@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import { images, prompts, referenceImages } from "src/server/db/schema";
+import { utapi } from "src/server/uploadthing";
 
 export const SUPPORTED_MODELS = [
   "gpt-5.4-mini",
@@ -78,6 +79,51 @@ export const promptRouter = createTRPCRouter({
 
         return { ...promptRow, images: imageRows };
       });
+    }),
+
+  deletePrompt: protectedProcedure
+    .input(z.object({ id: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await db
+        .select()
+        .from(prompts)
+        .where(and(eq(prompts.id, input.id), eq(prompts.userId, ctx.user)))
+        .limit(1);
+
+      if (!row) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Prompt not found",
+        });
+      }
+
+      // Collect UploadThing keys for every generated image so we can
+      // remove the files before the cascade-delete wipes the rows.
+      const imageRows = await db
+        .select({ key: images.key })
+        .from(images)
+        .where(
+          and(eq(images.promptId, input.id), eq(images.userId, ctx.user)),
+        );
+
+      const keys = imageRows
+        .map((r) => r.key)
+        .filter((k): k is string => !!k);
+
+      if (keys.length > 0) {
+        try {
+          await utapi.deleteFiles(keys);
+        } catch {
+          // Best-effort cleanup — still delete the DB rows.
+        }
+      }
+
+      // The `onDelete: "cascade"` on images.promptId handles child rows.
+      await db
+        .delete(prompts)
+        .where(and(eq(prompts.id, input.id), eq(prompts.userId, ctx.user)));
+
+      return { success: true };
     }),
 
   list: protectedProcedure.query(async ({ ctx }) => {
