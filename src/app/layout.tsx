@@ -7,6 +7,8 @@ import { ClerkProvider } from "@clerk/nextjs"
 
 import { TRPCReactProvider } from "src/trpc/react";
 
+import { PostHogProvider } from "./providers";
+
 export const metadata: Metadata = {
   title: "AI Thing",
   description: "",
@@ -25,7 +27,9 @@ export default function RootLayout({
     <html lang="en" className={`${geist.variable}`}>
       <body>
         <ClerkProvider>
-          <TRPCReactProvider>{children}</TRPCReactProvider>
+          <PostHogProvider>
+            <TRPCReactProvider>{children}</TRPCReactProvider>
+          </PostHogProvider>
         </ClerkProvider>
       </body>
     </html>
