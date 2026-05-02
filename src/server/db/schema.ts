@@ -68,6 +68,11 @@ export const referenceImages = createTable(
     id: d.text("id").primaryKey(),
     userId: d.text("user_id"),
     url: d.text("url"),
+    /** If this reference was created from a generated image, track the source
+     *  so we can clean up correctly when either side is deleted later. */
+    sourceImageId: d
+      .text("source_image_id")
+      .references(() => images.id, { onDelete: "set null" }),
     uploadedAt: d
       .timestamp("uploaded_at", { withTimezone: true })
       .notNull()
@@ -87,7 +92,12 @@ export const imagesRelations = relations(images, ({ one }) => ({
   }),
 }));
 
-export const referenceImageRelations = relations(referenceImages, () => ({}));
+export const referenceImageRelations = relations(referenceImages, ({ one }) => ({
+  sourceImage: one(images, {
+    fields: [referenceImages.sourceImageId],
+    references: [images.id],
+  }),
+}));
 
 export type Prompt = typeof prompts.$inferSelect;
 export type Image = typeof images.$inferSelect;

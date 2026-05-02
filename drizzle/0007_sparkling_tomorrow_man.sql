@@ -1,0 +1,2 @@
+ALTER TABLE "ai-thing_reference" ADD COLUMN "source_image_id" text;--> statement-breakpoint
+ALTER TABLE "ai-thing_reference" ADD CONSTRAINT "ai-thing_reference_source_image_id_ai-thing_image_id_fk" FOREIGN KEY ("source_image_id") REFERENCES "public"."ai-thing_image"("id") ON DELETE set null ON UPDATE no action;

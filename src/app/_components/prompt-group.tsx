@@ -3,7 +3,14 @@
 import Image from "next/image";
 import { type ReactElement, useEffect, useState } from "react";
 
-import { ChevronDown, ChevronUp, Download, Layers3, Pin } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Download,
+  ImagePlus,
+  Layers3,
+  Pin,
+} from "lucide-react";
 
 /**
  * How long a `pending` row can sit before we treat it as stuck. Real
@@ -32,6 +39,7 @@ type PromptGroupProps = {
   prompt: PromptWithImages;
   pinnedImageIds: Set<string>;
   onTogglePin: (imageId: string) => void;
+  onUseAsReference: (referenceImageId: string) => void;
 };
 
 type ModelImageGroup = {
@@ -112,6 +120,7 @@ export function PromptGroup({
   prompt,
   pinnedImageIds,
   onTogglePin,
+  onUseAsReference,
 }: PromptGroupProps) {
   const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
 
@@ -164,6 +173,7 @@ export function PromptGroup({
           pinnedImageIds={pinnedImageIds}
           onToggleExpanded={() => toggleExpandedModel(group.model)}
           onTogglePin={onTogglePin}
+          onUseAsReference={onUseAsReference}
         />,
       );
       continue;
@@ -182,6 +192,7 @@ export function PromptGroup({
           pinnedImageIds={pinnedImageIds}
           onToggleExpanded={() => toggleExpandedModel(group.model)}
           onTogglePin={onTogglePin}
+          onUseAsReference={onUseAsReference}
         />,
       );
       continue;
@@ -204,6 +215,7 @@ export function PromptGroup({
           pinnedImageIds={pinnedImageIds}
           onToggleExpanded={() => toggleExpandedModel(group.model)}
           onTogglePin={onTogglePin}
+          onUseAsReference={onUseAsReference}
         />,
       );
     }
@@ -217,6 +229,7 @@ export function PromptGroup({
           image={image}
           isPinned={true}
           onTogglePin={onTogglePin}
+          onUseAsReference={onUseAsReference}
         />
       )),
     );
@@ -286,6 +299,7 @@ function ModelGroupCard({
   pinnedImageIds,
   onToggleExpanded,
   onTogglePin,
+  onUseAsReference,
 }: {
   prompt: PromptWithImages;
   model: string;
@@ -296,6 +310,7 @@ function ModelGroupCard({
   pinnedImageIds: Set<string>;
   onToggleExpanded: () => void;
   onTogglePin: (imageId: string) => void;
+  onUseAsReference: (referenceImageId: string) => void;
 }) {
   const collapsedInteractive = hasHiddenImages && !isExpanded;
   const showToggleButton = isExpanded ? images.length > 1 : hasHiddenImages;
@@ -388,6 +403,7 @@ function ModelGroupCard({
               image={image}
               isPinned={pinnedImageIds.has(image.id)}
               onTogglePin={onTogglePin}
+              onUseAsReference={onUseAsReference}
             />
           ))}
         </div>
@@ -402,12 +418,14 @@ function PinnedImageCard({
   image,
   isPinned,
   onTogglePin,
+  onUseAsReference,
 }: {
   prompt: PromptWithImages;
   model: string;
   image: ImageRow;
   isPinned: boolean;
   onTogglePin: (imageId: string) => void;
+  onUseAsReference: (referenceImageId: string) => void;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
@@ -419,6 +437,7 @@ function PinnedImageCard({
         image={image}
         isPinned={isPinned}
         onTogglePin={onTogglePin}
+        onUseAsReference={onUseAsReference}
       />
     </div>
   );
@@ -429,11 +448,13 @@ function ImageTile({
   image,
   isPinned,
   onTogglePin,
+  onUseAsReference,
 }: {
   prompt: PromptWithImages;
   image: ImageRow;
   isPinned: boolean;
   onTogglePin: (imageId: string) => void;
+  onUseAsReference: (referenceImageId: string) => void;
 }) {
   const utils = api.useUtils();
   const retry = api.image.runGeneration.useMutation({
@@ -441,6 +462,13 @@ function ImageTile({
       void utils.prompt.list.invalidate();
     },
   });
+  const createFromGenerated =
+    api.referenceImage.createFromGeneratedImage.useMutation({
+      onSuccess: (data) => {
+        void utils.referenceImage.invalidate();
+        onUseAsReference(data.referenceImage.id);
+      },
+    });
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
@@ -487,6 +515,13 @@ function ImageTile({
   const handleTogglePin = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     onTogglePin(image.id);
+  };
+
+  const handleUseAsReference = (
+    event: React.MouseEvent<HTMLButtonElement>,
+  ) => {
+    event.stopPropagation();
+    createFromGenerated.mutate({ generatedImageId: image.id });
   };
 
   // While a retry is in flight, the row may still read as `failed` until the
@@ -556,6 +591,16 @@ function ImageTile({
         </p>
         {displayStatus === "succeeded" && image.url ? (
           <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleUseAsReference}
+              disabled={createFromGenerated.isPending}
+              className="h-7 w-7 p-0 text-neutral-300 hover:text-neutral-100"
+              aria-label="Use as reference image"
+            >
+              <ImagePlus className="size-3.5" />
+            </Button>
             <Button
               variant="ghost"
               size="sm"

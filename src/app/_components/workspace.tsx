@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { api } from "src/trpc/react";
 
@@ -13,6 +13,13 @@ import { notifyPromptDone } from "src/lib/notify";
 export function Workspace() {
   const router = useRouter();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Lifted state so the Gallery can push a reference image selection into the
+  // Sidebar (e.g. "Use as reference" on a generated image).
+  const [selectedReferenceImages, setSelectedReferenceImages] = useState<
+    string[]
+  >([]);
+  const [referenceImagesOpen, setReferenceImagesOpen] = useState(false);
 
   const utils = api.useUtils();
   const createWithGenerations = api.prompt.createWithGenerations.useMutation();
@@ -66,6 +73,17 @@ export function Workspace() {
     notifyPromptDone();
   };
 
+  /** Called from Gallery when a generated image is added as a reference. */
+  const handleUseAsReference = useCallback(
+    (referenceImageId: string) => {
+      setSelectedReferenceImages((prev) =>
+        prev.includes(referenceImageId) ? prev : [...prev, referenceImageId],
+      );
+      setReferenceImagesOpen(true);
+    },
+    [],
+  );
+
   return (
     <main className="flex min-h-screen bg-neutral-950 text-neutral-100">
       <Sidebar
@@ -73,8 +91,12 @@ export function Workspace() {
         onLogout={handleLogout}
         errorMessage={errorMessage}
         setErrorMessage={setErrorMessage}
+        selectedReferenceImages={selectedReferenceImages}
+        setSelectedReferenceImages={setSelectedReferenceImages}
+        referenceImagesOpen={referenceImagesOpen}
+        setReferenceImagesOpen={setReferenceImagesOpen}
       />
-      <Gallery />
+      <Gallery onUseAsReference={handleUseAsReference} />
     </main>
   );
 }
