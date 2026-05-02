@@ -241,7 +241,7 @@ export function PromptGroup({
         <button
           type="button"
           onClick={() => setConfirmDeletePrompt(true)}
-          className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-red-400/50 opacity-0 transition-opacity hover:text-red-400 group-hover/prompt:opacity-100"
+          className="mt-0.5 inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-red-400/50 opacity-0 transition-opacity hover:text-red-400 group-hover/prompt:opacity-100"
           aria-label="Delete prompt"
         >
           <Trash2 className="size-3.5" />
@@ -580,7 +580,7 @@ function ImageTile({
             type="button"
             onClick={handleTogglePin}
             className={cn(
-              "absolute top-2 right-2 inline-flex h-8 w-8 items-center justify-center rounded-full border border-neutral-700 bg-neutral-950/85 text-neutral-300 backdrop-blur transition hover:text-neutral-100",
+              "absolute top-2 right-2 inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-neutral-700 bg-neutral-950/85 text-neutral-300 backdrop-blur transition hover:text-neutral-100",
               isPinned && "border-amber-500/60 text-amber-300",
             )}
             aria-label={isPinned ? "Unpin image" : "Pin image"}
@@ -618,7 +618,7 @@ function ImageTile({
             variant="ghost"
             size="sm"
             onClick={handleDeleteClick}
-            className="h-7 w-7 p-0 text-red-400/50 opacity-0 transition-opacity hover:text-red-400 group-hover/tile:opacity-100"
+            className="h-7 w-7 cursor-pointer p-0 text-red-400/50 opacity-0 transition-opacity hover:text-red-400 group-hover/tile:opacity-100"
             aria-label="Delete image"
           >
             <Trash2 className="size-3.5" />
@@ -629,7 +629,7 @@ function ImageTile({
               size="sm"
               onClick={handleDownload}
               disabled={downloading}
-              className="h-7 w-7 p-0 text-neutral-300 hover:text-neutral-100"
+              className="h-7 w-7 cursor-pointer p-0 text-neutral-300 hover:text-neutral-100"
               aria-label={downloading ? "Downloading image" : "Download image"}
             >
               <Download className="size-3.5" />

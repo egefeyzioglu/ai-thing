@@ -32,7 +32,7 @@ export default function ReferenceImage(props: ReferenceImageProps) {
           e.stopPropagation();
           props.onDelete();
         }}
-        className="absolute top-1 right-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-neutral-950/80 text-red-400/60 opacity-0 transition-opacity hover:text-red-400 group-hover/ref:opacity-100"
+        className="absolute top-1 right-1 inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-neutral-950/80 text-red-400/60 opacity-0 transition-opacity hover:text-red-400 group-hover/ref:opacity-100"
         aria-label="Delete reference image"
       >
         <Trash2 className="size-3" />
