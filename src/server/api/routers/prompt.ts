@@ -99,16 +99,31 @@ export const promptRouter = createTRPCRouter({
 
       // Collect UploadThing keys for every generated image so we can
       // remove the files before the cascade-delete wipes the rows.
+      // Skip files that are shared with reference images — those
+      // references will take ownership via the FK cascade (sourceImageId
+      // set to null) and clean up the file when they are deleted.
       const imageRows = await db
-        .select({ key: images.key })
+        .select({ id: images.id, key: images.key })
         .from(images)
         .where(
           and(eq(images.promptId, input.id), eq(images.userId, ctx.user)),
         );
 
+      const imageIds = imageRows.map((r) => r.id);
+      const sharedImageIds = new Set<string>();
+      if (imageIds.length > 0) {
+        const sharedRefs = await db
+          .select({ sourceImageId: referenceImages.sourceImageId })
+          .from(referenceImages)
+          .where(inArray(referenceImages.sourceImageId, imageIds));
+        for (const ref of sharedRefs) {
+          if (ref.sourceImageId) sharedImageIds.add(ref.sourceImageId);
+        }
+      }
+
       const keys = imageRows
-        .map((r) => r.key)
-        .filter((k): k is string => !!k);
+        .filter((r) => r.key && !sharedImageIds.has(r.id))
+        .map((r) => r.key!);
 
       if (keys.length > 0) {
         try {

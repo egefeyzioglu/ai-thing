@@ -270,10 +270,23 @@ export const imageRouter = createTRPCRouter({
       }
 
       if (row.key) {
-        try {
-          await utapi.deleteFiles(row.key);
-        } catch {
-          // If the file is already gone we still want to remove the row.
+        // If a reference image was created from this generated image, it
+        // shares the same UploadThing file. Skip file deletion so the
+        // reference URL keeps working — the FK cascade will set
+        // sourceImageId to null on the reference, transferring file
+        // ownership to it.
+        const [sharedRef] = await db
+          .select({ id: referenceImages.id })
+          .from(referenceImages)
+          .where(eq(referenceImages.sourceImageId, input.id))
+          .limit(1);
+
+        if (!sharedRef) {
+          try {
+            await utapi.deleteFiles(row.key);
+          } catch {
+            // If the file is already gone we still want to remove the row.
+          }
         }
       }
 

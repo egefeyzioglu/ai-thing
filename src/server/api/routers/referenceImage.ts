@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
@@ -42,6 +42,13 @@ export const referenceImageRouter = createTRPCRouter({
           ),
         )
         .limit(1);
+
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Reference image was deleted during conflict resolution",
+        });
+      }
 
       return existing;
     }),
@@ -94,8 +101,11 @@ export const referenceImageRouter = createTRPCRouter({
           url: generatedImage.url,
           sourceImageId: generatedImage.id,
         })
-        .onConflictDoNothing({
+        .onConflictDoUpdate({
           target: [referenceImages.userId, referenceImages.url],
+          set: {
+            sourceImageId: sql`COALESCE(${referenceImages.sourceImageId}, ${generatedImage.id})`,
+          },
         })
         .returning();
 
@@ -104,6 +114,8 @@ export const referenceImageRouter = createTRPCRouter({
       }
 
       // 3. Conflict – a row with this (userId, url) already exists; fetch it.
+      //    (Normally unreachable because onConflictDoUpdate + returning()
+      //    always produces a row, but kept as a safety net.)
       const [existing] = await db
         .select()
         .from(referenceImages)
@@ -115,7 +127,14 @@ export const referenceImageRouter = createTRPCRouter({
         )
         .limit(1);
 
-      return { referenceImage: existing!, alreadyExisted: true };
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Reference image was deleted during conflict resolution",
+        });
+      }
+
+      return { referenceImage: existing, alreadyExisted: true };
     }),
 
   deleteReferenceImage: protectedProcedure
@@ -139,8 +158,14 @@ export const referenceImageRouter = createTRPCRouter({
         });
       }
 
-      // Clean up the file from UploadThing before removing the DB row.
-      if (row.url) {
+      // Clean up the file from UploadThing before removing the DB row —
+      // but only when this reference owns the file. References created via
+      // "use as reference" share the UploadThing file with the source
+      // generated image (sourceImageId is set), so we must not delete it
+      // here; the file will be cleaned up when the generated image is
+      // deleted (or, if the generated image is deleted first, the FK
+      // cascade sets sourceImageId to null and we become the owner).
+      if (row.url && !row.sourceImageId) {
         const key = extractFileKey(row.url);
         if (key) {
           try {
