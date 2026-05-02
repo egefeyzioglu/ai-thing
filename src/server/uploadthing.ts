@@ -14,3 +14,19 @@ export const utapi =
 if (env.NODE_ENV !== "production") globalForUt.utapi = utapi;
 
 export { UTFile };
+
+/**
+ * Extract the UploadThing file key from a `ufsUrl`.
+ *
+ * Typical URL shapes:
+ *   https://utfs.io/f/<key>
+ *   https://<appId>.ufs.sh/f/<key>
+ */
+export function extractFileKey(url: string): string | null {
+  try {
+    const match = /\/f\/(.+)/.exec(new URL(url).pathname);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}

@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+
+import { ConfirmDialog } from "src/components/ui/confirm-dialog";
 import {
   UTUploadButton,
   useDropzone,
@@ -19,8 +22,17 @@ export default function ReferenceGallery(props: ReferenceGalleryProps) {
   const referenceImagesQuery = api.referenceImage.getReferenceImages.useQuery();
   const referenceImageMutation =
     api.referenceImage.createReferenceImage.useMutation();
+  const deleteReferenceImage =
+    api.referenceImage.deleteReferenceImage.useMutation({
+      onSuccess: () => {
+        void utils.referenceImage.invalidate();
+      },
+    });
 
   const { selectedImages, setSelectedImages } = props;
+
+  // Track which reference image the user wants to delete (null = dialog closed).
+  const [deletingRefId, setDeletingRefId] = useState<string | null>(null);
 
   const handleUploadComplete = async (res: { ufsUrl: string }[]) => {
     await Promise.all(
@@ -56,6 +68,22 @@ export default function ReferenceGallery(props: ReferenceGalleryProps) {
       void startUpload(acceptedFiles);
     },
   });
+
+  const handleConfirmDelete = () => {
+    if (!deletingRefId) return;
+    deleteReferenceImage.mutate(
+      { id: deletingRefId },
+      {
+        onSettled: () => {
+          // Also remove from selection if it was selected.
+          setSelectedImages((prev) =>
+            prev.filter((id) => id !== deletingRefId),
+          );
+          setDeletingRefId(null);
+        },
+      },
+    );
+  };
 
   return (
     <div className="flex flex-col gap-5">
@@ -94,6 +122,7 @@ export default function ReferenceGallery(props: ReferenceGalleryProps) {
                       setSelectedImages([...selectedImages, row.id]);
                     }
                   }}
+                  onDelete={() => setDeletingRefId(row.id)}
                 />
               ))}
             </div>
@@ -120,6 +149,15 @@ export default function ReferenceGallery(props: ReferenceGalleryProps) {
         />
         <p className="text-xs text-neutral-500">or drop files here</p>
       </div>
+
+      <ConfirmDialog
+        open={deletingRefId !== null}
+        title="Delete reference image?"
+        description="This image will be permanently deleted. Any prompts that referenced it will keep working but won't show this thumbnail anymore."
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeletingRefId(null)}
+        isPending={deleteReferenceImage.isPending}
+      />
     </div>
   );
 }

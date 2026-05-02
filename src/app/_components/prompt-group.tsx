@@ -3,7 +3,15 @@
 import Image from "next/image";
 import { type ReactElement, useEffect, useState } from "react";
 
-import { ChevronDown, ChevronUp, Download, Layers3, Pin } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Download,
+  ImageOff,
+  Layers3,
+  Pin,
+  Trash2,
+} from "lucide-react";
 
 /**
  * How long a `pending` row can sit before we treat it as stuck. Real
@@ -21,6 +29,7 @@ import {
   CardHeader,
   CardTitle,
 } from "src/components/ui/card";
+import { ConfirmDialog } from "src/components/ui/confirm-dialog";
 import { Skeleton } from "src/components/ui/skeleton";
 import { cn } from "src/lib/utils";
 import { api, type RouterOutputs } from "src/trpc/react";
@@ -113,7 +122,15 @@ export function PromptGroup({
   pinnedImageIds,
   onTogglePin,
 }: PromptGroupProps) {
+  const utils = api.useUtils();
   const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
+  const [confirmDeletePrompt, setConfirmDeletePrompt] = useState(false);
+
+  const deletePrompt = api.prompt.deletePrompt.useMutation({
+    onSuccess: () => {
+      void utils.prompt.list.invalidate();
+    },
+  });
 
   // Reference image IDs are stored as JSON on the prompt row. Look up the
   // actual URLs from the cached reference-image query so we can render
@@ -127,11 +144,6 @@ export function PromptGroup({
     { ids: referenceImageIds },
     { enabled: referenceImageIds.length > 0 },
   );
-  const referenceImageUrls = referenceImageIds
-    .map(
-      (id) => referenceImagesQuery.data?.find((r) => r.id === id)?.url ?? null,
-    )
-    .filter((url): url is string => typeof url === "string" && url.length > 0);
   const modelGroups = groupImagesByModel(prompt.images);
 
   const toggleExpandedModel = (model: string) => {
@@ -225,11 +237,21 @@ export function PromptGroup({
 
   return (
     <li className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1">
-        <p className="text-sm text-neutral-200">{prompt.text}</p>
-        <p className="text-[10px] tracking-wide text-neutral-600 uppercase">
-          {new Date(prompt.createdAt).toLocaleString()}
-        </p>
+      <div className="group/prompt flex items-start gap-2">
+        <button
+          type="button"
+          onClick={() => setConfirmDeletePrompt(true)}
+          className="mt-0.5 inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-red-400/50 opacity-0 transition-opacity hover:text-red-400 group-hover/prompt:opacity-100"
+          aria-label="Delete prompt"
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+        <div className="flex flex-col gap-1">
+          <p className="text-sm text-neutral-200">{prompt.text}</p>
+          <p className="text-[10px] tracking-wide text-neutral-600 uppercase">
+            {new Date(prompt.createdAt).toLocaleString()}
+          </p>
+        </div>
       </div>
 
       {referenceImageIds.length > 0 ? (
@@ -238,33 +260,45 @@ export function PromptGroup({
             References
           </p>
           <div className="flex flex-wrap gap-2">
-            {referenceImageUrls.map((url) => (
-              <div
-                key={url}
-                className="relative h-12 w-12 overflow-hidden rounded border border-neutral-800 bg-neutral-900"
-              >
-                <Image
-                  src={url}
-                  alt="Reference image"
-                  fill
-                  sizes="48px"
-                  className="object-cover"
-                  unoptimized
-                />
-              </div>
-            ))}
-            {/* Show neutral placeholders while URLs are still loading so the
-                user knows references exist even before the lookup resolves. */}
-            {referenceImageUrls.length < referenceImageIds.length
-              ? Array.from({
-                  length: referenceImageIds.length - referenceImageUrls.length,
-                }).map((_, i) => (
-                  <Skeleton
-                    key={`ref-skel-${i}`}
-                    className="h-12 w-12 rounded"
-                  />
-                ))
-              : null}
+            {referenceImageIds.map((id) => {
+              const url =
+                referenceImagesQuery.data?.find((r) => r.id === id)?.url;
+
+              if (url) {
+                return (
+                  <div
+                    key={id}
+                    className="relative h-12 w-12 overflow-hidden rounded border border-neutral-800 bg-neutral-900"
+                  >
+                    <Image
+                      src={url}
+                      alt="Reference image"
+                      fill
+                      sizes="48px"
+                      className="object-cover"
+                      unoptimized
+                    />
+                  </div>
+                );
+              }
+
+              if (referenceImagesQuery.isLoading) {
+                return (
+                  <Skeleton key={id} className="h-12 w-12 rounded" />
+                );
+              }
+
+              {/* Query finished but image wasn't found — it was deleted. */}
+              return (
+                <div
+                  key={id}
+                  className="flex h-12 w-12 items-center justify-center rounded border border-neutral-800 bg-neutral-900"
+                  title="Reference image deleted"
+                >
+                  <ImageOff className="size-4 text-neutral-600" />
+                </div>
+              );
+            })}
           </div>
         </div>
       ) : null}
@@ -272,6 +306,20 @@ export function PromptGroup({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {galleryItems}
       </div>
+
+      <ConfirmDialog
+        open={confirmDeletePrompt}
+        title="Delete prompt?"
+        description="This will permanently delete the prompt and all of its generated images."
+        onConfirm={() => {
+          deletePrompt.mutate(
+            { id: prompt.id },
+            { onSettled: () => setConfirmDeletePrompt(false) },
+          );
+        }}
+        onCancel={() => setConfirmDeletePrompt(false)}
+        isPending={deletePrompt.isPending}
+      />
     </li>
   );
 }
@@ -441,8 +489,14 @@ function ImageTile({
       void utils.prompt.list.invalidate();
     },
   });
+  const deleteImage = api.image.deleteImage.useMutation({
+    onSuccess: () => {
+      void utils.prompt.list.invalidate();
+    },
+  });
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Flip `isStale` once a pending row has been pending too long. We rely on
   // the row's `updatedAt` (server bumps it on retry) so a fresh retry resets
@@ -489,6 +543,11 @@ function ImageTile({
     onTogglePin(image.id);
   };
 
+  const handleDeleteClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    setConfirmDelete(true);
+  };
+
   // While a retry is in flight, the row may still read as `failed` until the
   // server-side update lands and the list query refetches. Treat that window
   // as pending in the UI so the user gets immediate feedback. Conversely,
@@ -506,7 +565,7 @@ function ImageTile({
       : null;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-950">
+    <div className="group/tile overflow-hidden rounded-xl border border-neutral-800 bg-neutral-950">
       {displayStatus === "succeeded" && image.url ? (
         <div className="relative aspect-square w-full bg-neutral-950">
           <Image
@@ -521,7 +580,7 @@ function ImageTile({
             type="button"
             onClick={handleTogglePin}
             className={cn(
-              "absolute top-2 right-2 inline-flex h-8 w-8 items-center justify-center rounded-full border border-neutral-700 bg-neutral-950/85 text-neutral-300 backdrop-blur transition hover:text-neutral-100",
+              "absolute top-2 right-2 inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-neutral-700 bg-neutral-950/85 text-neutral-300 backdrop-blur transition hover:text-neutral-100",
               isPinned && "border-amber-500/60 text-amber-300",
             )}
             aria-label={isPinned ? "Unpin image" : "Pin image"}
@@ -554,26 +613,49 @@ function ImageTile({
               ? "Failed"
               : new Date(image.createdAt).toLocaleString()}
         </p>
-        {displayStatus === "succeeded" && image.url ? (
-          <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleDeleteClick}
+            className="h-7 w-7 cursor-pointer p-0 text-red-400/50 opacity-0 transition-opacity hover:text-red-400 group-hover/tile:opacity-100"
+            aria-label="Delete image"
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+          {displayStatus === "succeeded" && image.url ? (
             <Button
               variant="ghost"
               size="sm"
               onClick={handleDownload}
               disabled={downloading}
-              className="h-7 w-7 p-0 text-neutral-300 hover:text-neutral-100"
+              className="h-7 w-7 cursor-pointer p-0 text-neutral-300 hover:text-neutral-100"
               aria-label={downloading ? "Downloading image" : "Download image"}
             >
               <Download className="size-3.5" />
             </Button>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </CardFooter>
       {downloadError ? (
         <div className="border-t border-neutral-800 px-3 py-2">
           <p className="text-[10px] text-red-400">{downloadError}</p>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete image?"
+        description="This generated image will be permanently deleted."
+        onConfirm={() => {
+          deleteImage.mutate(
+            { id: image.id },
+            { onSettled: () => setConfirmDelete(false) },
+          );
+        }}
+        onCancel={() => setConfirmDelete(false)}
+        isPending={deleteImage.isPending}
+      />
     </div>
   );
 }
