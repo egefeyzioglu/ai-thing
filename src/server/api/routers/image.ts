@@ -256,7 +256,7 @@ export const imageRouter = createTRPCRouter({
   deleteImage: protectedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      await db.transaction(async (txn) => {
+      const fileKey = await db.transaction(async (txn) => {
         const [row] = await txn
           .select()
           .from(images)
@@ -272,25 +272,26 @@ export const imageRouter = createTRPCRouter({
           });
         }
 
-        if (row.image.key && !row.reference?.reusedFrom) {
-          utapi.deleteFiles(row.image.key).catch((r)=>{
-            console.error(
-              `Failed to delete image with key ${row.image.key} from UploadThing`,
-              r
-            );
-          });
-        }
-
         await txn
           .delete(images)
           .where(and(eq(images.id, input.id), eq(images.userId, ctx.user)));
-      }).catch((r) => {
-        console.error(`Error when deleting image with id ${input.id}`, r);
-        return { success: false };
-      })
 
+        return row.reference?.reusedFrom ? undefined : row.image.key;
+      }).catch((r) => {
+        if(r instanceof TRPCError) throw r;
+        console.error(`Error deleting image with id ${input.id}`, r);
+      })
+      if (fileKey){
+        utapi.deleteFiles(fileKey).catch((r)=>{
+          console.error(
+            `Failed to delete image with key ${fileKey} from UploadThing`,
+            r
+          );
+        });
+      }
       return { success: true };
     }),
+
 
   /**
    * Run the generation for a pending image row. Resolves the row to either
