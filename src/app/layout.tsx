@@ -3,8 +3,9 @@ import "src/styles/globals.css";
 import { type Metadata } from "next";
 import { Geist } from "next/font/google";
 
-import { ClerkProvider } from "@clerk/nextjs"
+import { ClerkProvider } from "@clerk/nextjs";
 
+import { TooltipProvider } from "src/components/ui/tooltip";
 import { TRPCReactProvider } from "src/trpc/react";
 
 import { PostHogProvider } from "./providers";
@@ -28,7 +29,9 @@ export default function RootLayout({
       <body>
         <ClerkProvider>
           <PostHogProvider>
-            <TRPCReactProvider>{children}</TRPCReactProvider>
+            <TooltipProvider>
+              <TRPCReactProvider>{children}</TRPCReactProvider>
+            </TooltipProvider>
           </PostHogProvider>
         </ClerkProvider>
       </body>

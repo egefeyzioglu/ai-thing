@@ -1,7 +1,13 @@
 "use client";
 
 import Image from "next/image";
-import { type ReactElement, useEffect, useState } from "react";
+import {
+  type MouseEventHandler,
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useState,
+} from "react";
 
 import {
   ChevronDown,
@@ -32,6 +38,11 @@ import {
 } from "src/components/ui/card";
 import { ConfirmDialog } from "src/components/ui/confirm-dialog";
 import { Skeleton } from "src/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "src/components/ui/tooltip";
 import { cn } from "src/lib/utils";
 import { api, type RouterOutputs } from "src/trpc/react";
 
@@ -117,6 +128,42 @@ async function downloadImage(url: string, filename: string) {
     // Defer revoke a tick so the click has actually been processed.
     setTimeout(() => URL.revokeObjectURL(objUrl), 0);
   }
+}
+
+function IconTooltipButton({
+  tooltip,
+  ariaLabel,
+  disabled,
+  onClick,
+  className,
+  children,
+}: {
+  tooltip: string;
+  ariaLabel: string;
+  disabled?: boolean;
+  onClick?: MouseEventHandler<HTMLButtonElement>;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={disabled}
+            className={className}
+            aria-label={ariaLabel}
+          />
+        }
+        onClick={onClick}
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 export function PromptGroup({
@@ -245,14 +292,21 @@ export function PromptGroup({
   return (
     <li className="flex flex-col gap-3">
       <div className="group/prompt flex items-start gap-2">
-        <button
-          type="button"
-          onClick={() => setConfirmDeletePrompt(true)}
-          className="mt-0.5 inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-red-400/50 opacity-0 transition-opacity hover:text-red-400 group-hover/prompt:opacity-100"
-          aria-label="Delete prompt"
-        >
-          <Trash2 className="size-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className="mt-0.5 inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-red-400/50 opacity-0 transition-opacity group-hover/prompt:opacity-100 hover:text-red-400 focus:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-red-400/40 focus-visible:outline-none"
+                aria-label="Delete prompt"
+              />
+            }
+            onClick={() => setConfirmDeletePrompt(true)}
+          >
+            <Trash2 className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipContent>Delete prompt</TooltipContent>
+        </Tooltip>
         <div className="flex flex-col gap-1">
           <p className="text-sm text-neutral-200">{prompt.text}</p>
           <p className="text-[10px] tracking-wide text-neutral-600 uppercase">
@@ -268,8 +322,9 @@ export function PromptGroup({
           </p>
           <div className="flex flex-wrap gap-2">
             {referenceImageIds.map((id) => {
-              const url =
-                referenceImagesQuery.data?.find((r) => r.id === id)?.url;
+              const url = referenceImagesQuery.data?.find(
+                (r) => r.id === id,
+              )?.url;
 
               if (url) {
                 return (
@@ -290,12 +345,12 @@ export function PromptGroup({
               }
 
               if (referenceImagesQuery.isLoading) {
-                return (
-                  <Skeleton key={id} className="h-12 w-12 rounded" />
-                );
+                return <Skeleton key={id} className="h-12 w-12 rounded" />;
               }
 
-              {/* Query finished but image wasn't found — it was deleted. */}
+              {
+                /* Query finished but image wasn't found — it was deleted. */
+              }
               return (
                 <div
                   key={id}
@@ -647,43 +702,38 @@ function ImageTile({
               : new Date(image.createdAt).toLocaleString()}
         </p>
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
+          <IconTooltipButton
+            tooltip="Delete image"
+            ariaLabel="Delete image"
             onClick={handleDeleteClick}
-            className="h-7 w-7 cursor-pointer p-0 text-red-400/50 opacity-0 transition-opacity hover:text-red-400 group-hover/tile:opacity-100"
-            aria-label="Delete image"
+            className="h-7 w-7 cursor-pointer p-0 text-red-400/50 opacity-0 transition-opacity group-hover/tile:opacity-100 hover:text-red-400 focus:opacity-100 focus-visible:opacity-100"
           >
             <Trash2 className="size-3.5" />
-          </Button>
+          </IconTooltipButton>
           {displayStatus === "succeeded" && image.url ? (
             <>
-              <Button
-                variant="ghost"
-                size="sm"
+              <IconTooltipButton
+                tooltip={
+                  reusing ? "Saving as reference..." : "Reuse as reference"
+                }
+                ariaLabel={
+                  reusing ? "Saving as reference…" : "Reuse as reference image"
+                }
                 onClick={handleReuseAsReference}
                 disabled={reusing}
                 className="h-7 w-7 cursor-pointer p-0 text-neutral-300 hover:text-neutral-100"
-                aria-label={
-                  reusing
-                    ? "Saving as reference…"
-                    : "Reuse as reference image"
-                }
               >
                 <ImagePlus className="size-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
+              </IconTooltipButton>
+              <IconTooltipButton
+                tooltip={downloading ? "Downloading image" : "Download image"}
+                ariaLabel={downloading ? "Downloading image" : "Download image"}
                 onClick={handleDownload}
                 disabled={downloading}
                 className="h-7 w-7 cursor-pointer p-0 text-neutral-300 hover:text-neutral-100"
-                aria-label={
-                  downloading ? "Downloading image" : "Download image"
-                }
               >
                 <Download className="size-3.5" />
-              </Button>
+              </IconTooltipButton>
             </>
           ) : null}
         </div>
