@@ -256,31 +256,36 @@ export const imageRouter = createTRPCRouter({
   deleteImage: protectedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const fileKey = await db.transaction(async (txn) => {
-        const [row] = await txn
-          .select()
-          .from(images)
-          .leftJoin(referenceImages, eq(images.id, referenceImages.reusedFrom))
-          .where(and(eq(images.id, input.id), eq(images.userId, ctx.user)))
-          .for("update", {of: images})
-          .limit(1);
+      let fileKey = undefined;
+      try {
+        fileKey = await db.transaction(async (txn) => {
+          const [row] = await txn
+            .select()
+            .from(images)
+            .leftJoin(referenceImages, eq(images.id, referenceImages.reusedFrom))
+            .where(and(eq(images.id, input.id), eq(images.userId, ctx.user)))
+            .for("update", {of: images})
+            .limit(1);
 
-        if (!row) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Image not found",
-          });
-        }
+          if (!row) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Image not found",
+            });
+          }
 
-        await txn
-          .delete(images)
-          .where(and(eq(images.id, input.id), eq(images.userId, ctx.user)));
+          await txn
+            .delete(images)
+            .where(and(eq(images.id, input.id), eq(images.userId, ctx.user)));
 
-        return row.reference?.reusedFrom ? undefined : row.image.key;
-      }).catch((r) => {
-        if(r instanceof TRPCError) throw r;
-        console.error(`Error deleting image with id ${input.id}`, r);
-      })
+          return row.reference?.reusedFrom ? undefined : row.image.key;
+        })
+      } catch (err) {
+        if(err instanceof TRPCError) throw err;
+        console.error(`Error deleting image with id ${input.id}`, err);
+        return { success: false }
+      }
+
       if (fileKey){
         utapi.deleteFiles(fileKey).catch((r)=>{
           console.error(
