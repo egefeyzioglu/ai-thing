@@ -113,7 +113,7 @@ export const promptRouter = createTRPCRouter({
         .filter((k): k is string => !!k);
 
       if (keys.length > 0) {
-          utapi.deleteFiles(keys).catch((r) => {
+          await utapi.deleteFiles(keys).catch((r) => {
             console.error(
               `Failed to delete some files from UploadThing for image ${input.id}`,
               r
