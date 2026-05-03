@@ -259,7 +259,7 @@ export const imageRouter = createTRPCRouter({
       const [row] = await db
         .select()
         .from(images)
-        .leftJoin(referenceImages, eq(images.id, referenceImages.reused_from))
+        .leftJoin(referenceImages, eq(images.id, referenceImages.reusedFrom))
         .where(and(eq(images.id, input.id), eq(images.userId, ctx.user)))
         .limit(1);
 
@@ -270,7 +270,7 @@ export const imageRouter = createTRPCRouter({
         });
       }
 
-      if (row.image.key && !row.reference?.reused_from) {
+      if (row.image.key && !row.reference?.reusedFrom) {
         utapi.deleteFiles(row.image.key).catch((r)=>{
           console.error(`Failed to delete image with key ${row.image.key} from UploadThing`)
         });

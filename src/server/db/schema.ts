@@ -72,13 +72,13 @@ export const referenceImages = createTable(
       .timestamp("uploaded_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
-    reused_from: d.text("reused_from_image_id")
+    reusedFrom: d.text("reused_from_image_id")
       .references(()=>images.id, {onDelete: "set null"})
       .unique()
   }),
   (t) => [
     index("reference_user_id_idx").on(t.userId),
-    index("reference_reused_from_idx").on(t.reused_from),
+    index("reference_reused_from_idx").on(t.reusedFrom),
   ],
 );
 

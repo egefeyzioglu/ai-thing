@@ -48,7 +48,7 @@ export const referenceImageRouter = createTRPCRouter({
       }
 
       // Clean up the file from UploadThing before removing the DB row.
-      if (row.url && !row.reused_from) {
+      if (row.url && !row.reusedFrom) {
         const key = extractFileKey(row.url);
         if (key) {
           try {
@@ -114,12 +114,12 @@ export const referenceImageRouter = createTRPCRouter({
       .insert(referenceImages)
       .values({
         id: newId,
-        reused_from: input.imageId,
+        reusedFrom: input.imageId,
         url: generatedImageRow.url,
         userId: ctx.user,
       })
       .onConflictDoUpdate({
-        target: referenceImages.reused_from,
+        target: referenceImages.reusedFrom,
         set: {id: sql`${referenceImages.id}`} // NO-OP update to get the conflicting row
       })
       .returning()

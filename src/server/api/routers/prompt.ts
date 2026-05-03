@@ -100,9 +100,9 @@ export const promptRouter = createTRPCRouter({
       // Collect UploadThing keys for every generated image that isn't reused
       // so we can remove the files before the cascade-delete wipes the rows.
       const imageRows = await db
-        .select({ key: images.key, reusedBy: referenceImages.reused_from})
+        .select({ key: images.key, reusedBy: referenceImages.reusedFrom})
         .from(images)
-        .leftJoin(referenceImages, eq(images.id, referenceImages.reused_from))
+        .leftJoin(referenceImages, eq(images.id, referenceImages.reusedFrom))
         .where(
           and(eq(images.promptId, input.id), eq(images.userId, ctx.user)),
         );
