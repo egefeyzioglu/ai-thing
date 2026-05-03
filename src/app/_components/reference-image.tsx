@@ -37,7 +37,7 @@ export default function ReferenceImage(props: ReferenceImageProps) {
           render={
             <button
               type="button"
-              className="absolute top-1 right-1 inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-neutral-950/80 text-red-400/60 opacity-0 transition-opacity group-hover/ref:opacity-100 hover:text-red-400"
+              className="absolute top-1 right-1 inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-neutral-950/80 text-red-400/60 opacity-0 transition-opacity group-hover/ref:opacity-100 hover:text-red-400 focus:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-red-400/40 focus-visible:outline-none"
               aria-label="Delete reference image"
             />
           }

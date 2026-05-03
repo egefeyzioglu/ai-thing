@@ -297,7 +297,7 @@ export function PromptGroup({
             render={
               <button
                 type="button"
-                className="mt-0.5 inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-red-400/50 opacity-0 transition-opacity group-hover/prompt:opacity-100 hover:text-red-400"
+                className="mt-0.5 inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-red-400/50 opacity-0 transition-opacity group-hover/prompt:opacity-100 hover:text-red-400 focus:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-red-400/40 focus-visible:outline-none"
                 aria-label="Delete prompt"
               />
             }
@@ -706,7 +706,7 @@ function ImageTile({
             tooltip="Delete image"
             ariaLabel="Delete image"
             onClick={handleDeleteClick}
-            className="h-7 w-7 cursor-pointer p-0 text-red-400/50 opacity-0 transition-opacity group-hover/tile:opacity-100 hover:text-red-400"
+            className="h-7 w-7 cursor-pointer p-0 text-red-400/50 opacity-0 transition-opacity group-hover/tile:opacity-100 hover:text-red-400 focus:opacity-100 focus-visible:opacity-100"
           >
             <Trash2 className="size-3.5" />
           </IconTooltipButton>
