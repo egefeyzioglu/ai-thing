@@ -256,32 +256,38 @@ export const imageRouter = createTRPCRouter({
   deleteImage: protectedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const [row] = await db
-        .select()
-        .from(images)
-        .leftJoin(referenceImages, eq(images.id, referenceImages.reusedFrom))
-        .where(and(eq(images.id, input.id), eq(images.userId, ctx.user)))
-        .limit(1);
+      await db.transaction(async (txn) => {
+        const [row] = await txn
+          .select()
+          .from(images)
+          .leftJoin(referenceImages, eq(images.id, referenceImages.reused_from))
+          .where(and(eq(images.id, input.id), eq(images.userId, ctx.user)))
+          .for("update", {of: images})
+          .limit(1);
 
-      if (!row) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Image not found",
-        });
-      }
+        if (!row) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Image not found",
+          });
+        }
 
-      if (row.image.key && !row.reference?.reusedFrom) {
-        utapi.deleteFiles(row.image.key).catch((r)=>{
-          console.error(
-            `Failed to delete image with key ${row.image.key} from UploadThing`,
-            r
-          )
-        });
-      }
+        if (row.image.key && !row.reference?.reused_from) {
+          utapi.deleteFiles(row.image.key).catch((r)=>{
+            console.error(
+              `Failed to delete image with key ${row.image.key} from UploadThing`,
+              r
+            );
+          });
+        }
 
-      await db
-        .delete(images)
-        .where(and(eq(images.id, input.id), eq(images.userId, ctx.user)));
+        await txn
+          .delete(images)
+          .where(and(eq(images.id, input.id), eq(images.userId, ctx.user)));
+      }).catch((r) => {
+        console.error(`Error when deleting image with id ${input.id}`, r);
+        return { success: false };
+      })
 
       return { success: true };
     }),
