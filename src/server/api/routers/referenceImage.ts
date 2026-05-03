@@ -103,7 +103,7 @@ export const referenceImageRouter = createTRPCRouter({
       .select()
       .from(images)
       .where(eq(images.id, input.imageId));
-    if(!generatedImageRow || generatedImageRow.userId !== ctx.user) {
+    if(generatedImageRow?.userId !== ctx.user) {
       throw new TRPCError({
         code: "NOT_FOUND",
         message: `No image with id ${input.imageId} exists, or you do not have access`
