@@ -109,6 +109,12 @@ export const referenceImageRouter = createTRPCRouter({
         message: `No image with id ${input.imageId} exists, or you do not have access`
       });
     }
+    if(!generatedImageRow.url) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Image ${input.imageId} does not have a URL (is it in progress/has it failed?)`
+      })
+    }
     const newId = crypto.randomUUID();
     const [referenceImageRow] = await db
       .insert(referenceImages)
