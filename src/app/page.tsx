@@ -6,6 +6,8 @@ import { Textarea } from "src/components/ui/textarea";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "src/components/ui/collapsible";
 import { Checkbox } from "src/components/ui/checkbox";
 
+import { useUser, UserButton } from "@clerk/nextjs";
+
 import { useEffect, useState } from "react";
 import Image from "next/image"
 
@@ -81,7 +83,10 @@ export default function Home() {
   const [selectedReferenceImages, setSelectedReferenceImages] = useState<string[]>([]);
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [resolution, setResolution] = useState("1024");
+  const [aspect, setAspect] = useState("1:1");
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
+
+  const user = useUser();
 
   const toggleSelectedModel = (slug : string) => {
     if(selectedModels.includes(slug)){
@@ -96,7 +101,7 @@ export default function Home() {
     []);
   return (
     <main className="w-full grow flex flex-row text-gray-200">
-      <aside className="w-1/5 h-screen border border-x border-(--border)">
+      <aside className="w-1/5 h-screen border border-x border-(--border) flex flex-col">
         <div className="border-y border-(--border) flex flex-row gap-4 items-center p-5">
           <div className="w-8 h-8 bg-blue-400 rounded-md"></div>
           <div>
@@ -104,7 +109,7 @@ export default function Home() {
             <p className="text-xs text-(--muted-foreground)">All your models, in one place</p>
           </div>
         </div>
-        <div className="p-5 flex flex-col gap-3 overflow-y-scroll">
+        <div className="p-5 flex flex-col gap-3 overflow-y-scroll grow">
           <Field>
             <FieldLabel className="uppercase text-xxs text-(--muted-foreground)">Prompt</FieldLabel>
             <Textarea id="prompt" placeholder="What do you want to create?.." />
@@ -182,13 +187,13 @@ export default function Home() {
               ))
             }
           </Field>
-          <Field>
+          <Field className="w-full">
             <FieldLabel className="uppercase text-xxs text-(--muted-foreground)">Resolution</FieldLabel>
             <div className="flex flex-row gap-2">
               {
                 ["512", "1024", "2048"].map((resolutionOption) => (
                   <button key={resolutionOption}
-                    className={clsx("flex flex-row items-center px-2 py-1 border border-1 text-sm rounded-md cursor-pointer",
+                    className={clsx("px-2 py-1 border border-1 text-sm rounded-md cursor-pointer grow",
                       resolution === resolutionOption ? "bg-blue-500 text-(--foreground)" : "hover:bg-gray-900 text-(--muted-foreground) "
                     )}
                     onClick={(e)=>{
@@ -196,12 +201,42 @@ export default function Home() {
                       setResolution(resolutionOption)
                     }}
                   >
-                    {resolutionOption}
+                    {resolutionOption} px
                   </button>
                 ))
               }
             </div>
           </Field>
+          <Field className="w-full">
+            <FieldLabel className="uppercase text-xxs text-(--muted-foreground)">Aspect Ratio</FieldLabel>
+            <div className="flex flex-row gap-2">
+              {
+                ["1:1", "4:3", "3:4", "16:9", "9:16"].map((aspectOption) => (
+                  <button key={aspectOption}
+                    className={clsx("px-2 py-1 border border-1 text-sm rounded-md cursor-pointer grow",
+                      aspect === aspectOption ? "bg-blue-500 text-(--foreground)" : "hover:bg-gray-900 text-(--muted-foreground) "
+                    )}
+                    onClick={(e)=>{
+                      e.preventDefault();
+                      setAspect(aspectOption)
+                    }}
+                  >
+                    {aspectOption}
+                  </button>
+                ))
+              }
+            </div>
+          </Field>
+        </div>
+        <div className="border-y border-(--border) flex flex-col items-center-safe py-4 gap-2">
+          <button className="px-4 py-2 border border-1 rounded-md cursor-pointer w-2/3 hover:bg-gray-900 active:bg-gray-500">
+            Generate
+          </button>
+          <br/>
+          <div className="flex flex-row items-center-safe gap-4 justify-start w-full px-4">
+            <UserButton />
+            {user.user?.fullName}
+          </div>
         </div>
       </aside>
       <div></div>

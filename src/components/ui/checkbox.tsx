@@ -47,7 +47,8 @@ function resolveAccentColor(accentColor?: string) {
   }
 
   if (accentColor.startsWith("[") && accentColor.endsWith("]")) {
-    return accentColor.slice(1, -1)
+    const value = accentColor.slice(1, -1)
+    return value || undefined
   }
 
   return `var(--color-${accentColor})`
