@@ -272,7 +272,10 @@ export const imageRouter = createTRPCRouter({
 
       if (row.image.key && !row.reference?.reusedFrom) {
         utapi.deleteFiles(row.image.key).catch((r)=>{
-          console.error(`Failed to delete image with key ${row.image.key} from UploadThing`)
+          console.error(
+            `Failed to delete image with key ${row.image.key} from UploadThing`,
+            r
+          )
         });
       }
 
