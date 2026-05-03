@@ -2,6 +2,12 @@ import clsx from "clsx";
 import { Trash2 } from "lucide-react";
 import Image from "next/image";
 
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "src/components/ui/tooltip";
+
 type ReferenceImageProps = {
   url: string;
   onSelect: () => void;
@@ -26,17 +32,24 @@ export default function ReferenceImage(props: ReferenceImageProps) {
         }}
         src={props.url}
       />
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          props.onDelete();
-        }}
-        className="absolute top-1 right-1 inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-neutral-950/80 text-red-400/60 opacity-0 transition-opacity hover:text-red-400 group-hover/ref:opacity-100"
-        aria-label="Delete reference image"
-      >
-        <Trash2 className="size-3" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="absolute top-1 right-1 inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-neutral-950/80 text-red-400/60 opacity-0 transition-opacity group-hover/ref:opacity-100 hover:text-red-400"
+              aria-label="Delete reference image"
+            />
+          }
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onDelete();
+          }}
+        >
+          <Trash2 className="size-3" />
+        </TooltipTrigger>
+        <TooltipContent>Delete reference image</TooltipContent>
+      </Tooltip>
     </div>
   );
 }
