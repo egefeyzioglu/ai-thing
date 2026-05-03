@@ -287,7 +287,7 @@ export const imageRouter = createTRPCRouter({
       }
 
       if (fileKey){
-        utapi.deleteFiles(fileKey).catch((r)=>{
+        await utapi.deleteFiles(fileKey).catch((r)=>{
           console.error(
             `Failed to delete image with key ${fileKey} from UploadThing`,
             r
