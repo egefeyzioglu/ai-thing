@@ -48,7 +48,7 @@ export const referenceImageRouter = createTRPCRouter({
       }
 
       // Clean up the file from UploadThing before removing the DB row.
-      if (row.url) {
+      if (row.url && !row.reused_from) {
         const key = extractFileKey(row.url);
         if (key) {
           try {
