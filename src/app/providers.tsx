@@ -8,10 +8,12 @@ import { env } from "src/env";
 
 export function PostHogProvider({children}: {children: React.ReactNode}) {
   useEffect(()=>{
-    console.log(posthog.init(env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN, {
-      api_host: env.NEXT_PUBLIC_POSTHOG_HOST,
-      defaults: '2026-01-30'
-    }))
+    posthog.init(env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN, {
+      api_host: env.NEXT_PUBLIC_POSTHOG_API_HOST,
+      ui_host: env.NEXT_PUBLIC_POSTHOG_UI_HOST,
+      defaults: '2026-01-30',
+      person_profiles: 'identified_only'
+    })
   }, []);
 
   return (
