@@ -568,9 +568,14 @@ function ImageTile({
     event: React.MouseEvent<HTMLButtonElement>,
   ) => {
     event.stopPropagation();
+    if (reusing) return;
     setReusing(true);
     try {
       await onReuseAsReference(image.id);
+    } catch (err) {
+      setDownloadError(
+        err instanceof Error ? `Reuse failed: ${err.message}` : "Reuse failed",
+      );
     } finally {
       setReusing(false);
     }
