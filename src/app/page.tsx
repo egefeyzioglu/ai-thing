@@ -14,8 +14,6 @@ import Image from "next/image"
 import { ChevronUp, ChevronDown} from "lucide-react"
 import clsx from "clsx";
 
-export const dynamic = "force-dynamic";
-
 type ReferenceImageProps = {
   src: string;
   alt: string;
@@ -28,33 +26,43 @@ type ReferenceImageProps = {
 
 function ReferenceImage(props: ReferenceImageProps) {
   return (
-    <button onClick={props.setSelected} className={clsx("group border-1 rounded-md overflow-clip relative")}>
-      <div className={clsx("size-4 border-2 border-(--muted-foreground) absolute top-1.5 left-1.5 rounded-full cursor-pointer",
-        props.isSelected ? "opacity-100 border-blue-500" : "opacity-30 transition-opacity group-hover:opacity-100")}>
-        <div className={clsx("size-2.5 absolute top-0.25 left-0.25 rounded-full",
-          props.isSelected ? "bg-blue-500 opacity-100" :
-            "bg-(--muted-foreground) opacity-30 transition-opacity group-hover:opacity-60"
-        )} />
-      </div>
+    <div className={clsx("group border-1 rounded-md overflow-clip relative")}>
+      <button
+        type="button"
+        onClick={props.setSelected}
+        aria-label={props.isSelected ? "Deselect reference image" : "Select reference image"}
+        aria-pressed={props.isSelected}
+        className="block w-full cursor-pointer bg-transparent text-left"
+      >
+        <div className={clsx("size-4 border-2 border-(--muted-foreground) absolute top-1.5 left-1.5 rounded-full cursor-pointer",
+          props.isSelected ? "opacity-100 border-blue-500" : "opacity-30 transition-opacity group-hover:opacity-100")}>
+          <div className={clsx("size-2.5 absolute top-0.25 left-0.25 rounded-full",
+            props.isSelected ? "bg-blue-500 opacity-100" :
+              "bg-(--muted-foreground) opacity-30 transition-opacity group-hover:opacity-60"
+          )} />
+        </div>
 
-      <div
+        <Image
+          src={props.src} alt={props.alt}
+          width={props.width} height={props.height}
+          className="m-auto w-full" />
+      </button>
+
+      <button
+        type="button"
+        aria-label="Delete reference image"
         onClick={(e) => {
           e.stopPropagation();
           props.onDelete?.();
         }}
-        className="size-4 absolute top-1.5 right-1.5 rounded-full border-2 border-(--muted-foreground) opacity-0 transition-opacity group-hover:opacity-100 flex items-center justify-center cursor-pointer"
+        className="size-4 absolute top-1.5 right-1.5 rounded-full border-2 border-(--muted-foreground) opacity-0 transition-opacity group-hover:opacity-100 flex items-center justify-center cursor-pointer z-10"
       >
         <div className="relative size-2.5">
           <div className="absolute inset-0 rotate-45 bg-(--muted-foreground) h-[2px] m-auto" />
           <div className="absolute inset-0 -rotate-45 bg-(--muted-foreground) h-[2px] m-auto" />
         </div>
-      </div>
-
-      <Image
-        src={props.src} alt={props.alt}
-        width={props.width} height={props.height}
-        className="m-auto w-full" />
-    </button>
+      </button>
+    </div>
   );
 }
 function mulberry32(seed: number) {
