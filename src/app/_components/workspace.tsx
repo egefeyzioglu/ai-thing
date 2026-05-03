@@ -73,14 +73,20 @@ export function Workspace() {
   };
 
   const handleReuseAsReference = async (imageId: string) => {
-    const result = await reuseAsReference.mutateAsync({ imageId });
-    await utils.referenceImage.invalidate();
-    setSelectedReferenceImages((prev) =>
-      prev.includes(result.referenceImageRow.id)
-        ? prev
-        : [...prev, result.referenceImageRow.id],
-    );
-    setReferenceImagesOpen(true);
+    try {
+      const result = await reuseAsReference.mutateAsync({ imageId });
+      await utils.referenceImage.invalidate();
+      setSelectedReferenceImages((prev) =>
+        prev.includes(result.referenceImageRow.id)
+          ? prev
+          : [...prev, result.referenceImageRow.id],
+      );
+      setReferenceImagesOpen(true);
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error ? err.message : "Failed to reuse image as reference"
+      );
+    }
   };
 
   return (
