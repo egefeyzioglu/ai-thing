@@ -8,6 +8,7 @@ import {
   ChevronUp,
   Download,
   ImageOff,
+  ImagePlus,
   Layers3,
   Pin,
   Trash2,
@@ -41,6 +42,7 @@ type PromptGroupProps = {
   prompt: PromptWithImages;
   pinnedImageIds: Set<string>;
   onTogglePin: (imageId: string) => void;
+  onReuseAsReference: (imageId: string) => Promise<void>;
 };
 
 type ModelImageGroup = {
@@ -121,6 +123,7 @@ export function PromptGroup({
   prompt,
   pinnedImageIds,
   onTogglePin,
+  onReuseAsReference,
 }: PromptGroupProps) {
   const utils = api.useUtils();
   const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
@@ -176,6 +179,7 @@ export function PromptGroup({
           pinnedImageIds={pinnedImageIds}
           onToggleExpanded={() => toggleExpandedModel(group.model)}
           onTogglePin={onTogglePin}
+          onReuseAsReference={onReuseAsReference}
         />,
       );
       continue;
@@ -194,6 +198,7 @@ export function PromptGroup({
           pinnedImageIds={pinnedImageIds}
           onToggleExpanded={() => toggleExpandedModel(group.model)}
           onTogglePin={onTogglePin}
+          onReuseAsReference={onReuseAsReference}
         />,
       );
       continue;
@@ -216,6 +221,7 @@ export function PromptGroup({
           pinnedImageIds={pinnedImageIds}
           onToggleExpanded={() => toggleExpandedModel(group.model)}
           onTogglePin={onTogglePin}
+          onReuseAsReference={onReuseAsReference}
         />,
       );
     }
@@ -229,6 +235,7 @@ export function PromptGroup({
           image={image}
           isPinned={true}
           onTogglePin={onTogglePin}
+          onReuseAsReference={onReuseAsReference}
         />
       )),
     );
@@ -334,6 +341,7 @@ function ModelGroupCard({
   pinnedImageIds,
   onToggleExpanded,
   onTogglePin,
+  onReuseAsReference,
 }: {
   prompt: PromptWithImages;
   model: string;
@@ -344,6 +352,7 @@ function ModelGroupCard({
   pinnedImageIds: Set<string>;
   onToggleExpanded: () => void;
   onTogglePin: (imageId: string) => void;
+  onReuseAsReference: (imageId: string) => Promise<void>;
 }) {
   const collapsedInteractive = hasHiddenImages && !isExpanded;
   const showToggleButton = isExpanded ? images.length > 1 : hasHiddenImages;
@@ -436,6 +445,7 @@ function ModelGroupCard({
               image={image}
               isPinned={pinnedImageIds.has(image.id)}
               onTogglePin={onTogglePin}
+              onReuseAsReference={onReuseAsReference}
             />
           ))}
         </div>
@@ -450,12 +460,14 @@ function PinnedImageCard({
   image,
   isPinned,
   onTogglePin,
+  onReuseAsReference,
 }: {
   prompt: PromptWithImages;
   model: string;
   image: ImageRow;
   isPinned: boolean;
   onTogglePin: (imageId: string) => void;
+  onReuseAsReference: (imageId: string) => Promise<void>;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
@@ -467,6 +479,7 @@ function PinnedImageCard({
         image={image}
         isPinned={isPinned}
         onTogglePin={onTogglePin}
+        onReuseAsReference={onReuseAsReference}
       />
     </div>
   );
@@ -477,11 +490,13 @@ function ImageTile({
   image,
   isPinned,
   onTogglePin,
+  onReuseAsReference,
 }: {
   prompt: PromptWithImages;
   image: ImageRow;
   isPinned: boolean;
   onTogglePin: (imageId: string) => void;
+  onReuseAsReference: (imageId: string) => Promise<void>;
 }) {
   const utils = api.useUtils();
   const retry = api.image.runGeneration.useMutation({
@@ -497,6 +512,7 @@ function ImageTile({
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [reusing, setReusing] = useState(false);
 
   // Flip `isStale` once a pending row has been pending too long. We rely on
   // the row's `updatedAt` (server bumps it on retry) so a fresh retry resets
@@ -546,6 +562,18 @@ function ImageTile({
   const handleDeleteClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     setConfirmDelete(true);
+  };
+
+  const handleReuseAsReference = async (
+    event: React.MouseEvent<HTMLButtonElement>,
+  ) => {
+    event.stopPropagation();
+    setReusing(true);
+    try {
+      await onReuseAsReference(image.id);
+    } finally {
+      setReusing(false);
+    }
   };
 
   // While a retry is in flight, the row may still read as `failed` until the
@@ -624,16 +652,34 @@ function ImageTile({
             <Trash2 className="size-3.5" />
           </Button>
           {displayStatus === "succeeded" && image.url ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleDownload}
-              disabled={downloading}
-              className="h-7 w-7 cursor-pointer p-0 text-neutral-300 hover:text-neutral-100"
-              aria-label={downloading ? "Downloading image" : "Download image"}
-            >
-              <Download className="size-3.5" />
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleReuseAsReference}
+                disabled={reusing}
+                className="h-7 w-7 cursor-pointer p-0 text-neutral-300 hover:text-neutral-100"
+                aria-label={
+                  reusing
+                    ? "Saving as reference…"
+                    : "Reuse as reference image"
+                }
+              >
+                <ImagePlus className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDownload}
+                disabled={downloading}
+                className="h-7 w-7 cursor-pointer p-0 text-neutral-300 hover:text-neutral-100"
+                aria-label={
+                  downloading ? "Downloading image" : "Download image"
+                }
+              >
+                <Download className="size-3.5" />
+              </Button>
+            </>
           ) : null}
         </div>
       </CardFooter>

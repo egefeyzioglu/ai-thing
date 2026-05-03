@@ -13,10 +13,16 @@ import { notifyPromptDone } from "src/lib/notify";
 export function Workspace() {
   const router = useRouter();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [selectedReferenceImages, setSelectedReferenceImages] = useState<
+    string[]
+  >([]);
+  const [referenceImagesOpen, setReferenceImagesOpen] = useState(false);
 
   const utils = api.useUtils();
   const createWithGenerations = api.prompt.createWithGenerations.useMutation();
   const runGeneration = api.image.runGeneration.useMutation();
+  const reuseAsReference =
+    api.referenceImage.createReferenceImageFromGenerated.useMutation();
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -66,6 +72,17 @@ export function Workspace() {
     notifyPromptDone();
   };
 
+  const handleReuseAsReference = async (imageId: string) => {
+    const result = await reuseAsReference.mutateAsync({ imageId });
+    await utils.referenceImage.invalidate();
+    setSelectedReferenceImages((prev) =>
+      prev.includes(result.referenceImageRow.id)
+        ? prev
+        : [...prev, result.referenceImageRow.id],
+    );
+    setReferenceImagesOpen(true);
+  };
+
   return (
     <main className="flex min-h-screen bg-neutral-950 text-neutral-100">
       <Sidebar
@@ -73,8 +90,12 @@ export function Workspace() {
         onLogout={handleLogout}
         errorMessage={errorMessage}
         setErrorMessage={setErrorMessage}
+        selectedReferenceImages={selectedReferenceImages}
+        setSelectedReferenceImages={setSelectedReferenceImages}
+        referenceImagesOpen={referenceImagesOpen}
+        setReferenceImagesOpen={setReferenceImagesOpen}
       />
-      <Gallery />
+      <Gallery onReuseAsReference={handleReuseAsReference} />
     </main>
   );
 }

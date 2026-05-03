@@ -50,6 +50,13 @@
       "when": 1777672190330,
       "tag": "0006_far_mac_gargan",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777782048545,
+      "tag": "0007_tired_starjammers",
+      "breakpoints": true
     }
   ]
 }
