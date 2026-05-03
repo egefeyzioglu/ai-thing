@@ -80,6 +80,7 @@ export default function Home() {
   const [referenceImagesOpen, setReferenceImagesOpen] = useState(false);
   const [selectedReferenceImages, setSelectedReferenceImages] = useState<string[]>([]);
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
+  const [resolution, setResolution] = useState("1024");
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
 
   const toggleSelectedModel = (slug : string) => {
@@ -152,6 +153,7 @@ export default function Home() {
                     />
                 })}
               </div>
+              {/* TODO: Add reference image button */}
             </CollapsibleContent>
           </Collapsible>
           <Field>
@@ -170,7 +172,8 @@ export default function Home() {
                     toggleSelectedModel(slug);
                   }}
                 >
-                  <Checkbox id={`model-select-${slug}`} checked={selectedModels.includes(slug)} onCheckedChange={()=>{toggleSelectedModel(slug)}}/>
+                  <Checkbox id={`model-select-${slug}`} accentColor="blue-500"
+                    checked={selectedModels.includes(slug)} onCheckedChange={()=>{toggleSelectedModel(slug)}}/>
                   <Label htmlFor={`model-select-${slug}`} className="flex-col items-start cursor-pointer">
                     {name}<br/>
                     <span className="text-(--muted-foreground)">{by}</span>
@@ -178,6 +181,26 @@ export default function Home() {
                 </button>
               ))
             }
+          </Field>
+          <Field>
+            <FieldLabel className="uppercase text-xxs text-(--muted-foreground)">Resolution</FieldLabel>
+            <div className="flex flex-row gap-2">
+              {
+                ["512", "1024", "2048"].map((resolutionOption) => (
+                  <button key={resolutionOption}
+                    className={clsx("flex flex-row items-center px-2 py-1 border border-1 text-sm rounded-md cursor-pointer",
+                      resolution === resolutionOption ? "bg-blue-500 text-(--foreground)" : "hover:bg-gray-900 text-(--muted-foreground) "
+                    )}
+                    onClick={(e)=>{
+                      e.preventDefault();
+                      setResolution(resolutionOption)
+                    }}
+                  >
+                    {resolutionOption}
+                  </button>
+                ))
+              }
+            </div>
           </Field>
         </div>
       </aside>
