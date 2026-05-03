@@ -256,33 +256,47 @@ export const imageRouter = createTRPCRouter({
   deleteImage: protectedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const [row] = await db
-        .select()
-        .from(images)
-        .where(and(eq(images.id, input.id), eq(images.userId, ctx.user)))
-        .limit(1);
+      let fileKey = undefined;
+      try {
+        fileKey = await db.transaction(async (txn) => {
+          const [row] = await txn
+            .select()
+            .from(images)
+            .leftJoin(referenceImages, eq(images.id, referenceImages.reusedFrom))
+            .where(and(eq(images.id, input.id), eq(images.userId, ctx.user)))
+            .for("update", {of: images})
+            .limit(1);
 
-      if (!row) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Image not found",
+          if (!row) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Image not found",
+            });
+          }
+
+          await txn
+            .delete(images)
+            .where(and(eq(images.id, input.id), eq(images.userId, ctx.user)));
+
+          return row.reference?.reusedFrom ? undefined : row.image.key;
+        })
+      } catch (err) {
+        if(err instanceof TRPCError) throw err;
+        console.error(`Error deleting image with id ${input.id}`, err);
+        return { success: false }
+      }
+
+      if (fileKey){
+        await utapi.deleteFiles(fileKey).catch((r)=>{
+          console.error(
+            `Failed to delete image with key ${fileKey} from UploadThing`,
+            r
+          );
         });
       }
-
-      if (row.key) {
-        try {
-          await utapi.deleteFiles(row.key);
-        } catch {
-          // If the file is already gone we still want to remove the row.
-        }
-      }
-
-      await db
-        .delete(images)
-        .where(and(eq(images.id, input.id), eq(images.userId, ctx.user)));
-
       return { success: true };
     }),
+
 
   /**
    * Run the generation for a pending image row. Resolves the row to either

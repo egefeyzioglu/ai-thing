@@ -72,8 +72,14 @@ export const referenceImages = createTable(
       .timestamp("uploaded_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    reusedFrom: d.text("reused_from_image_id")
+      .references(()=>images.id, {onDelete: "set null"})
+      .unique()
   }),
-  (t) => [index("reference_user_id_idx").on(t.userId)],
+  (t) => [
+    index("reference_user_id_idx").on(t.userId),
+    index("reference_reused_from_idx").on(t.reusedFrom),
+  ],
 );
 
 export const promptsRelations = relations(prompts, ({ many }) => ({

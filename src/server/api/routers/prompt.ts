@@ -97,28 +97,32 @@ export const promptRouter = createTRPCRouter({
         });
       }
 
-      // Collect UploadThing keys for every generated image so we can
-      // remove the files before the cascade-delete wipes the rows.
+      // Collect UploadThing keys for every generated image that isn't reused
+      // so we can remove the files before the cascade-delete wipes the rows.
       const imageRows = await db
-        .select({ key: images.key })
+        .select({ key: images.key, reusedBy: referenceImages.reusedFrom})
         .from(images)
+        .leftJoin(referenceImages, eq(images.id, referenceImages.reusedFrom))
         .where(
           and(eq(images.promptId, input.id), eq(images.userId, ctx.user)),
         );
 
       const keys = imageRows
+        .filter((r) => !r.reusedBy)
         .map((r) => r.key)
         .filter((k): k is string => !!k);
 
       if (keys.length > 0) {
-        try {
-          await utapi.deleteFiles(keys);
-        } catch {
-          // Best-effort cleanup — still delete the DB rows.
-        }
+          await utapi.deleteFiles(keys).catch((r) => {
+            console.error(
+              `Failed to delete some files from UploadThing for image ${input.id}`,
+              r
+            )});
       }
 
       // The `onDelete: "cascade"` on images.promptId handles child rows.
+      // The `onDelete: "set null" on referenceImages.reused_from handles
+      // dangling references
       await db
         .delete(prompts)
         .where(and(eq(prompts.id, input.id), eq(prompts.userId, ctx.user)));

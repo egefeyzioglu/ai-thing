@@ -33,6 +33,10 @@ type SidebarProps = {
   onLogout: () => void | Promise<void>;
   errorMessage: string | null;
   setErrorMessage: (msg: string | null) => void;
+  selectedReferenceImages: string[];
+  setSelectedReferenceImages: React.Dispatch<React.SetStateAction<string[]>>;
+  referenceImagesOpen: boolean;
+  setReferenceImagesOpen: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
 const selectClass =
@@ -42,6 +46,10 @@ export function Sidebar({
   onSubmit,
   errorMessage,
   setErrorMessage,
+  selectedReferenceImages,
+  setSelectedReferenceImages,
+  referenceImagesOpen,
+  setReferenceImagesOpen,
 }: SidebarProps) {
   const [prompt, setPromptRaw] = useState("");
   const [selectedModels, setSelectedModelsRaw] = useState<Set<ModelId>>(
@@ -55,10 +63,6 @@ export function Sidebar({
   // button (and Ctrl+Enter shortcut) are gated on it so the same prompt
   // can't be fired twice without a change.
   const [dirty, setDirty] = useState(true);
-  const [referenceImagesOpen, setReferenceImagesOpen] = useState(false);
-  const [selectedReferenceImages, setSelectedReferenceImages] = useState<
-    string[]
-  >([]);
   const setPrompt = (v: string) => {
     setDirty(true);
     setPromptRaw(v);

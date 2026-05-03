@@ -23,7 +23,11 @@ function readPinnedImageIds() {
   }
 }
 
-export function Gallery() {
+export function Gallery({
+  onReuseAsReference,
+}: {
+  onReuseAsReference: (imageId: string) => Promise<void>;
+}) {
   const promptsQuery = api.prompt.list.useQuery();
   const [pinnedImageIds, setPinnedImageIds] = useState<Set<string>>(new Set());
   const [storageReady, setStorageReady] = useState(false);
@@ -75,6 +79,7 @@ export function Gallery() {
                   prompt={p}
                   pinnedImageIds={pinnedImageIds}
                   onTogglePin={togglePinnedImage}
+                  onReuseAsReference={onReuseAsReference}
                 />
               ))}
             </ul>

@@ -1,0 +1,4 @@
+ALTER TABLE "ai-thing_reference" ADD COLUMN "reused_from_image_id" text;--> statement-breakpoint
+ALTER TABLE "ai-thing_reference" ADD CONSTRAINT "ai-thing_reference_reused_from_image_id_ai-thing_image_id_fk" FOREIGN KEY ("reused_from_image_id") REFERENCES "public"."ai-thing_image"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "reference_reused_from_idx" ON "ai-thing_reference" USING btree ("reused_from_image_id");--> statement-breakpoint
+ALTER TABLE "ai-thing_reference" ADD CONSTRAINT "ai-thing_reference_reused_from_image_id_unique" UNIQUE("reused_from_image_id");
