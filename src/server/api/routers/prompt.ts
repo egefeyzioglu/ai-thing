@@ -13,6 +13,20 @@ export const SUPPORTED_MODELS = [
 ] as const;
 
 export const promptRouter = createTRPCRouter({
+  getModels: protectedProcedure.query(() => {
+    return SUPPORTED_MODELS.map((slug) => ({
+      slug,
+      name: slug
+        .replace(/-/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase())
+        .replace(/Gpt /, "GPT ")
+        .replace(/Gemini /, "Gemini ")
+        .replace(/Flash /, "Flash ")
+        .replace(/Image$/, ""),
+      provider: slug.startsWith("gpt") ? "OpenAI" : "Google",
+    }));
+  }),
+
   createWithGenerations: protectedProcedure
     .input(
       z.object({

@@ -5,23 +5,26 @@ import { Field, FieldLabel } from "src/components/ui/field";
 import { Textarea } from "src/components/ui/textarea";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "src/components/ui/collapsible";
 import { Checkbox } from "src/components/ui/checkbox";
+import { Skeleton } from "src/components/ui/skeleton";
 
 import { useUser, UserButton } from "@clerk/nextjs";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image"
 
-import { ChevronUp, ChevronDown} from "lucide-react"
+import { ChevronUp, ChevronDown, Upload} from "lucide-react"
 import clsx from "clsx";
+
+import { api } from "src/trpc/react";
+import { useUploadThing } from "src/lib/uploadthing";
 
 type ReferenceImageProps = {
   src: string;
   alt: string;
   isSelected: boolean;
-  width: number;
-  height: number;
-  setSelected: () => void;
+  imageId: string;
   onDelete: () => void;
+  setSelected: () => void;
 };
 
 function ReferenceImage(props: ReferenceImageProps) {
@@ -44,7 +47,7 @@ function ReferenceImage(props: ReferenceImageProps) {
 
         <Image
           src={props.src} alt={props.alt}
-          width={props.width} height={props.height}
+          width={100} height={100}
           className="m-auto w-full" />
       </button>
 
@@ -65,48 +68,85 @@ function ReferenceImage(props: ReferenceImageProps) {
     </div>
   );
 }
-function mulberry32(seed: number) {
-  return function () {
-    let t = (seed += 0x6d2b79f5);
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    const ret = ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    return ret;
-  };
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-const imageSizes_ = [...Array(20)].map((_, i) => {
-  const rand = mulberry32(i);
-  const a = Math.floor(rand() * 100 + 20);
-  const b = Math.floor(rand() * 100 + a);
-  const [w, h] = rand() < 0.5 ? [a, b] : [b, a];
-  const id = `${Math.floor(100000000 * rand())}`;
-  return { w: w, h: h, id: id };
-});
 
 export default function Home() {
-  const [imageSizes, setImageSizes] = useState(imageSizes_);
   const [referenceImagesOpen, setReferenceImagesOpen] = useState(false);
   const [selectedReferenceImages, setSelectedReferenceImages] = useState<string[]>([]);
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [resolution, setResolution] = useState("1024");
   const [aspect, setAspect] = useState("1:1");
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
+  const [promptText, setPromptText] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const user = useUser();
 
-  const toggleSelectedModel = (slug : string) => {
-    if(selectedModels.includes(slug)){
+  const utils = api.useUtils();
+
+  const { data: referenceImages, isLoading: isLoadingRefImages } =
+    api.referenceImage.getReferenceImages.useQuery();
+
+  const { data: models, isLoading: isLoadingModels } =
+    api.prompt.getModels.useQuery();
+
+  const deleteRefImage = api.referenceImage.deleteReferenceImage.useMutation({
+    onSuccess: () => {
+      void utils.referenceImage.getReferenceImages.invalidate();
+    },
+  });
+
+  const createRefImage = api.referenceImage.createReferenceImage.useMutation({
+    onSuccess: () => {
+      void utils.referenceImage.getReferenceImages.invalidate();
+    },
+  });
+
+  const { startUpload } = useUploadThing("imageUploader");
+
+  const createPrompt = api.prompt.createWithGenerations.useMutation();
+
+  const toggleSelectedModel = (slug: string) => {
+    if (selectedModels.includes(slug)) {
       setSelectedModels(selectedModels.filter((i) => i !== slug));
     } else {
       setSelectedModels([...selectedModels, slug]);
     }
-  }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    const res = await startUpload(Array.from(files));
+    if (res) {
+      for (const uploaded of res) {
+        createRefImage.mutate({ url: uploaded.ufsUrl });
+      }
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleGenerate = () => {
+    if (!promptText.trim() || selectedModels.length === 0) return;
+    createPrompt.mutate({
+      text: promptText.trim(),
+      models: selectedModels as ["gpt-5.4-mini"] | ["gemini-2.5-flash-image"] | ["gpt-5.4-mini", "gemini-2.5-flash-image"],
+      repeatCount: 1,
+      referenceImages: selectedReferenceImages.length > 0 ? selectedReferenceImages : undefined,
+    });
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if ((isMacOS && e.metaKey && e.key === "Enter") ||
+        (!isMacOS && e.ctrlKey && e.key === "Enter")) {
+      e.preventDefault();
+      handleGenerate();
+    }
+  };
 
   useEffect(
     () => {setIsMacOS(navigator?.userAgent.toLowerCase().includes("mac"))},
     []);
+
   return (
     <main className="w-full grow flex flex-row text-gray-200">
       <aside className="w-1/5 h-screen border border-x border-(--border) flex flex-col">
@@ -120,15 +160,19 @@ export default function Home() {
         <div className="p-5 flex flex-col gap-3 overflow-y-scroll grow">
           <Field>
             <FieldLabel className="uppercase text-xxs text-(--muted-foreground)">Prompt</FieldLabel>
-            <Textarea id="prompt" placeholder="What do you want to create?.." />
-            {/* TODO: Make this less cursed */}
+            <Textarea
+              id="prompt"
+              placeholder="What do you want to create?.."
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              onKeyDown={handleKeyDown}
+            />
             <span className={clsx("text-xs text-(--muted-foreground) mx-0", isMacOS === null ? "opacity-0" : "opacity-80")}>
               Press {isMacOS ? "⌘" : "Ctrl"} + Enter to submit
             </span>
           </Field>
           <Collapsible open={referenceImagesOpen} onOpenChange={setReferenceImagesOpen}>
             <CollapsibleTrigger className="w-full flex flex-row justify-between cursor-pointer">
-              {/* TODO: Idk if I'm supposed to do this, but I'm guessing not (font size won't match otherwise) */}
               <FieldLabel className="uppercase text-xxs text-(--muted-foreground) cursor-pointer">
                 Reference Images
               </FieldLabel>
@@ -136,7 +180,6 @@ export default function Home() {
             </CollapsibleTrigger>
             {
             selectedReferenceImages.length > 0 ?
-            // TODO: This should ideally look better and not push down the sidebar as it comes in
             <span className="text-xs text-(--muted-foreground) mx-0">
               {`(${selectedReferenceImages.length} image${selectedReferenceImages.length > 1 ? 's' : ''} selected)`}
             </span> :
@@ -144,38 +187,60 @@ export default function Home() {
             }
             <CollapsibleContent className="max-h-80 overflow-scroll">
               <div className="grid grid-cols-3 gap-2 my-2 p-2">
-                {imageSizes.map((e) => {
-                  const { w, h, id } = e;
-                  return <ReferenceImage
-                    key={id} src={`https://picsum.photos/seed/${id}/${w}/${h}`} alt="Sample reference image"
-                    width={w ?? 100} height={h ?? 100}
-                    isSelected={selectedReferenceImages.some(e => `${id}` === e)}
-                    setSelected={() => {
-                      const isSelected = selectedReferenceImages.some(e => `${id}` === e);
-                      if (isSelected)
-                        setSelectedReferenceImages(selectedReferenceImages.filter(e => `${id}` !== e))
-                      else
-                        setSelectedReferenceImages([...selectedReferenceImages, `${id}`])
-                    }}
-                    onDelete={
-                      () => {
-                        setImageSizes(imageSizes.filter((v) => v.id !== id));
-                        setSelectedReferenceImages(selectedReferenceImages.filter((i)=>(i !== id)));
-                      }
-                    }
+                {isLoadingRefImages ? (
+                  Array.from({ length: 6 }).map((_, i) => (
+                    <Skeleton key={i} className="aspect-square rounded-md" />
+                  ))
+                ) : (
+                  referenceImages?.map((img) => (
+                    <ReferenceImage
+                      key={img.id}
+                      src={img.url ?? ""}
+                      alt="Reference image"
+                      imageId={img.id}
+                      isSelected={selectedReferenceImages.includes(img.id)}
+                      setSelected={() => {
+                        if (selectedReferenceImages.includes(img.id))
+                          setSelectedReferenceImages(selectedReferenceImages.filter((e) => e !== img.id));
+                        else
+                          setSelectedReferenceImages([...selectedReferenceImages, img.id]);
+                      }}
+                      onDelete={() => {
+                        deleteRefImage.mutate({ id: img.id });
+                        setSelectedReferenceImages(selectedReferenceImages.filter((e) => e !== img.id));
+                      }}
                     />
-                })}
+                  ))
+                )}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-1 border-dashed border-(--muted-foreground) rounded-md flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-gray-900 aspect-square"
+                >
+                  <Upload size={16} className="text-(--muted-foreground)" />
+                  <span className="text-xs text-(--muted-foreground)">Add</span>
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
               </div>
-              {/* TODO: Add reference image button */}
             </CollapsibleContent>
           </Collapsible>
           <Field>
             <FieldLabel className="uppercase text-xxs text-(--muted-foreground)">Models</FieldLabel>
-            {
-              [
-              {slug: "gpt-5-4-mini", name: "GPT 5.4 Mini", by: "OpenAI"},
-              {slug: "gemini-2-5-flash", name: "Gemini 2.5 Flash", by: "Google"}
-              ].map(({slug, name, by}) => (
+            {isLoadingModels ? (
+              <div className="flex flex-col gap-2">
+                {Array.from({ length: 2 }).map((_, i) => (
+                  <Skeleton key={i} className="h-12 rounded-md" />
+                ))}
+              </div>
+            ) : (
+              models?.map(({ slug, name, provider: by }) => (
                 <button key={slug}
                   className={clsx("flex flex-row items-center gap-4 px-4 py-2 border border-1 text-(--foreground) rounded-md cursor-pointer",
                     selectedModels.includes(slug) ? "bg-gray-800 border-blue-500" : "hover:bg-gray-900"
@@ -193,7 +258,7 @@ export default function Home() {
                   </Label>
                 </button>
               ))
-            }
+            )}
           </Field>
           <Field className="w-full">
             <FieldLabel className="uppercase text-xxs text-(--muted-foreground)">Resolution</FieldLabel>
@@ -237,8 +302,17 @@ export default function Home() {
           </Field>
         </div>
         <div className="border-y border-(--border) flex flex-col items-center-safe py-4 gap-2">
-          <button className="px-4 py-2 border border-1 rounded-md cursor-pointer w-2/3 hover:bg-gray-900 active:bg-gray-500">
-            Generate
+          <button
+            className={clsx(
+              "px-4 py-2 border border-1 rounded-md cursor-pointer w-2/3",
+              (promptText.trim() && selectedModels.length > 0 && !createPrompt.isPending)
+                ? "hover:bg-gray-900 active:bg-gray-500"
+                : "opacity-50 cursor-not-allowed"
+            )}
+            disabled={!promptText.trim() || selectedModels.length === 0 || createPrompt.isPending}
+            onClick={handleGenerate}
+          >
+            {createPrompt.isPending ? "Generating..." : "Generate"}
           </button>
           <br/>
           <div className="flex flex-row items-center-safe gap-4 justify-start w-full px-4">
