@@ -160,9 +160,17 @@ export default function Home() {
     () => {setIsMacOS(navigator?.userAgent.toLowerCase().includes("mac"))},
     []);
   
-    useEffect(
-      () => {setSelectedModels(models?.map(m => m.slug) ?? [])},
-    [models]);
+  const [hasInitializedModels, setHasInitializedModels] = useState(false);
+
+  useEffect(
+    () => {
+      if (models && !hasInitializedModels) {
+        setSelectedModels(models.map(m => m.slug));
+        setHasInitializedModels(true);
+      }
+    },
+    [models, hasInitializedModels]
+  );
 
   const totalGenerations = runs * selectedModels.length;
 
