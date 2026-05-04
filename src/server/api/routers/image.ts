@@ -46,6 +46,24 @@ type GeneratedImage = {
   mimeType: string;
 };
 
+// Gemini-allowed aspect ratios (whitelist)
+const GEMINI_ALLOWED_ASPECT_RATIOS = new Set([
+  "1:1",
+  "1:4",
+  "4:1",
+  "1:8",
+  "8:1",
+  "2:3",
+  "3:2",
+  "3:4",
+  "4:3",
+  "4:5",
+  "5:4",
+  "9:16",
+  "16:9",
+  "21:9",
+]);
+
 function parseReferenceImageIds(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((value): value is string => typeof value === "string");
@@ -198,6 +216,14 @@ async function generateImageGemini(
     else if (res <= 1024) imageSize = "1K";
     else if (res <= 2048) imageSize = "2K";
     else imageSize = "4K";
+  }
+
+  // Validate aspectRatio against Gemini's whitelist
+  if (aspectRatio && !GEMINI_ALLOWED_ASPECT_RATIOS.has(aspectRatio)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Invalid aspect ratio "${aspectRatio}". Allowed values: ${[...GEMINI_ALLOWED_ASPECT_RATIOS].join(", ")}`,
+    });
   }
 
   const requestBody: Record<string, unknown> = {
