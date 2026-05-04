@@ -18,6 +18,8 @@ import clsx from "clsx";
 import { api } from "src/trpc/react";
 import { useUploadThing } from "src/lib/uploadthing";
 
+import { SUPPORTED_MODELS } from "src/server/api/routers/prompt";
+
 type ReferenceImageProps = {
   src: string;
   alt: string;
@@ -72,7 +74,7 @@ function ReferenceImage(props: ReferenceImageProps) {
 export default function Home() {
   const [referenceImagesOpen, setReferenceImagesOpen] = useState(false);
   const [selectedReferenceImages, setSelectedReferenceImages] = useState<string[]>([]);
-  const [selectedModels, setSelectedModels] = useState<string[]>([]);
+  const [selectedModels, setSelectedModels] = useState<string[]>(SUPPORTED_MODELS.map((m) => m.slug));
   const [resolution, setResolution] = useState("1024");
   const [aspect, setAspect] = useState("1:1");
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
