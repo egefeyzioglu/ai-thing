@@ -77,6 +77,7 @@ export default function Home() {
   const [aspect, setAspect] = useState("1:1");
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
   const [promptText, setPromptText] = useState("");
+  const [runs, setRuns] = useState(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const user = useUser();
@@ -158,6 +159,10 @@ export default function Home() {
   useEffect(
     () => {setIsMacOS(navigator?.userAgent.toLowerCase().includes("mac"))},
     []);
+  
+    useEffect(
+      () => {setSelectedModels(models?.map(m => m.slug) ?? [])},
+    [models]);
 
   return (
     <main className="w-full grow flex flex-row text-gray-200">
@@ -310,6 +315,24 @@ export default function Home() {
                   </button>
                 ))
               }
+            </div>
+          </Field>
+          <Field className="w-full">
+            <FieldLabel className="uppercase text-xxs text-(--muted-foreground)">Runs per Model</FieldLabel>
+            <div className="flex flex-row gap-2">
+              <button
+                className="border border-1 text-sm rounded-md px-3 py-1 cursor-pointer hover:bg-gray-900 active:bg-blue-500"
+                onClick={()=>{if(runs > 1) setRuns(runs - 1);}}
+              >
+                -
+              </button>
+              <input className="border border-1 text-sm rounded-md text-center grow" disabled value={runs}/>
+              <button
+                className="border border-1 text-sm rounded-md px-3 py-1 cursor-pointer hover:bg-gray-900 active:bg-blue-500"
+                onClick={()=>{if(runs < 8) setRuns(runs + 1);}}
+              >
+                +
+              </button>
             </div>
           </Field>
         </div>
