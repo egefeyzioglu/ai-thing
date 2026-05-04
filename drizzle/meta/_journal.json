@@ -57,6 +57,13 @@
       "when": 1777782048545,
       "tag": "0007_tired_starjammers",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777864218916,
+      "tag": "0008_stormy_the_santerians",
+      "breakpoints": true
     }
   ]
 }

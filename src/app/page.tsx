@@ -136,6 +136,8 @@ export default function Home() {
         models: selectedModels,
         repeatCount: runs,
         referenceImages: selectedReferenceImages.length > 0 ? selectedReferenceImages : undefined,
+        resolution,
+        aspectRatio: aspect,
       });
     } catch {
       return;

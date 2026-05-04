@@ -48,6 +48,8 @@ export const promptRouter = createTRPCRouter({
         models: z.array(z.enum(supportedModelSlugs)).min(1),
         repeatCount: z.number().int().min(1).max(8),
         referenceImages: z.array(z.string()).optional(),
+        resolution: z.string().optional(),
+        aspectRatio: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -86,6 +88,8 @@ export const promptRouter = createTRPCRouter({
             userId: ctx.user,
             text: input.text,
             referenceImages: referenceImageIds,
+            resolution: input.resolution,
+            aspectRatio: input.aspectRatio,
           })
           .returning();
         if (!promptRow) throw new Error("Failed to insert prompt");

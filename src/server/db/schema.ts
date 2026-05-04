@@ -22,6 +22,8 @@ export const prompts = createTable(
     referenceImages: d.json("reference_ids"), // JSON array of strings
     // TODO: Make this work
     // .references(()=>referenceImages.id, {onDelete: "set null"}) // IDK honestly
+    resolution: d.text("resolution"),
+    aspectRatio: d.text("aspect_ratio"),
   }),
   (t) => [
     index("prompt_created_at_idx").on(t.createdAt),

@@ -82,6 +82,8 @@ async function generateImageOpenAI(
   userId: string,
   prompt: string,
   referenceImageIds?: string[],
+  resolution?: string,
+  aspectRatio?: string,
 ): Promise<GeneratedImage> {
   const ownedReferenceImages = await loadOwnedReferenceImages(
     userId,
@@ -98,6 +100,25 @@ async function generateImageOpenAI(
     })),
   ];
 
+  // Map resolution and aspect ratio to OpenAI size parameter
+  let size: string | undefined;
+  if (resolution && aspectRatio) {
+    const res = parseInt(resolution, 10);
+    const parts = aspectRatio.split(":").map(Number);
+    const w = parts[0];
+    const h = parts[1];
+    if (w && h) {
+      const aspectValue = w / h;
+      if (aspectValue >= 0.99 && aspectValue <= 1.01) {
+        size = `${res}x${res}`;
+      } else if (aspectValue > 1) {
+        size = `${res}x${Math.round(res / aspectValue)}`;
+      } else {
+        size = `${Math.round(res * aspectValue)}x${res}`;
+      }
+    }
+  }
+
   const body = JSON.stringify({
     model: "gpt-5.4-mini",
     input: [
@@ -106,7 +127,7 @@ async function generateImageOpenAI(
         content: [...modelInputs],
       },
     ],
-    tools: [{ type: "image_generation" }],
+    tools: [{ type: "image_generation", size }],
   });
 
   const res = await fetch("https://api.openai.com/v1/responses", {
@@ -141,6 +162,8 @@ async function generateImageGemini(
   userId: string,
   prompt: string,
   referenceImageIds?: string[],
+  resolution?: string,
+  aspectRatio?: string,
 ): Promise<GeneratedImage> {
   const ownedReferenceImages = await loadOwnedReferenceImages(
     userId,
@@ -166,14 +189,34 @@ async function generateImageGemini(
     { text: "Generate an image based on the following user input:" + prompt },
   ];
   // "Nano Banana" = gemini-2.5-flash-image, Google's image-gen Gemini variant.
+
+  // Map resolution to Gemini imageSize
+  let imageSize: string | undefined;
+  if (resolution) {
+    const res = parseInt(resolution, 10);
+    if (res <= 512) imageSize = "512";
+    else if (res <= 1024) imageSize = "1K";
+    else if (res <= 2048) imageSize = "2K";
+    else imageSize = "4K";
+  }
+
+  const requestBody: Record<string, unknown> = {
+    contents: [{ parts: [...modelInputs] }],
+  };
+
+  if (imageSize || aspectRatio) {
+    requestBody.imageConfig = {
+      ...(imageSize && { imageSize }),
+      ...(aspectRatio && { aspectRatio }),
+    };
+  }
+
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${env.GEMINI_API_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [...modelInputs] }],
-      }),
+      body: JSON.stringify(requestBody),
     },
   );
 
@@ -236,12 +279,14 @@ async function generateForModel(
   userId: string,
   prompt: string,
   referenceImageIds?: string[],
+  resolution?: string,
+  aspectRatio?: string,
 ): Promise<GeneratedImage> {
   switch (model) {
     case "gpt-5.4-mini":
-      return generateImageOpenAI(userId, prompt, referenceImageIds);
+      return generateImageOpenAI(userId, prompt, referenceImageIds, resolution, aspectRatio);
     case "gemini-2.5-flash-image":
-      return generateImageGemini(userId, prompt, referenceImageIds);
+      return generateImageGemini(userId, prompt, referenceImageIds, resolution, aspectRatio);
     default:
       throw new Error(`Unsupported model: ${model}`);
   }
@@ -342,6 +387,8 @@ export const imageRouter = createTRPCRouter({
         .select({
           text: prompts.text,
           referenceImages: prompts.referenceImages,
+          resolution: prompts.resolution,
+          aspectRatio: prompts.aspectRatio,
         })
         .from(prompts)
         .where(
@@ -365,6 +412,8 @@ export const imageRouter = createTRPCRouter({
           ctx.user,
           promptRow.text,
           referenceImageIds,
+          promptRow.resolution ?? undefined,
+          promptRow.aspectRatio ?? undefined,
         );
         const { url, key } = await uploadGeneratedImage({
           imageId: imageRow.id,
