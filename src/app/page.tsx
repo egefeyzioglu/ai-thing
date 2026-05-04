@@ -104,6 +104,7 @@ export default function Home() {
   const { startUpload } = useUploadThing("imageUploader");
 
   const createPrompt = api.prompt.createWithGenerations.useMutation();
+  const runGeneration = api.image.runGeneration.useMutation();
 
   const toggleSelectedModel = (slug: string) => {
     if (selectedModels.includes(slug)) {
@@ -125,21 +126,32 @@ export default function Home() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!promptText.trim() || selectedModels.length === 0) return;
-    createPrompt.mutate({
-      text: promptText.trim(),
-      models: selectedModels as ["gpt-5.4-mini"] | ["gemini-2.5-flash-image"] | ["gpt-5.4-mini", "gemini-2.5-flash-image"],
-      repeatCount: 1,
-      referenceImages: selectedReferenceImages.length > 0 ? selectedReferenceImages : undefined,
-    });
+    let result;
+    try {
+      result = await createPrompt.mutateAsync({
+        text: promptText.trim(),
+        models: selectedModels,
+        repeatCount: 1,
+        referenceImages: selectedReferenceImages.length > 0 ? selectedReferenceImages : undefined,
+      });
+    } catch {
+      return;
+    }
+
+    await Promise.all(
+      result.images.map((img) =>
+        runGeneration.mutateAsync({ imageId: img.id }),
+      ),
+    );
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((isMacOS && e.metaKey && e.key === "Enter") ||
         (!isMacOS && e.ctrlKey && e.key === "Enter")) {
       e.preventDefault();
-      handleGenerate();
+      void handleGenerate();
     }
   };
 
