@@ -12,17 +12,18 @@ export const SUPPORTED_MODELS = [
   "gemini-2.5-flash-image",
 ] as const;
 
+type SupportedModel = (typeof SUPPORTED_MODELS)[number];
+
+export const MODELS_HUMAN : Record<SupportedModel, string> = {
+  "gpt-5.4-mini": "GPT 5.4 Mini",
+  "gemini-2.5-flash-image": "Gemini 2.5 Flash",
+};
+
 export const promptRouter = createTRPCRouter({
   getModels: protectedProcedure.query(() => {
     return SUPPORTED_MODELS.map((slug) => ({
       slug,
-      name: slug
-        .replace(/-/g, " ")
-        .replace(/\b\w/g, (c) => c.toUpperCase())
-        .replace(/Gpt /, "GPT ")
-        .replace(/Gemini /, "Gemini ")
-        .replace(/Flash /, "Flash ")
-        .replace(/Image$/, ""),
+      name: MODELS_HUMAN[slug],
       provider: slug.startsWith("gpt") ? "OpenAI" : "Google",
     }));
   }),
