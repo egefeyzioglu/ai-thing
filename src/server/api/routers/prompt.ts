@@ -7,24 +7,37 @@ import { db } from "src/server/db";
 import { images, prompts, referenceImages } from "src/server/db/schema";
 import { utapi } from "src/server/uploadthing";
 
-export const SUPPORTED_MODELS = [
-  "gpt-5.4-mini",
-  "gemini-2.5-flash-image",
-] as const;
-
-type SupportedModel = (typeof SUPPORTED_MODELS)[number];
-
-export const MODELS_HUMAN : Record<SupportedModel, string> = {
-  "gpt-5.4-mini": "GPT 5.4 Mini",
-  "gemini-2.5-flash-image": "Gemini 2.5 Flash",
+export type SupportedModel = {
+  slug: string;
+  humanName: string;
+  provider: string;
 };
+
+export const SUPPORTED_MODELS : SupportedModel[] = [
+  {
+    slug: "gpt-5.4-mini",
+    humanName: "GPT 5.4 Mini",
+    provider: "Open AI"
+  },
+  {
+    slug: "gemini-2.5-flash-image",
+    humanName: "Gemini 2.5 Flash",
+    provider: "Google"
+  }
+ ] as const;
+
+ type ModelSlug = (typeof SUPPORTED_MODELS)[number]["slug"];
+
+const supportedModelSlugs = SUPPORTED_MODELS.map(
+  (m) => m.slug,
+) as unknown as [ModelSlug, ...ModelSlug[]];
 
 export const promptRouter = createTRPCRouter({
   getModels: protectedProcedure.query(() => {
-    return SUPPORTED_MODELS.map((slug) => ({
-      slug,
-      name: MODELS_HUMAN[slug],
-      provider: slug.startsWith("gpt") ? "OpenAI" : "Google",
+    return SUPPORTED_MODELS.map((model) => ({
+      slug: model.slug,
+      name: model.humanName,
+      provider: model.provider,
     }));
   }),
 
@@ -32,7 +45,7 @@ export const promptRouter = createTRPCRouter({
     .input(
       z.object({
         text: z.string().min(1).max(1000),
-        models: z.array(z.enum(SUPPORTED_MODELS)).min(1),
+        models: z.array(z.enum(supportedModelSlugs)).min(1),
         repeatCount: z.number().int().min(1).max(8),
         referenceImages: z.array(z.string()).optional(),
       }),
