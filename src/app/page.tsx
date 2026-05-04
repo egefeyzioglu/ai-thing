@@ -12,7 +12,7 @@ import { useUser, UserButton } from "@clerk/nextjs";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image"
 
-import { ChevronUp, ChevronDown, Upload} from "lucide-react"
+import { ChevronUp, ChevronDown, Upload, AlertTriangle} from "lucide-react"
 import clsx from "clsx";
 
 import { api } from "src/trpc/react";
@@ -134,7 +134,7 @@ export default function Home() {
       result = await createPrompt.mutateAsync({
         text: promptText.trim(),
         models: selectedModels,
-        repeatCount: 1,
+        repeatCount: runs,
         referenceImages: selectedReferenceImages.length > 0 ? selectedReferenceImages : undefined,
       });
     } catch {
@@ -163,6 +163,8 @@ export default function Home() {
     useEffect(
       () => {setSelectedModels(models?.map(m => m.slug) ?? [])},
     [models]);
+
+  const totalGenerations = runs * selectedModels.length;
 
   return (
     <main className="w-full grow flex flex-row text-gray-200">
@@ -334,7 +336,21 @@ export default function Home() {
                 +
               </button>
             </div>
+            <span className="text-xs text-(--muted-foreground) mt-1">
+              {totalGenerations} generation{totalGenerations !== 1 ? "s" : ""} will be triggered
+            </span>
           </Field>
+          {totalGenerations > 6 && (
+            <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 flex flex-row gap-3 items-start">
+              <AlertTriangle size={16} className="text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-sm text-amber-300">
+                Repeating prompts many times may lead to high usage.{" "}
+                <button className="underline hover:text-amber-200" onClick={() => setRuns(3)}>
+                  Reduce repeat count
+                </button>
+              </div>
+            </div>
+          )}
         </div>
         <div className="border-y border-(--border) flex flex-col items-center-safe py-4 gap-2">
           <button
