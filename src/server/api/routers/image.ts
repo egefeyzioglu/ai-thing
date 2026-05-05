@@ -118,21 +118,21 @@ async function generateImageOpenAI(
     })),
   ];
 
-  // Map resolution and aspect ratio to OpenAI size parameter
-  let size: string | undefined;
-  if (resolution && aspectRatio) {
-    const res = parseInt(resolution, 10);
+  // OpenAI only supports 1024x1024, 1024x1536, 1536x1024, and auto.
+  // Map aspect ratio to the closest supported size; ignore raw resolution.
+  let size = "auto";
+  if (aspectRatio) {
     const parts = aspectRatio.split(":").map(Number);
     const w = parts[0];
     const h = parts[1];
     if (w && h) {
-      const aspectValue = w / h;
-      if (aspectValue >= 0.99 && aspectValue <= 1.01) {
-        size = `${res}x${res}`;
-      } else if (aspectValue > 1) {
-        size = `${res}x${Math.round(res / aspectValue)}`;
+      const ratio = w / h;
+      if (ratio >= 0.99 && ratio <= 1.01) {
+        size = "1024x1024";
+      } else if (ratio > 1) {
+        size = "1536x1024";
       } else {
-        size = `${Math.round(res * aspectValue)}x${res}`;
+        size = "1024x1536";
       }
     }
   }
@@ -231,9 +231,12 @@ async function generateImageGemini(
   };
 
   if (imageSize || aspectRatio) {
-    requestBody.imageConfig = {
-      ...(imageSize && { imageSize }),
-      ...(aspectRatio && { aspectRatio }),
+    requestBody.generationConfig = {
+      responseModalities: ["IMAGE"],
+      imageConfig: {
+        ...(imageSize && { imageSize }),
+        ...(aspectRatio && { aspectRatio }),
+      },
     };
   }
 
