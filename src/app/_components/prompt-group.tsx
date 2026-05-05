@@ -173,7 +173,7 @@ function ImageCell({
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5">
           <p className="text-xs text-destructive">Generation failed</p>
           {onRetry && (
-            <Button variant="outline" size="xs" onClick={onRetry}>
+            <Button variant="outline" size="xs" onClick={onRetry} className="cursor-pointer">
               Retry
             </Button>
           )}
@@ -298,11 +298,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage }
   const successCount = images.filter((i) => i.status === "succeeded").length;
   const failedCount = images.filter((i) => i.status === "failed").length;
 
-  const fallbackCover =
-    pinned.length === 0
-      ? (images.find((i) => i.status === "succeeded") ?? images[0])
-      : null;
-  const coverStack = pinned.length > 0 ? pinned : fallbackCover ? [fallbackCover] : [];
+  const coverStack = pinned.length > 0 ? pinned : images;
   const visibleStack = coverStack.slice(0, 4);
   const hiddenStackCount = Math.max(0, coverStack.length - visibleStack.length);
 
@@ -346,7 +342,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage }
             variant="outline"
             size="xs"
             onClick={() => setExpanded((e) => !e)}
-            className="shrink-0 gap-1"
+            className="shrink-0 gap-1 cursor-pointer"
           >
             {expanded ? "Collapse" : `View all ${images.length}`}
             <svg
@@ -409,7 +405,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage }
               )}
               {hiddenStackCount > 0 && (
                 <div className="absolute bottom-2 right-2 text-[11px] font-semibold px-2 py-1 rounded-full bg-[oklch(0.09_0.012_258/0.85)] border border-border text-foreground z-20 backdrop-blur-sm">
-                  +{hiddenStackCount} more pinned
+                  +{hiddenStackCount} more{pinned.length > 0 ? " pinned" : ""}
                 </div>
               )}
             </div>

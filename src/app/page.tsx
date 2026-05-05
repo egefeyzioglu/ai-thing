@@ -423,7 +423,7 @@ export default function Home() {
             <p className="text-xs text-muted-foreground/60">Write a prompt and hit Generate</p>
           </div>
         ) : (
-          <div className="px-9 py-8 max-w-[960px] w-full flex flex-col gap-12">
+          <div className="px-9 py-8 w-full flex flex-col gap-12">
             <p className="text-xs text-muted-foreground/60 font-medium">
               {prompts.length} {prompts.length === 1 ? "generation" : "generations"}
             </p>
@@ -453,8 +453,14 @@ export default function Home() {
                       }))
                     : []
                 }
-                onDeletePrompt={() => deletePromptMutation.mutate({ id: prompt.id })}
-                onDeleteImage={(imageId) => deleteImageMutation.mutate({ id: imageId })}
+                onDeletePrompt={
+                  () => deletePromptMutation.mutate(
+                    { id: prompt.id},
+                    {onSuccess: () => {utils.prompt.list.invalidate();}})}
+                onDeleteImage={
+                  (imageId) => deleteImageMutation.mutate(
+                    { id: imageId },
+                    {onSuccess: () => {utils.image.invalidate();}})}
                 onRetryImage={(imageId) => {
                   console.log("[retry] clicked, imageId:", imageId);
                   utils.prompt.list.setData(undefined, (old) =>
