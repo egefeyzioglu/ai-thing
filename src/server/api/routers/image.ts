@@ -382,26 +382,38 @@ export const imageRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }): Promise<Image> => {
+      console.log("[runGeneration] input:", { imageId: input.imageId, retry: input.retry });
+
       const [imageRow] = await db
         .select()
         .from(images)
         .where(and(eq(images.id, input.imageId), eq(images.userId, ctx.user)))
         .limit(1);
       if (!imageRow) {
+        console.error("[runGeneration] image row not found:", input.imageId);
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Image row not found",
         });
       }
 
+      console.log("[runGeneration] image row found:", { status: imageRow.status, model: imageRow.model, error: imageRow.error });
+
       // Idempotent for completed rows. For failed rows, only re-run if
       // the caller explicitly opts in via `retry`. Pending rows normally
       // proceed straight to generation, but `retry: true` is also honored
       // there to let the client recover orphaned rows (e.g. ones whose
       // original handler died because the server restarted mid-flight).
-      if (imageRow.status === "succeeded") return imageRow;
-      if (imageRow.status === "failed" && !input.retry) return imageRow;
+      if (imageRow.status === "succeeded") {
+        console.log("[runGeneration] already succeeded, returning early");
+        return imageRow;
+      }
+      if (imageRow.status === "failed" && !input.retry) {
+        console.log("[runGeneration] status=failed but retry not set, returning early");
+        return imageRow;
+      }
       if (imageRow.status === "failed" || input.retry) {
+        console.log("[runGeneration] resetting to pending");
         // Reset to pending so the row reflects the in-flight (re-)run.
         await db
           .update(images)
@@ -422,11 +434,14 @@ export const imageRouter = createTRPCRouter({
         )
         .limit(1);
       if (!promptRow) {
+        console.error("[runGeneration] prompt row not found for promptId:", imageRow.promptId);
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Prompt not found",
         });
       }
+
+      console.log("[runGeneration] starting generation for model:", imageRow.model);
 
       const referenceImageIds = parseReferenceImageIds(
         promptRow.referenceImages,
@@ -441,6 +456,7 @@ export const imageRouter = createTRPCRouter({
           promptRow.resolution ?? undefined,
           promptRow.aspectRatio ?? undefined,
         );
+        console.log("[runGeneration] generation succeeded, uploading");
         const { url, key } = await uploadGeneratedImage({
           imageId: imageRow.id,
           generated,
@@ -463,8 +479,10 @@ export const imageRouter = createTRPCRouter({
             message: "Failed to update image row",
           });
         }
+        console.log("[runGeneration] done, status: succeeded");
         return updated;
       } catch (err) {
+        console.error("[runGeneration] generation/upload failed:", err);
         const message = err instanceof Error ? err.message : String(err);
         const [updated] = await db
           .update(images)
@@ -481,6 +499,7 @@ export const imageRouter = createTRPCRouter({
             message: "Failed to record image failure",
           });
         }
+        console.log("[runGeneration] done, status: failed, error:", message);
         return updated;
       }
     }),

@@ -112,6 +112,12 @@ export default function Home() {
 
   const createPrompt = api.prompt.createWithGenerations.useMutation();
   const runGeneration = api.image.runGeneration.useMutation();
+  const deletePromptMutation = api.prompt.deletePrompt.useMutation({
+    onSuccess: () => void utils.prompt.list.invalidate(),
+  });
+  const deleteImageMutation = api.image.deleteImage.useMutation({
+    onSuccess: () => void utils.prompt.list.invalidate(),
+  });
 
   const toggleSelectedModel = (slug: string) => {
     if (selectedModels.includes(slug)) {
@@ -399,31 +405,85 @@ export default function Home() {
         </div>
       </aside>
       <div className="flex flex-col w-full overflow-x-hidden overflow-y-scroll max-h-screen">
-        {
-          prompts === undefined ?
-          <p>Loading...</p> :
-          prompts.map(
-            (prompt) =>
+        {prompts === undefined ? (
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-sm text-muted-foreground">Loading...</p>
+          </div>
+        ) : prompts.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3">
+            <div className="size-11 rounded-xl bg-card border border-border flex items-center justify-center">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <rect x="2" y="2" width="7" height="7" rx="1.5" stroke="var(--muted-foreground)" strokeWidth="1.5"/>
+                <rect x="11" y="2" width="7" height="7" rx="1.5" stroke="var(--muted-foreground)" strokeWidth="1.5"/>
+                <rect x="2" y="11" width="7" height="7" rx="1.5" stroke="var(--muted-foreground)" strokeWidth="1.5"/>
+                <rect x="11" y="11" width="7" height="7" rx="1.5" stroke="var(--muted-foreground)" strokeWidth="1.5"/>
+              </svg>
+            </div>
+            <p className="text-sm text-muted-foreground">No generations yet</p>
+            <p className="text-xs text-muted-foreground/60">Write a prompt and hit Generate</p>
+          </div>
+        ) : (
+          <div className="px-9 py-8 max-w-[960px] w-full flex flex-col gap-12">
+            <p className="text-xs text-muted-foreground/60 font-medium">
+              {prompts.length} {prompts.length === 1 ? "generation" : "generations"}
+            </p>
+            {prompts.map((prompt) => (
               <PromptGroup
+                key={prompt.id}
+                id={prompt.id}
+                prompt={prompt.text}
+                aspectRatio={prompt.aspectRatio ?? undefined}
+                createdAt={prompt.createdAt}
+                models={models ?? []}
                 images={prompt.images.map(image => ({
-                  url: image.url ?? "<invalid_url>",
+                  id: image.id,
+                  url: image.url ?? "",
                   modelSlug: image.model,
-                  status: image.status ?? "",
+                  status: image.status,
                   key: image.key ?? "",
                   error: image.error ?? undefined,
-                  createdAt: image.createdAt ?? "",
-                  updatedAt: image.updatedAt ?? "",
+                  createdAt: image.createdAt,
+                  updatedAt: image.updatedAt,
                 }))}
-                prompt={prompt.text}
                 referenceImages={
-                  (prompt.referenceImages as string[])?.length > 0 ?
-                    (prompt.referenceImages as string[]).map((id) => ({id: id})) :
-                    []
+                  (prompt.referenceImages as string[])?.length > 0
+                    ? (prompt.referenceImages as string[]).map((id) => ({
+                        id,
+                        url: referenceImages?.find(r => r.id === id)?.url ?? undefined,
+                      }))
+                    : []
                 }
-                key={prompt.id}
+                onDeletePrompt={() => deletePromptMutation.mutate({ id: prompt.id })}
+                onDeleteImage={(imageId) => deleteImageMutation.mutate({ id: imageId })}
+                onRetryImage={(imageId) => {
+                  console.log("[retry] clicked, imageId:", imageId);
+                  utils.prompt.list.setData(undefined, (old) =>
+                    old?.map((p) => ({
+                      ...p,
+                      images: p.images.map((img) =>
+                        img.id === imageId
+                          ? { ...img, status: "pending" as const, error: null }
+                          : img
+                      ),
+                    }))
+                  );
+                  console.log("[retry] optimistic update applied, calling runGeneration");
+                  runGeneration.mutate(
+                    { imageId, retry: true },
+                    {
+                      onSuccess: (data) => console.log("[retry] succeeded, result:", data),
+                      onError: (err) => console.error("[retry] mutation error:", err),
+                      onSettled: () => {
+                        console.log("[retry] settled, invalidating list");
+                        void utils.prompt.list.invalidate();
+                      },
+                    },
+                  );
+                }}
               />
-          )
-      }
+            ))}
+          </div>
+        )}
       </div>
     </main>
   );

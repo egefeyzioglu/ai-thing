@@ -1,100 +1,519 @@
-import Image from 'next/image';
+"use client";
 
-import { Card, CardTitle, CardDescription, CardContent, CardHeader } from 'src/components/ui/card';
+import { useState } from "react";
 
-import PatternBackground from './pattern-background';
+import { Card } from "src/components/ui/card";
+import { Button } from "src/components/ui/button";
+import { cn } from "src/lib/utils";
 
 import { IMAGE_STATUSES } from "src/server/db/schema";
 
-function prettifyJson(input: string | unknown): string {
-  try {
-    const obj =
-      typeof input === "string" ? JSON.parse(input) : input;
-    return JSON.stringify(obj, null, 2);
-  } catch {
-    // fallback: return original input if parsing fails
-    return typeof input === "string" ? input : String(input);
-  }
-}
+export type ModelInfo = { slug: string; name: string; provider: string };
 
-function* cardRotation(seed_: number | string, rotationMin: number, rotationMax: number) {
-  /**
-   * https://gist.github.com/hyamamoto/fd435505d29ebfa3d9716fd2be8d42f0?permalink_comment_id=2694461#gistcomment-2694461
-   */
-  const hashCode = (s: string): number => {
-    for (var i = 0, h = 0; i < s.length; i++)
-      h = Math.imul(31, h) + s.charCodeAt(i) | 0;
-    return h;
-  }
-
-  let seed = (typeof seed_ === "string") ? hashCode(seed_) : seed_;
-  const a = 1103515245, c = 12345, m = 1 << 31;
-
-  while (true) {
-    seed = (a * seed + c) % m;
-    let angle = seed % (rotationMax - rotationMin) + rotationMin;
-    console.log(`seed is ${seed}, angle is ${angle}`);
-    // yield "rotate-90";
-    yield angle === 0 ?
-      "rotate-none" :
-      angle > 0 ?
-        `rotate-${angle}` :
-        `-rotate-${-angle}`;
-  }
-}
-
-export type PromptGroupProps = {
-  prompt: string;
-  images: {
-    url: string;
-    modelSlug: string;
-    status: (typeof IMAGE_STATUSES)[number];
-    key: string;
-    error?: string;
-    createdAt: Date;
-    updatedAt: Date;
-  }[];
-  referenceImages: {
-    url?: string;
-    id: string;
-  }[];
+type ImageShape = {
+  id: string;
+  url: string;
+  modelSlug: string;
+  status: (typeof IMAGE_STATUSES)[number];
+  key: string;
+  error?: string;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
-export default function PromptGroup(props: PromptGroupProps) {
-  const imagesByModel = Object.entries(
-    props.images.reduce<Record<string, typeof props.images>>((acc, image) => {
-      (acc[image.modelSlug] ??= []).push(image);
-      return acc;
-    }, {})
-  ).map(([model, images]) => ({ model, images }));
+export type PromptGroupProps = {
+  id: string;
+  prompt: string;
+  aspectRatio?: string;
+  createdAt: Date;
+  images: ImageShape[];
+  referenceImages: { url?: string; id: string }[];
+  models: ModelInfo[];
+  onDeletePrompt?: () => void;
+  onDeleteImage?: (imageId: string) => void;
+  onRetryImage?: (imageId: string) => void;
+};
+
+// Static map so Tailwind's scanner picks up all class strings.
+const AR_CLASS: Record<string, string> = {
+  "1:1":  "aspect-square",
+  "4:3":  "aspect-[4/3]",
+  "3:4":  "aspect-[3/4]",
+  "16:9": "aspect-video",
+  "9:16": "aspect-[9/16]",
+};
+const arToClass = (ar: string) => AR_CLASS[ar] ?? "aspect-square";
+
+// Fan stack padding for n visible cards. Values: pt = (n-1)*4px, pr/pb = (n-1)*14+4px.
+const FAN_PADDING = [
+  "p-0",
+  "p-0",
+  "pt-1 pr-[18px] pb-[18px] pl-1",
+  "pt-2 pr-8 pb-8 pl-2",
+  "pt-3 pr-[46px] pb-[46px] pl-3",
+];
+
+// Per-depth Tailwind classes for fanned card items (depth 0 = top).
+// sign = depth%2===0 ? +1 : -1. tx=depth*14*sign, ty=depth*7.7, rot=depth*2.2*sign.
+const FAN_DEPTH = [
+  {
+    pos:    "relative",
+    xform:  "",
+    z:      "z-10",
+    shadow: "shadow-[0_6px_20px_oklch(0_0_0/0.5),0_1px_3px_oklch(0_0_0/0.4)]",
+  },
+  {
+    pos:    "absolute inset-0",
+    xform:  "-translate-x-[14px] translate-y-[7.7px] -rotate-[2.2deg]",
+    z:      "z-[9]",
+    shadow: "shadow-[0_3px_10px_oklch(0_0_0/0.4)]",
+  },
+  {
+    pos:    "absolute inset-0",
+    xform:  "translate-x-[28px] translate-y-[15.4px] rotate-[4.4deg]",
+    z:      "z-[8]",
+    shadow: "shadow-[0_3px_10px_oklch(0_0_0/0.4)]",
+  },
+  {
+    pos:    "absolute inset-0",
+    xform:  "-translate-x-[42px] translate-y-[23.1px] -rotate-[6.6deg]",
+    z:      "z-[7]",
+    shadow: "shadow-[0_3px_10px_oklch(0_0_0/0.4)]",
+  },
+];
+
+const fmtDate = (d: Date) =>
+  d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+function Spinner() {
   return (
-    <div>
-      <p>{props.prompt}</p>
-      <div className="grid grid-cols-3 gap-6 m-4">
-        {
-          imagesByModel.map((model) => {
-            console.log(`===== ${model.model} ====`);
-            const rand = cardRotation(model.model, 0, 90)
-            return (
-              <Card key={model.model} className="bg-(--bg)">
-                <CardHeader className="border-be z-100">{model.model}</CardHeader>
-                <CardContent className='h-full min-h-40 relative'>
-                  {model.images.map((image, idx) => {
-                    return image.url === "<invalid_url>" ?
-                      <div key={idx} className={`absolute w-8/10 aspect-16/9 rounded-md mx-auto border border-1 border-(--border) ${rand.next().value}`}>
-                        <PatternBackground label="Generating..." />
-                      </div> :
-                      <img
-                        key={image.key} src={image.url} width={100} height={100}
-                        alt={`Generated image ${idx + 1} by ${model.model} for prompt "${props.prompt}"`}
-                        className="w-8/10 rounded-md mx-auto"
+    <div className="size-[18px] rounded-full border-2 border-border border-t-blue-500 animate-spin" />
+  );
+}
+
+function PinIcon({ size = 12, filled = false }: { size?: number; filled?: boolean }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+      <path
+        d="M10.5 1.5L14.5 5.5M9 3L13 7M9.5 6.5L4 12M5.5 8L2 11.5L4.5 14L8 10.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill={filled ? "currentColor" : "none"}
+      />
+      <path
+        d="M10 2L14 6L11 9L7 5L10 2Z"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+async function downloadImage(url: string) {
+  const res = await fetch(url);
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = `generated-${Date.now()}.png`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(blobUrl);
+}
+
+type ImageCellProps = {
+  image: ImageShape;
+  ar: string;
+  isPinned: boolean;
+  pinIndex: number;
+  totalPinned: number;
+  onTogglePin: () => void;
+  onDownload: () => void;
+  onDelete: () => void;
+  onRetry?: () => void;
+};
+
+function ImageCell({
+  image,
+  ar,
+  isPinned,
+  pinIndex,
+  totalPinned,
+  onTogglePin,
+  onDownload,
+  onDelete,
+  onRetry,
+}: ImageCellProps) {
+  const [hov, setHov] = useState(false);
+  const arClass = arToClass(ar);
+
+  let body: React.ReactNode;
+  if (image.status === "pending") {
+    body = (
+      <div className={cn("relative w-full bg-muted", arClass)}>
+        <div className="absolute inset-0 flex items-center justify-center gap-2">
+          <Spinner />
+          <span className="text-xs text-muted-foreground animate-pulse">Generating…</span>
+        </div>
+      </div>
+    );
+  } else if (image.status === "failed") {
+    body = (
+      <div className={cn("relative w-full bg-muted", arClass)}>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5">
+          <p className="text-xs text-destructive">Generation failed</p>
+          {onRetry && (
+            <Button variant="outline" size="xs" onClick={onRetry}>
+              Retry
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  } else {
+    body = (
+      <div className={cn("relative w-full", arClass)}>
+        <img
+          src={image.url}
+          alt="Generated image"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      className={cn(
+        "relative w-full rounded-md overflow-hidden [animation:promptGroupFadeIn_0.25s_ease_both]",
+        isPinned
+          ? "outline-2 outline-[oklch(0.63_0.18_258)] outline"
+          : "outline outline-1 outline-border",
+      )}
+    >
+      {body}
+      {isPinned && totalPinned > 1 && (
+        <div className="absolute top-1.5 left-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-500 text-white flex items-center gap-1 shadow-md">
+          <PinIcon size={9} filled />
+          {pinIndex + 1}/{totalPinned}
+        </div>
+      )}
+      {isPinned && totalPinned === 1 && (
+        <div className="absolute top-1.5 left-1.5 size-5 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-md">
+          <PinIcon size={10} filled />
+        </div>
+      )}
+      {image.status === "succeeded" && hov && (
+        <div className="absolute top-1.5 right-1.5 flex gap-1 items-center">
+          <button
+            onClick={onTogglePin}
+            title={isPinned ? "Unpin" : "Pin as cover"}
+            className={cn(
+              "h-6 px-2 rounded-full text-[11px] font-medium flex items-center gap-1 cursor-pointer border transition-colors",
+              isPinned
+                ? "bg-blue-500 border-blue-500 text-white"
+                : "bg-[oklch(0.09_0.012_258/0.82)] border-border text-foreground backdrop-blur-sm",
+            )}
+          >
+            <PinIcon size={11} filled={isPinned} />
+            {isPinned ? "Pinned" : "Pin"}
+          </button>
+          <button
+            onClick={onDownload}
+            title="Download"
+            className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm"
+          >
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+              <path
+                d="M6 1V8M6 8L3 5.5M6 8L9 5.5M2 10.5H10"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+          <button
+            onClick={onDelete}
+            title="Delete image"
+            className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-muted-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm"
+          >
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+              <path
+                d="M1 1L7 7M7 1L1 7"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type ModelAlbumProps = {
+  modelId: string;
+  images: ImageShape[];
+  ar: string;
+  models: ModelInfo[];
+  onDeleteImage?: (imageId: string) => void;
+  onRetryImage?: (imageId: string) => void;
+};
+
+function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage }: ModelAlbumProps) {
+  const model = models.find((m) => m.slug === modelId);
+  const [expanded, setExpanded] = useState(false);
+  const [hov, setHov] = useState(false);
+  // map of imageId → timestamp when pinned (higher = more recently pinned = on top)
+  const [pinnedMap, setPinnedMap] = useState<Map<string, number>>(new Map());
+
+  const togglePin = (id: string) => {
+    setPinnedMap((prev) => {
+      const next = new Map(prev);
+      next.has(id) ? next.delete(id) : next.set(id, Date.now());
+      return next;
+    });
+  };
+
+  const pinned = images
+    .filter((i) => pinnedMap.has(i.id))
+    .sort((a, b) => (pinnedMap.get(b.id) ?? 0) - (pinnedMap.get(a.id) ?? 0));
+  const unpinned = images.filter((i) => !pinnedMap.has(i.id));
+  const allDisplay = [...pinned, ...unpinned];
+
+  const successCount = images.filter((i) => i.status === "succeeded").length;
+  const failedCount = images.filter((i) => i.status === "failed").length;
+
+  const fallbackCover =
+    pinned.length === 0
+      ? (images.find((i) => i.status === "succeeded") ?? images[0])
+      : null;
+  const coverStack = pinned.length > 0 ? pinned : fallbackCover ? [fallbackCover] : [];
+  const visibleStack = coverStack.slice(0, 4);
+  const hiddenStackCount = Math.max(0, coverStack.length - visibleStack.length);
+
+  return (
+    <Card
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      className="rounded-lg gap-0 py-0 [animation:promptGroupFadeIn_0.3s_ease_both]"
+    >
+      {/* header */}
+      <div className="px-3 py-2.5 flex items-center justify-between gap-2 border-b border-border">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold">{model?.name ?? modelId}</div>
+          <div className="flex items-center gap-1.5 mt-px text-[10px] text-muted-foreground">
+            <span>{model?.provider}</span>
+            {successCount > 0 && (
+              <>
+                <span className="opacity-50">·</span>
+                <span>{successCount} image{successCount !== 1 ? "s" : ""}</span>
+              </>
+            )}
+            {pinned.length > 0 && (
+              <>
+                <span className="opacity-50">·</span>
+                <span className="text-blue-500 flex items-center gap-0.5">
+                  <PinIcon size={9} filled />
+                  {pinned.length} pinned
+                </span>
+              </>
+            )}
+            {failedCount > 0 && (
+              <>
+                <span className="opacity-50">·</span>
+                <span className="text-destructive">{failedCount} failed</span>
+              </>
+            )}
+          </div>
+        </div>
+        {images.length > 1 && (
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => setExpanded((e) => !e)}
+            className="shrink-0 gap-1"
+          >
+            {expanded ? "Collapse" : `View all ${images.length}`}
+            <svg
+              width="9"
+              height="9"
+              viewBox="0 0 10 10"
+              fill="none"
+              className={cn("transition-transform duration-200", expanded && "rotate-180")}
+            >
+              <path
+                d="M2 4L5 7L8 4"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </Button>
+        )}
+      </div>
+
+      {/* body */}
+      <div className="p-3.5">
+        {!expanded ? (
+          <div className="relative">
+            <div className={cn("relative", FAN_PADDING[visibleStack.length])}>
+              {visibleStack.length === 0 ? (
+                <div className={cn("rounded-md bg-muted", arToClass(ar))} />
+              ) : (
+                [...visibleStack].reverse().map((img, idx) => {
+                  const depth = visibleStack.length - 1 - idx; // 0 = top
+                  const dc = FAN_DEPTH[depth]!;
+                  const isPinned = pinnedMap.has(img.id);
+                  const pinIdx = pinned.findIndex((p) => p.id === img.id);
+                  return (
+                    <div
+                      key={img.id}
+                      className={cn(
+                        "rounded-md transition-transform duration-[250ms]",
+                        dc.pos,
+                        dc.xform,
+                        dc.z,
+                        dc.shadow,
+                      )}
+                    >
+                      <ImageCell
+                        image={img}
+                        ar={ar}
+                        isPinned={isPinned}
+                        pinIndex={pinIdx}
+                        totalPinned={pinned.length}
+                        onTogglePin={() => togglePin(img.id)}
+                        onDownload={() => downloadImage(img.url)}
+                        onDelete={() => onDeleteImage?.(img.id)}
+                        onRetry={onRetryImage ? () => onRetryImage(img.id) : undefined}
                       />
-                  })}
-                </CardContent>
-              </Card>
-            )
-          })
-        }
+                    </div>
+                  );
+                })
+              )}
+              {hiddenStackCount > 0 && (
+                <div className="absolute bottom-2 right-2 text-[11px] font-semibold px-2 py-1 rounded-full bg-[oklch(0.09_0.012_258/0.85)] border border-border text-foreground z-20 backdrop-blur-sm">
+                  +{hiddenStackCount} more pinned
+                </div>
+              )}
+            </div>
+            {pinned.length === 0 && images.length > 1 && hov && (
+              <div className="absolute bottom-2 left-2 text-[11px] px-2 py-1 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-muted-foreground flex items-center gap-1 pointer-events-none z-20 backdrop-blur-sm">
+                <PinIcon size={10} />
+                Pin to set cover · expand to see all
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className={cn("grid gap-2.5", images.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
+            {allDisplay.map((img) => {
+              const isPinned = pinnedMap.has(img.id);
+              const pinIdx = pinned.findIndex((p) => p.id === img.id);
+              return (
+                <ImageCell
+                  key={img.id}
+                  image={img}
+                  ar={ar}
+                  isPinned={isPinned}
+                  pinIndex={pinIdx}
+                  totalPinned={pinned.length}
+                  onTogglePin={() => togglePin(img.id)}
+                  onDownload={() => downloadImage(img.url)}
+                  onDelete={() => onDeleteImage?.(img.id)}
+                  onRetry={onRetryImage ? () => onRetryImage(img.id) : undefined}
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+export default function PromptGroup(props: PromptGroupProps) {
+  const [hov, setHov] = useState(false);
+
+  const modelOrder: string[] = [];
+  const byModel: Record<string, ImageShape[]> = {};
+  for (const img of props.images) {
+    if (!byModel[img.modelSlug]) {
+      byModel[img.modelSlug] = [];
+      modelOrder.push(img.modelSlug);
+    }
+    byModel[img.modelSlug]!.push(img);
+  }
+
+  const refImages = props.referenceImages.filter((r) => r.url);
+
+  return (
+    <div
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      className="flex flex-col gap-3 [animation:promptGroupFadeIn_0.4s_ease_both]"
+    >
+      {/* prompt header */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-foreground leading-relaxed">{props.prompt}</p>
+          <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
+            <p className="text-[11px] text-muted-foreground/60">{fmtDate(props.createdAt)}</p>
+            {refImages.length > 0 && (
+              <div className="flex items-center gap-1">
+                {refImages.map((r) => (
+                  <div
+                    key={r.id}
+                    className="size-[18px] rounded border border-border overflow-hidden shrink-0"
+                  >
+                    <img src={r.url!} alt="Reference" className="w-full h-full object-cover" />
+                  </div>
+                ))}
+                <span className="text-[10px] text-muted-foreground/60 ml-0.5">
+                  {refImages.length} ref{refImages.length > 1 ? "s" : ""}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+        {hov && props.onDeletePrompt && (
+          <button
+            onClick={props.onDeletePrompt}
+            className="px-2.5 py-1 text-[11px] bg-transparent border border-border rounded-md text-muted-foreground cursor-pointer hover:border-destructive hover:text-destructive transition-colors shrink-0"
+          >
+            Delete
+          </button>
+        )}
+      </div>
+
+      {/* model albums — 3-column grid */}
+      <div className="grid grid-cols-3 gap-3.5 items-start">
+        {modelOrder.map((modelId) => (
+          <ModelAlbum
+            key={modelId}
+            modelId={modelId}
+            images={byModel[modelId]!}
+            ar={props.aspectRatio ?? "1:1"}
+            models={props.models}
+            onDeleteImage={props.onDeleteImage}
+            onRetryImage={props.onRetryImage}
+          />
+        ))}
       </div>
     </div>
   );
