@@ -18,7 +18,8 @@ import clsx from "clsx";
 import { api } from "src/trpc/react";
 import { useUploadThing } from "src/lib/uploadthing";
 
-import { SUPPORTED_MODELS } from "src/server/api/routers/prompt";
+// import { SUPPORTED_MODELS } from "src/server/api/routers/prompt";
+import PromptGroup from "./_components/prompt-group";
 
 type ReferenceImageProps = {
   src: string;
@@ -74,7 +75,7 @@ function ReferenceImage(props: ReferenceImageProps) {
 export default function Home() {
   const [referenceImagesOpen, setReferenceImagesOpen] = useState(false);
   const [selectedReferenceImages, setSelectedReferenceImages] = useState<string[]>([]);
-  const [selectedModels, setSelectedModels] = useState<string[]>(SUPPORTED_MODELS.map((m) => m.slug));
+  const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [resolution, setResolution] = useState("1024");
   const [aspect, setAspect] = useState("1:1");
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
@@ -103,6 +104,9 @@ export default function Home() {
       void utils.referenceImage.getReferenceImages.invalidate();
     },
   });
+
+  const promptsQuery = api.prompt.list.useQuery();
+  const prompts = promptsQuery.data;
 
   const { startUpload } = useUploadThing("imageUploader");
 
@@ -140,6 +144,10 @@ export default function Home() {
         referenceImages: selectedReferenceImages.length > 0 ? selectedReferenceImages : undefined,
         resolution,
         aspectRatio: aspect,
+      }, {
+        onSuccess: ()=>{
+          utils.prompt.list.invalidate();
+        }
       });
     } catch {
       return;
@@ -147,7 +155,13 @@ export default function Home() {
 
     await Promise.all(
       result.images.map((img) =>
-        runGeneration.mutateAsync({ imageId: img.id }),
+        runGeneration.mutateAsync({
+          imageId: img.id
+        }, {
+          onSuccess: () => {
+            utils.prompt.list.invalidate();
+          }
+        }),
       ),
     );
   };
@@ -384,7 +398,33 @@ export default function Home() {
           </div>
         </div>
       </aside>
-      <div></div>
+      <div className="flex flex-col w-full overflow-x-hidden overflow-y-scroll max-h-screen">
+        {
+          prompts === undefined ?
+          <p>Loading...</p> :
+          prompts.map(
+            (prompt) =>
+              <PromptGroup
+                images={prompt.images.map(image => ({
+                  url: image.url ?? "<invalid_url>",
+                  modelSlug: image.model,
+                  status: image.status ?? "",
+                  key: image.key ?? "",
+                  error: image.error ?? undefined,
+                  createdAt: image.createdAt ?? "",
+                  updatedAt: image.updatedAt ?? "",
+                }))}
+                prompt={prompt.text}
+                referenceImages={
+                  (prompt.referenceImages as string[])?.length > 0 ?
+                    (prompt.referenceImages as string[]).map((id) => ({id: id})) :
+                    []
+                }
+                key={prompt.id}
+              />
+          )
+      }
+      </div>
     </main>
   );
 }
