@@ -152,7 +152,10 @@ export default function Home() {
         aspectRatio: aspect,
       }, {
         onSuccess: ()=>{
-          utils.prompt.list.invalidate();
+          utils.prompt.list.invalidate().catch((reason) => {
+            if(reason instanceof Error) throw reason;
+            console.error("Failed to invalidate prompt.list, user will have to refresh.", reason);
+          });
         }
       });
     } catch {
@@ -165,7 +168,10 @@ export default function Home() {
           imageId: img.id
         }, {
           onSuccess: () => {
-            utils.prompt.list.invalidate();
+            utils.prompt.list.invalidate().catch((reason) => {
+            if(reason instanceof Error) throw reason;
+            console.error("Failed to invalidate images query, user will have to refresh.", reason);
+          });
           }
         }),
       ),
@@ -456,11 +462,23 @@ export default function Home() {
                 onDeletePrompt={
                   () => deletePromptMutation.mutate(
                     { id: prompt.id},
-                    {onSuccess: () => {utils.prompt.list.invalidate();}})}
+                    {
+                      onSuccess: () => {
+                        utils.prompt.list.invalidate().catch((reason) => {
+                          if(reason instanceof Error) throw reason;
+                          console.error("Failed to invalidate images query, user will have to refresh.", reason);
+                        });
+                      }})}
                 onDeleteImage={
                   (imageId) => deleteImageMutation.mutate(
                     { id: imageId },
-                    {onSuccess: () => {utils.image.invalidate();}})}
+                    {
+                      onSuccess: () => {
+                        utils.image.invalidate().catch((reason) => {
+                          if(reason instanceof Error) throw reason;
+                          console.error("Failed to invalidate images query, user will have to refresh.", reason);
+                        });
+                      }})}
                 onRetryImage={(imageId) => {
                   console.log("[retry] clicked, imageId:", imageId);
                   utils.prompt.list.setData(undefined, (old) =>

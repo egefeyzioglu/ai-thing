@@ -6,7 +6,7 @@ import { Card } from "src/components/ui/card";
 import { Button } from "src/components/ui/button";
 import { cn } from "src/lib/utils";
 
-import { IMAGE_STATUSES } from "src/server/db/schema";
+import type { IMAGE_STATUSES } from "src/server/db/schema";
 
 export type ModelInfo = { slug: string; name: string; provider: string };
 
@@ -284,7 +284,11 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage }
   const togglePin = (id: string) => {
     setPinnedMap((prev) => {
       const next = new Map(prev);
-      next.has(id) ? next.delete(id) : next.set(id, Date.now());
+      if(next.has(id)){
+        next.delete(id);
+      } else {
+        next.set(id, Date.now());
+      };
       return next;
     });
   };
@@ -477,7 +481,7 @@ export default function PromptGroup(props: PromptGroupProps) {
                     key={r.id}
                     className="size-[18px] rounded border border-border overflow-hidden shrink-0"
                   >
-                    <img src={r.url!} alt="Reference" className="w-full h-full object-cover" />
+                    <img src={r.url} alt="Reference" className="w-full h-full object-cover" />
                   </div>
                 ))}
                 <span className="text-[10px] text-muted-foreground/60 ml-0.5">
