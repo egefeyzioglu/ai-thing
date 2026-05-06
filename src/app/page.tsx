@@ -15,11 +15,14 @@ import Image from "next/image"
 import { ChevronUp, ChevronDown, Upload, AlertTriangle} from "lucide-react"
 import clsx from "clsx";
 
-import { api } from "src/trpc/react";
+import { api, type RouterInputs } from "src/trpc/react";
 import { useUploadThing } from "src/lib/uploadthing";
 
 // import { SUPPORTED_MODELS } from "src/server/api/routers/prompt";
 import PromptGroup from "./_components/prompt-group";
+
+type PromptModelSlug =
+  RouterInputs["prompt"]["createWithGenerations"]["models"][number];
 
 type ReferenceImageProps = {
   src: string;
@@ -75,7 +78,7 @@ function ReferenceImage(props: ReferenceImageProps) {
 export default function Home() {
   const [referenceImagesOpen, setReferenceImagesOpen] = useState(false);
   const [selectedReferenceImages, setSelectedReferenceImages] = useState<string[]>([]);
-  const [selectedModels, setSelectedModels] = useState<string[]>([]);
+  const [selectedModels, setSelectedModels] = useState<PromptModelSlug[]>([]);
   const [resolution, setResolution] = useState("1024");
   const [aspect, setAspect] = useState("1:1");
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
@@ -123,7 +126,7 @@ export default function Home() {
   const reuseAsReference =
     api.referenceImage.createReferenceImageFromGenerated.useMutation();
 
-  const toggleSelectedModel = (slug: string) => {
+  const toggleSelectedModel = (slug: PromptModelSlug) => {
     if (selectedModels.includes(slug)) {
       setSelectedModels(selectedModels.filter((i) => i !== slug));
     } else {
