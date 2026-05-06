@@ -396,7 +396,7 @@ export default function Home() {
               >
                 -
               </button>
-              <input className="border border-1 text-sm rounded-md text-center grow" disabled value={runs}/>
+              <input className="border border-1 text-sm rounded-md text-center w-0 grow" disabled value={runs}/>
               <button
                 className="border border-1 text-sm rounded-md px-3 py-1 cursor-pointer hover:bg-gray-900 active:bg-blue-500"
                 onClick={()=>{if(runs < 8) setRuns(runs + 1);}}
