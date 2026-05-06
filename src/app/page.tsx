@@ -61,7 +61,7 @@ function ReferenceImage(props: ReferenceImageProps) {
           e.stopPropagation();
           props.onDelete?.();
         }}
-        className="size-4 absolute top-1.5 right-1.5 rounded-full border-2 border-(--muted-foreground) opacity-0 transition-opacity group-hover:opacity-100 flex items-center justify-center cursor-pointer z-10"
+        className="size-4 absolute top-1.5 right-1.5 rounded-full border-2 border-(--muted-foreground) opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring flex items-center justify-center cursor-pointer z-10"
       >
         <div className="relative size-2.5">
           <div className="absolute inset-0 rotate-45 bg-(--muted-foreground) h-[2px] m-auto" />
@@ -82,6 +82,7 @@ export default function Home() {
   const [promptText, setPromptText] = useState("");
   const [runs, setRuns] = useState(1);
   const [batchRunning, setBatchRunning] = useState(false);
+  const batchRunningRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const user = useUser();
@@ -144,6 +145,8 @@ export default function Home() {
 
   const handleGenerate = async () => {
     if (!promptText.trim() || selectedModels.length === 0) return;
+    if (batchRunningRef.current) return;
+    batchRunningRef.current = true;
     setBatchRunning(true);
     try {
       const result = await createPrompt.mutateAsync({
@@ -156,7 +159,6 @@ export default function Home() {
       }, {
         onSuccess: ()=>{
           utils.prompt.list.invalidate().catch((reason) => {
-            if(reason instanceof Error) throw reason;
             console.error("Failed to invalidate prompt.list, user will have to refresh.", reason);
           });
         }
@@ -169,7 +171,6 @@ export default function Home() {
           }, {
             onSuccess: () => {
               utils.prompt.list.invalidate().catch((reason) => {
-                if(reason instanceof Error) throw reason;
                 console.error("Failed to invalidate images query, user will have to refresh.", reason);
               });
             }
@@ -179,6 +180,7 @@ export default function Home() {
     } catch {
       // createPrompt failed
     } finally {
+      batchRunningRef.current = false;
       setBatchRunning(false);
     }
   };

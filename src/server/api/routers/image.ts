@@ -450,6 +450,10 @@ export const imageRouter = createTRPCRouter({
         .limit(1);
       if (!promptRow) {
         console.error("[runGeneration] prompt row not found for promptId:", imageRow.promptId);
+        await db
+          .update(images)
+          .set({ status: "failed", error: "Prompt not found", updatedAt: new Date() })
+          .where(and(eq(images.id, imageRow.id), eq(images.userId, ctx.user)));
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Prompt not found",
