@@ -81,6 +81,7 @@ export default function Home() {
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
   const [promptText, setPromptText] = useState("");
   const [runs, setRuns] = useState(1);
+  const [batchRunning, setBatchRunning] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const user = useUser();
@@ -143,9 +144,9 @@ export default function Home() {
 
   const handleGenerate = async () => {
     if (!promptText.trim() || selectedModels.length === 0) return;
-    let result;
+    setBatchRunning(true);
     try {
-      result = await createPrompt.mutateAsync({
+      const result = await createPrompt.mutateAsync({
         text: promptText.trim(),
         models: selectedModels,
         repeatCount: runs,
@@ -160,24 +161,26 @@ export default function Home() {
           });
         }
       });
-    } catch {
-      return;
-    }
 
-    await Promise.all(
-      result.images.map((img) =>
-        runGeneration.mutateAsync({
-          imageId: img.id
-        }, {
-          onSuccess: () => {
-            utils.prompt.list.invalidate().catch((reason) => {
-            if(reason instanceof Error) throw reason;
-            console.error("Failed to invalidate images query, user will have to refresh.", reason);
-          });
-          }
-        }),
-      ),
-    );
+      await Promise.allSettled(
+        result.images.map((img) =>
+          runGeneration.mutateAsync({
+            imageId: img.id
+          }, {
+            onSuccess: () => {
+              utils.prompt.list.invalidate().catch((reason) => {
+                if(reason instanceof Error) throw reason;
+                console.error("Failed to invalidate images query, user will have to refresh.", reason);
+              });
+            }
+          }),
+        ),
+      );
+    } catch {
+      // createPrompt failed
+    } finally {
+      setBatchRunning(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -317,22 +320,28 @@ export default function Home() {
               </div>
             ) : (
               models?.map(({ slug, name, provider: by }) => (
-                <button key={slug}
+                <div key={slug}
+                  role="button"
+                  tabIndex={0}
                   className={clsx("flex flex-row items-center gap-4 px-4 py-2 border border-1 text-(--foreground) rounded-md cursor-pointer",
                     selectedModels.includes(slug) ? "bg-gray-800 border-blue-500" : "hover:bg-gray-900"
                   )}
-                  onClick={(e)=>{
-                    e.preventDefault();
-                    toggleSelectedModel(slug);
+                  onClick={() => toggleSelectedModel(slug)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggleSelectedModel(slug);
+                    }
                   }}
                 >
                   <Checkbox id={`model-select-${slug}`} accentColor="blue-500"
-                    checked={selectedModels.includes(slug)} onCheckedChange={()=>{toggleSelectedModel(slug)}}/>
+                    checked={selectedModels.includes(slug)}
+                    tabIndex={-1} aria-hidden />
                   <Label htmlFor={`model-select-${slug}`} className="flex-col items-start cursor-pointer">
                     {name}<br/>
                     <span className="text-(--muted-foreground)">{by}</span>
                   </Label>
-                </button>
+                </div>
               ))
             )}
           </Field>
@@ -413,14 +422,14 @@ export default function Home() {
           <button
             className={clsx(
               "px-4 py-2 border border-1 rounded-md cursor-pointer w-2/3",
-              (promptText.trim() && selectedModels.length > 0 && !createPrompt.isPending)
+              (promptText.trim() && selectedModels.length > 0 && !batchRunning)
                 ? "hover:bg-gray-900 active:bg-gray-500"
                 : "opacity-50 cursor-not-allowed"
             )}
-            disabled={!promptText.trim() || selectedModels.length === 0 || createPrompt.isPending}
+            disabled={!promptText.trim() || selectedModels.length === 0 || batchRunning}
             onClick={handleGenerate}
           >
-            {createPrompt.isPending ? "Generating..." : "Generate"}
+            {batchRunning ? "Generating..." : "Generate"}
           </button>
           <br/>
           <div className="flex flex-row items-center-safe gap-4 justify-start w-full px-4">

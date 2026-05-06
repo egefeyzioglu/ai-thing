@@ -230,15 +230,15 @@ async function generateImageGemini(
     contents: [{ parts: [...modelInputs] }],
   };
 
-  if (imageSize || aspectRatio) {
-    requestBody.generationConfig = {
-      responseModalities: ["IMAGE"],
+  requestBody.generationConfig = {
+    responseModalities: ["IMAGE"],
+    ...((imageSize != null || aspectRatio != null) && {
       imageConfig: {
         ...(imageSize && { imageSize }),
         ...(aspectRatio && { aspectRatio }),
       },
-    };
-  }
+    }),
+  };
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${env.GEMINI_API_KEY}`,
@@ -402,11 +402,6 @@ export const imageRouter = createTRPCRouter({
 
       console.log("[runGeneration] image row found:", { status: imageRow.status, model: imageRow.model, error: imageRow.error });
 
-      // Idempotent for completed rows. For failed rows, only re-run if
-      // the caller explicitly opts in via `retry`. Pending rows normally
-      // proceed straight to generation, but `retry: true` is also honored
-      // there to let the client recover orphaned rows (e.g. ones whose
-      // original handler died because the server restarted mid-flight).
       if (imageRow.status === "succeeded") {
         console.log("[runGeneration] already succeeded, returning early");
         return imageRow;
@@ -415,13 +410,30 @@ export const imageRouter = createTRPCRouter({
         console.log("[runGeneration] status=failed but retry not set, returning early");
         return imageRow;
       }
-      if (imageRow.status === "failed" || input.retry) {
-        console.log("[runGeneration] resetting to pending");
-        // Reset to pending so the row reflects the in-flight (re-)run.
-        await db
-          .update(images)
-          .set({ status: "pending", error: null, updatedAt: new Date() })
-          .where(and(eq(images.id, imageRow.id), eq(images.userId, ctx.user)));
+
+      // Atomic claim: only proceed if we can transition from the expected
+      // status to "running". This prevents duplicate generation if the same
+      // image is requested concurrently.
+      const claimableStatus = imageRow.status === "failed" ? "failed" : "pending";
+      const [claimed] = await db
+        .update(images)
+        .set({ status: "running", error: null, updatedAt: new Date() })
+        .where(
+          and(
+            eq(images.id, imageRow.id),
+            eq(images.userId, ctx.user),
+            eq(images.status, claimableStatus),
+          ),
+        )
+        .returning();
+      if (!claimed) {
+        console.log("[runGeneration] claim failed, another worker claimed it");
+        const [current] = await db
+          .select()
+          .from(images)
+          .where(and(eq(images.id, imageRow.id), eq(images.userId, ctx.user)))
+          .limit(1);
+        return current ?? imageRow;
       }
 
       const [promptRow] = await db

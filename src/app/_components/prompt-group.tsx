@@ -35,15 +35,13 @@ export type PromptGroupProps = {
   onReuseAsReference?: (imageId: string) => Promise<void>;
 };
 
-// Static map so Tailwind's scanner picks up all class strings.
-const AR_CLASS: Record<string, string> = {
-  "1:1":  "aspect-square",
-  "4:3":  "aspect-[4/3]",
-  "3:4":  "aspect-[3/4]",
-  "16:9": "aspect-video",
-  "9:16": "aspect-[9/16]",
-};
-const arToClass = (ar: string) => AR_CLASS[ar] ?? "aspect-square";
+function parseAspectRatio(ar: string): string {
+  const parts = ar.split(":");
+  const w = Number(parts[0]);
+  const h = Number(parts[1]);
+  if (w > 0 && h > 0) return `${w} / ${h}`;
+  return "1 / 1";
+}
 
 // Fan stack padding for n visible cards. Values: pt = (n-1)*4px, pr/pb = (n-1)*14+4px.
 const FAN_PADDING = [
@@ -157,14 +155,12 @@ function ImageCell({
   onRetry,
   onReuseAsReference,
 }: ImageCellProps) {
-  const [hov, setHov] = useState(false);
   const [reusing, setReusing] = useState(false);
-  const arClass = arToClass(ar);
 
   let body: React.ReactNode;
-  if (image.status === "pending") {
+  if (image.status === "pending" || image.status === "running") {
     body = (
-      <div className={cn("relative w-full bg-muted", arClass)}>
+      <div className="relative w-full bg-muted" style={{ aspectRatio: parseAspectRatio(ar) }}>
         <div className="absolute inset-0 flex items-center justify-center gap-2">
           <Spinner />
           <span className="text-xs text-muted-foreground animate-pulse">Generating…</span>
@@ -173,7 +169,7 @@ function ImageCell({
     );
   } else if (image.status === "failed") {
     body = (
-      <div className={cn("relative w-full bg-muted", arClass)}>
+      <div className="relative w-full bg-muted" style={{ aspectRatio: parseAspectRatio(ar) }}>
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5">
           <p className="text-xs text-destructive">Generation failed</p>
           {onRetry && (
@@ -186,7 +182,7 @@ function ImageCell({
     );
   } else {
     body = (
-      <div className={cn("relative w-full", arClass)}>
+      <div className="relative w-full" style={{ aspectRatio: parseAspectRatio(ar) }}>
         <img
           src={image.url}
           alt="Generated image"
@@ -198,10 +194,8 @@ function ImageCell({
 
   return (
     <div
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
       className={cn(
-        "relative w-full rounded-md overflow-hidden [animation:promptGroupFadeIn_0.25s_ease_both]",
+        "group/cell relative w-full rounded-md overflow-hidden [animation:promptGroupFadeIn_0.25s_ease_both]",
         isPinned
           ? "outline-2 outline-[oklch(0.63_0.18_258)] outline"
           : "outline outline-1 outline-border",
@@ -219,8 +213,8 @@ function ImageCell({
           <PinIcon size={10} filled />
         </div>
       )}
-      {image.status === "succeeded" && hov && (
-        <div className="absolute top-1.5 right-1.5 flex gap-1 items-center">
+      {image.status === "succeeded" && (
+        <div className="absolute top-1.5 right-1.5 flex gap-1 items-center opacity-0 transition-opacity group-hover/cell:opacity-100 group-focus-within/cell:opacity-100">
           <button
             onClick={onTogglePin}
             title={isPinned ? "Unpin" : "Pin as cover"}
@@ -300,7 +294,6 @@ type ModelAlbumProps = {
 function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, onReuseAsReference }: ModelAlbumProps) {
   const model = models.find((m) => m.slug === modelId);
   const [expanded, setExpanded] = useState(false);
-  const [hov, setHov] = useState(false);
   // map of imageId → timestamp when pinned (higher = more recently pinned = on top)
   const [pinnedMap, setPinnedMap] = useState<Map<string, number>>(new Map());
 
@@ -331,9 +324,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
 
   return (
     <Card
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      className="rounded-lg gap-0 py-0 [animation:promptGroupFadeIn_0.3s_ease_both]"
+      className="group/album rounded-lg gap-0 py-0 [animation:promptGroupFadeIn_0.3s_ease_both]"
     >
       {/* header */}
       <div className="px-3 py-2.5 flex items-center justify-between gap-2 border-b border-border">
@@ -397,7 +388,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
           <div className="relative">
             <div className={cn("relative", FAN_PADDING[visibleStack.length])}>
               {visibleStack.length === 0 ? (
-                <div className={cn("rounded-md bg-muted", arToClass(ar))} />
+                <div className="rounded-md bg-muted" style={{ aspectRatio: parseAspectRatio(ar) }} />
               ) : (
                 [...visibleStack].reverse().map((img, idx) => {
                   const depth = visibleStack.length - 1 - idx; // 0 = top
@@ -407,6 +398,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
                   return (
                     <div
                       key={img.id}
+                      inert={depth !== 0 ? true : undefined}
                       className={cn(
                         "rounded-md transition-transform duration-[250ms]",
                         dc.pos,
@@ -437,8 +429,8 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
                 </div>
               )}
             </div>
-            {pinned.length === 0 && images.length > 1 && hov && (
-              <div className="absolute bottom-2 left-2 text-[11px] px-2 py-1 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-muted-foreground flex items-center gap-1 pointer-events-none z-20 backdrop-blur-sm">
+            {pinned.length === 0 && images.length > 1 && (
+              <div className="absolute bottom-2 left-2 text-[11px] px-2 py-1 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-muted-foreground flex items-center gap-1 pointer-events-none z-20 backdrop-blur-sm opacity-0 transition-opacity group-hover/album:opacity-100 group-focus-within/album:opacity-100">
                 <PinIcon size={10} />
                 Pin to set cover · expand to see all
               </div>
@@ -473,8 +465,6 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
 }
 
 export default function PromptGroup(props: PromptGroupProps) {
-  const [hov, setHov] = useState(false);
-
   const modelOrder: string[] = [];
   const byModel: Record<string, ImageShape[]> = {};
   for (const img of props.images) {
@@ -489,9 +479,7 @@ export default function PromptGroup(props: PromptGroupProps) {
 
   return (
     <div
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      className="flex flex-col gap-3 [animation:promptGroupFadeIn_0.4s_ease_both]"
+      className="group/prompt flex flex-col gap-3 [animation:promptGroupFadeIn_0.4s_ease_both]"
     >
       {/* prompt header */}
       <div className="flex items-start justify-between gap-3">
@@ -516,10 +504,10 @@ export default function PromptGroup(props: PromptGroupProps) {
             )}
           </div>
         </div>
-        {hov && props.onDeletePrompt && (
+        {props.onDeletePrompt && (
           <button
             onClick={props.onDeletePrompt}
-            className="px-2.5 py-1 text-[11px] bg-transparent border border-border rounded-md text-muted-foreground cursor-pointer hover:border-destructive hover:text-destructive transition-colors shrink-0"
+            className="px-2.5 py-1 text-[11px] bg-transparent border border-border rounded-md text-muted-foreground cursor-pointer hover:border-destructive hover:text-destructive transition-colors shrink-0 opacity-0 group-hover/prompt:opacity-100 group-focus-within/prompt:opacity-100"
           >
             Delete
           </button>

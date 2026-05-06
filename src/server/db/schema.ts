@@ -31,7 +31,7 @@ export const prompts = createTable(
   ],
 );
 
-export const IMAGE_STATUSES = ["pending", "succeeded", "failed"] as const;
+export const IMAGE_STATUSES = ["pending", "running", "succeeded", "failed"] as const;
 export type ImageStatus = (typeof IMAGE_STATUSES)[number];
 
 export const images = createTable(
