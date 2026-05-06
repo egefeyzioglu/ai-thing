@@ -118,6 +118,8 @@ export default function Home() {
   const deleteImageMutation = api.image.deleteImage.useMutation({
     onSuccess: () => void utils.prompt.list.invalidate(),
   });
+  const reuseAsReference =
+    api.referenceImage.createReferenceImageFromGenerated.useMutation();
 
   const toggleSelectedModel = (slug: string) => {
     if (selectedModels.includes(slug)) {
@@ -184,6 +186,23 @@ export default function Home() {
       e.preventDefault();
       void handleGenerate();
     }
+  };
+
+  const handleReuseAsReference = async (imageId: string) => {
+    let result;
+    try {
+      result = await reuseAsReference.mutateAsync({ imageId });
+    } catch (err) {
+      console.error("Failed to reuse image as reference", err);
+      return;
+    }
+    await utils.referenceImage.getReferenceImages.invalidate();
+    setSelectedReferenceImages((prev) =>
+      prev.includes(result.referenceImageRow.id)
+        ? prev
+        : [...prev, result.referenceImageRow.id],
+    );
+    setReferenceImagesOpen(true);
   };
 
   useEffect(
@@ -479,6 +498,7 @@ export default function Home() {
                           console.error("Failed to invalidate images query, user will have to refresh.", reason);
                         });
                       }})}
+                onReuseAsReference={handleReuseAsReference}
                 onRetryImage={(imageId) => {
                   console.log("[retry] clicked, imageId:", imageId);
                   utils.prompt.list.setData(undefined, (old) =>

@@ -32,6 +32,7 @@ export type PromptGroupProps = {
   onDeletePrompt?: () => void;
   onDeleteImage?: (imageId: string) => void;
   onRetryImage?: (imageId: string) => void;
+  onReuseAsReference?: (imageId: string) => Promise<void>;
 };
 
 // Static map so Tailwind's scanner picks up all class strings.
@@ -141,6 +142,7 @@ type ImageCellProps = {
   onDownload: () => void;
   onDelete: () => void;
   onRetry?: () => void;
+  onReuseAsReference?: () => Promise<void>;
 };
 
 function ImageCell({
@@ -153,8 +155,10 @@ function ImageCell({
   onDownload,
   onDelete,
   onRetry,
+  onReuseAsReference,
 }: ImageCellProps) {
   const [hov, setHov] = useState(false);
+  const [reusing, setReusing] = useState(false);
   const arClass = arToClass(ar);
 
   let body: React.ReactNode;
@@ -230,6 +234,24 @@ function ImageCell({
             <PinIcon size={11} filled={isPinned} />
             {isPinned ? "Pinned" : "Pin"}
           </button>
+          {onReuseAsReference && (
+            <button
+              onClick={() => {
+                if (reusing) return;
+                setReusing(true);
+                void onReuseAsReference().finally(() => setReusing(false));
+              }}
+              disabled={reusing}
+              title={reusing ? "Saving as reference…" : "Reuse as reference image"}
+              className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm disabled:opacity-50"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+                <circle cx="5.5" cy="6.5" r="1.2" stroke="currentColor" strokeWidth="1" />
+                <path d="M2 11L5.5 8L8 10L11 7L14 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={onDownload}
             title="Download"
@@ -272,9 +294,10 @@ type ModelAlbumProps = {
   models: ModelInfo[];
   onDeleteImage?: (imageId: string) => void;
   onRetryImage?: (imageId: string) => void;
+  onReuseAsReference?: (imageId: string) => Promise<void>;
 };
 
-function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage }: ModelAlbumProps) {
+function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, onReuseAsReference }: ModelAlbumProps) {
   const model = models.find((m) => m.slug === modelId);
   const [expanded, setExpanded] = useState(false);
   const [hov, setHov] = useState(false);
@@ -402,6 +425,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage }
                         onDownload={() => downloadImage(img.url)}
                         onDelete={() => onDeleteImage?.(img.id)}
                         onRetry={onRetryImage ? () => onRetryImage(img.id) : undefined}
+                        onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(img.id) : undefined}
                       />
                     </div>
                   );
@@ -437,6 +461,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage }
                   onDownload={() => downloadImage(img.url)}
                   onDelete={() => onDeleteImage?.(img.id)}
                   onRetry={onRetryImage ? () => onRetryImage(img.id) : undefined}
+                  onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(img.id) : undefined}
                 />
               );
             })}
@@ -512,6 +537,7 @@ export default function PromptGroup(props: PromptGroupProps) {
             models={props.models}
             onDeleteImage={props.onDeleteImage}
             onRetryImage={props.onRetryImage}
+            onReuseAsReference={props.onReuseAsReference}
           />
         ))}
       </div>
