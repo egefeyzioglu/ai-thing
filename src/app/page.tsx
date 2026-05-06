@@ -144,13 +144,14 @@ export default function Home() {
   };
 
   const handleGenerate = async () => {
-    if (!promptText.trim() || selectedModels.length === 0) return;
+    const trimmedPrompt = promptText.trim();
+    if (!trimmedPrompt || selectedModels.length === 0) return;
     if (batchRunningRef.current) return;
     batchRunningRef.current = true;
     setBatchRunning(true);
     try {
       const result = await createPrompt.mutateAsync({
-        text: promptText.trim(),
+        text: trimmedPrompt,
         models: selectedModels,
         repeatCount: runs,
         referenceImages: selectedReferenceImages.length > 0 ? selectedReferenceImages : undefined,
@@ -179,6 +180,7 @@ export default function Home() {
       );
     } catch {
       // createPrompt failed
+      console.error(`Failed to generate one or more images for prompt: "${trimmedPrompt}"`);
     } finally {
       batchRunningRef.current = false;
       setBatchRunning(false);

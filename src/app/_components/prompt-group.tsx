@@ -6,6 +6,8 @@ import { Card } from "src/components/ui/card";
 import { Button } from "src/components/ui/button";
 import { cn } from "src/lib/utils";
 
+import { extensionFor } from "src/lib/utils";
+
 import type { IMAGE_STATUSES } from "src/server/db/schema";
 
 export type ModelInfo = { slug: string; name: string; provider: string };
@@ -117,14 +119,19 @@ function PinIcon({ size = 12, filled = false }: { size?: number; filled?: boolea
   );
 }
 
-async function downloadImage(url: string) {
+async function downloadImage(url: string, expectedMimeType?: string) {
   const res = await fetch(url);
-  if(!res.ok) throw new Error(`Download failed: Got ${res.status} from UploadThing`)
+  if(!res.ok) throw new Error(`Download failed: Got ${res.status} from UploadThing`);
+
+  const extension = extensionFor(
+    res.headers.get("Content-Type"),
+    expectedMimeType ?? "dat");
+
   const blob = await res.blob();
   const blobUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = blobUrl;
-  a.download = `generated-${Date.now()}.png`;
+  a.download = `generated-${Date.now()}.${extension}`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

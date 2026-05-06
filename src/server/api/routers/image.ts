@@ -2,6 +2,8 @@ import { TRPCError } from "@trpc/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
+import { extensionFor } from "src/lib/utils";
+
 import { env } from "src/env";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
@@ -273,12 +275,6 @@ function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(new ArrayBuffer(buf.byteLength));
   out.set(buf);
   return out;
-}
-
-function extensionFor(mimeType: string): string {
-  if (mimeType.includes("jpeg") || mimeType.includes("jpg")) return "jpg";
-  if (mimeType.includes("webp")) return "webp";
-  return "png";
 }
 
 async function uploadGeneratedImage(args: {
