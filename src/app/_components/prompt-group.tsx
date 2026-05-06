@@ -119,6 +119,7 @@ function PinIcon({ size = 12, filled = false }: { size?: number; filled?: boolea
 
 async function downloadImage(url: string) {
   const res = await fetch(url);
+  if(!res.ok) throw new Error(`Download failed: Got ${res.status} from UploadThing`)
   const blob = await res.blob();
   const blobUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
