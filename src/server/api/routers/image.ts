@@ -197,7 +197,7 @@ async function generateImageGemini(
         return Buffer.from(imageBytes).toString("base64");
       }),
     )
-  ).filter((x?: string) => x !== undefined);
+  ).filter((x): x is string => x !== undefined);
   const modelInputs = [
     ...referenceImageB64s.map((b64: string) => ({
       inline_data: {

@@ -13,7 +13,7 @@ export type SupportedModel = {
   provider: string;
 };
 
-export const SUPPORTED_MODELS : SupportedModel[] = [
+export const SUPPORTED_MODELS = [
   {
     slug: "gpt-5.4-mini",
     humanName: "GPT 5.4 Mini",
@@ -24,7 +24,7 @@ export const SUPPORTED_MODELS : SupportedModel[] = [
     humanName: "Gemini 2.5 Flash",
     provider: "Google"
   }
- ] as const;
+ ] as const satisfies SupportedModel[];
 
  type ModelSlug = (typeof SUPPORTED_MODELS)[number]["slug"];
 
