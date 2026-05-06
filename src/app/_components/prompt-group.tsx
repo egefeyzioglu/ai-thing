@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Card } from "src/components/ui/card";
 import { Button } from "src/components/ui/button";
@@ -9,6 +9,8 @@ import { cn } from "src/lib/utils";
 import { extensionFor } from "src/lib/utils";
 
 import type { IMAGE_STATUSES } from "src/server/db/schema";
+
+const PINNED_IMAGES_STORAGE_KEY = "ai-thing.pinnedImages";
 
 export type ModelInfo = { slug: string; name: string; provider: string };
 
@@ -22,6 +24,68 @@ type ImageShape = {
   createdAt: Date;
   updatedAt: Date;
 };
+
+type StoredPinnedImages = Record<string, number>;
+
+function isStoredPinnedImages(value: unknown): value is StoredPinnedImages {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  return Object.entries(value).every(
+    ([imageId, pinnedAt]) =>
+      imageId.length > 0 &&
+      typeof pinnedAt === "number" &&
+      Number.isFinite(pinnedAt),
+  );
+}
+
+function readStoredPinnedImages(): StoredPinnedImages {
+  try {
+    const raw = localStorage.getItem(PINNED_IMAGES_STORAGE_KEY);
+    if (!raw) return {};
+
+    const parsed: unknown = JSON.parse(raw);
+    return isStoredPinnedImages(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function readPinnedMapForImages(imageIds: string[]) {
+  const imageIdSet = new Set(imageIds);
+
+  return new Map(
+    Object.entries(readStoredPinnedImages()).filter(([imageId]) =>
+      imageIdSet.has(imageId),
+    ),
+  );
+}
+
+function imageIdsFromKey(imageIdKey: string) {
+  return imageIdKey.length > 0 ? imageIdKey.split("\n") : [];
+}
+
+function writePinnedMapForImages(imageIds: string[], pinnedMap: Map<string, number>) {
+  const imageIdSet = new Set(imageIds);
+  const stored = readStoredPinnedImages();
+
+  for (const imageId of imageIdSet) {
+    delete stored[imageId];
+  }
+
+  for (const [imageId, pinnedAt] of pinnedMap) {
+    if (imageIdSet.has(imageId)) {
+      stored[imageId] = pinnedAt;
+    }
+  }
+
+  try {
+    localStorage.setItem(PINNED_IMAGES_STORAGE_KEY, JSON.stringify(stored));
+  } catch {
+    // Ignore unavailable storage, such as private browsing quota failures.
+  }
+}
 
 export type PromptGroupProps = {
   id: string;
@@ -302,8 +366,24 @@ type ModelAlbumProps = {
 function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, onReuseAsReference }: ModelAlbumProps) {
   const model = models.find((m) => m.slug === modelId);
   const [expanded, setExpanded] = useState(false);
+  const imageIdKey = images.map((image) => image.id).join("\n");
+  const skipNextPinnedSaveRef = useRef(true);
   // map of imageId → timestamp when pinned (higher = more recently pinned = on top)
   const [pinnedMap, setPinnedMap] = useState<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    skipNextPinnedSaveRef.current = true;
+    setPinnedMap(readPinnedMapForImages(imageIdsFromKey(imageIdKey)));
+  }, [imageIdKey]);
+
+  useEffect(() => {
+    if (skipNextPinnedSaveRef.current) {
+      skipNextPinnedSaveRef.current = false;
+      return;
+    }
+
+    writePinnedMapForImages(imageIdsFromKey(imageIdKey), pinnedMap);
+  }, [imageIdKey, pinnedMap]);
 
   const togglePin = (id: string) => {
     setPinnedMap((prev) => {
