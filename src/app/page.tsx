@@ -333,7 +333,9 @@ export default function Home() {
             ) : (
               models?.map(({ slug, name, provider: by }) => (
                 <div key={slug}
-                  role="button"
+                  role="checkbox"
+                  aria-checked={selectedModels.includes(slug)}
+                  aria-labelledby={`model-select-${slug}-label`}
                   tabIndex={0}
                   className={clsx("flex flex-row items-center gap-4 px-4 py-2 border border-1 text-(--foreground) rounded-md cursor-pointer",
                     selectedModels.includes(slug) ? "bg-gray-800 border-blue-500" : "hover:bg-gray-900"
@@ -348,8 +350,9 @@ export default function Home() {
                 >
                   <Checkbox id={`model-select-${slug}`} accentColor="blue-500"
                     checked={selectedModels.includes(slug)}
-                    tabIndex={-1} aria-hidden />
-                  <Label htmlFor={`model-select-${slug}`} className="flex-col items-start cursor-pointer">
+                    tabIndex={-1}
+                    className="pointer-events-none" />
+                  <Label id={`model-select-${slug}-label`} className="pointer-events-none flex-col items-start cursor-pointer">
                     {name}<br/>
                     <span className="text-(--muted-foreground)">{by}</span>
                   </Label>
