@@ -137,13 +137,18 @@ export default function Home() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files?.length) return;
-    const res = await startUpload(Array.from(files));
-    if (res) {
-      for (const uploaded of res) {
-        createRefImage.mutate({ url: uploaded.ufsUrl });
+    try {
+      const res = await startUpload(Array.from(files));
+      if (res) {
+        for (const uploaded of res) {
+          createRefImage.mutate({ url: uploaded.ufsUrl });
+        }
       }
+    } catch (error) {
+      console.error("Failed to upload reference image", error);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
-    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleGenerate = async () => {
