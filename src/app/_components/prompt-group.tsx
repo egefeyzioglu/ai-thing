@@ -188,7 +188,7 @@ async function downloadImage(url: string, expectedMimeType?: string) {
   if(!res.ok) throw new Error(`Download failed: Got ${res.status} from UploadThing`);
 
   const extension = extensionFor(
-    res.headers.get("Content-Type"),
+    res.headers.get("Content-Type")?.split(';')[0],
     expectedMimeType ?? "dat");
 
   const blob = await res.blob();

@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function extensionFor(mimeType?: string | null, defaultValue?: string): string {
-  switch (mimeType) {
+  switch (mimeType?.toLowerCase()) {
     case "image/jpg":
     case "image/jpeg":
       return "jpg";
