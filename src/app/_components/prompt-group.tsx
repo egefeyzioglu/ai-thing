@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Card } from "src/components/ui/card";
 import { Button } from "src/components/ui/button";
+import Image from "next/image";
 import { cn } from "src/lib/utils";
 
 import { extensionFor } from "src/lib/utils";
@@ -255,10 +256,12 @@ function ImageCell({
   } else {
     body = (
       <div className="relative w-full" style={{ aspectRatio: parseAspectRatio(ar) }}>
-        <img
+        <Image
           src={image.url}
           alt="Generated image"
-          className="absolute inset-0 w-full h-full object-cover"
+          fill
+          className="object-cover"
+          sizes="(max-width: 768px) 100vw, 33vw"
         />
       </div>
     );
@@ -583,9 +586,9 @@ export default function PromptGroup(props: PromptGroupProps) {
                 {refImages.map((r) => (
                   <div
                     key={r.id}
-                    className="size-[18px] rounded border border-border overflow-hidden shrink-0"
+                    className="relative size-[18px] rounded border border-border overflow-hidden shrink-0"
                   >
-                    <img src={r.url} alt="Reference" className="w-full h-full object-cover" />
+                    <Image src={r.url!} alt="Reference" fill className="object-cover" sizes="18px" />
                   </div>
                 ))}
                 <span className="text-[10px] text-muted-foreground/60 ml-0.5">
