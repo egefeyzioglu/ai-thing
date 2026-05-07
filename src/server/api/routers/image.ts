@@ -48,7 +48,7 @@ type GeneratedImage = {
   mimeType: string;
 };
 
-// Gemini-allowed aspect ratios (whitelist)
+// Gemini-allowed aspect ratios
 const GEMINI_ALLOWED_ASPECT_RATIOS = new Set([
   "1:1",
   "1:4",
