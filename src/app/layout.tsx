@@ -26,7 +26,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${geist.variable}`}>
-      <body>
+      <body className="bg-background min-h-screen w-screen flex flex-col">
         <ClerkProvider>
           <PostHogProvider>
             <TooltipProvider>

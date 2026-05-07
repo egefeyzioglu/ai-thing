@@ -1,762 +1,625 @@
 "use client";
 
-import Image from "next/image";
-import {
-  type MouseEventHandler,
-  type ReactElement,
-  type ReactNode,
-  useEffect,
-  useState,
-} from "react";
+import { useEffect, useRef, useState } from "react";
 
-import {
-  ChevronDown,
-  ChevronUp,
-  Download,
-  ImageOff,
-  ImagePlus,
-  Layers3,
-  Pin,
-  Trash2,
-} from "lucide-react";
-
-/**
- * How long a `pending` row can sit before we treat it as stuck. Real
- * generations resolve in well under this; anything older is almost
- * certainly an orphan from a server restart or crash mid-flight.
- */
-const STALE_PENDING_MS = 90_000;
-
-import { modelLabel } from "src/app/_components/models";
+import { Card } from "src/components/ui/card";
 import { Button } from "src/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "src/components/ui/card";
-import { ConfirmDialog } from "src/components/ui/confirm-dialog";
-import { Skeleton } from "src/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "src/components/ui/tooltip";
 import { cn } from "src/lib/utils";
-import { api, type RouterOutputs } from "src/trpc/react";
 
-type PromptWithImages = RouterOutputs["prompt"]["list"][number];
-type ImageRow = PromptWithImages["images"][number];
+import { extensionFor } from "src/lib/utils";
 
-type PromptGroupProps = {
-  prompt: PromptWithImages;
-  pinnedImageIds: Set<string>;
-  onTogglePin: (imageId: string) => void;
-  onReuseAsReference: (imageId: string) => Promise<void>;
+import type { IMAGE_STATUSES } from "src/server/db/schema";
+
+const PINNED_IMAGES_STORAGE_KEY = "ai-thing.pinnedImages";
+
+export type ModelInfo = { slug: string; name: string; provider: string };
+
+type ImageShape = {
+  id: string;
+  url: string;
+  modelSlug: string;
+  status: (typeof IMAGE_STATUSES)[number];
+  key: string;
+  error?: string;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
-type ModelImageGroup = {
-  model: string;
-  images: ImageRow[];
-};
+type StoredPinnedImages = Record<string, number>;
 
-/** Pull an extension off a URL path, falling back to "png". */
-function extensionFromUrl(url: string): string {
+function isStoredPinnedImages(value: unknown): value is StoredPinnedImages {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  return Object.entries(value).every(
+    ([imageId, pinnedAt]) =>
+      imageId.length > 0 &&
+      typeof pinnedAt === "number" &&
+      Number.isFinite(pinnedAt),
+  );
+}
+
+function readStoredPinnedImages(): StoredPinnedImages {
   try {
-    const path = new URL(url).pathname;
-    const m = /\.([a-z0-9]+)$/i.exec(path);
-    if (m?.[1]) return m[1].toLowerCase();
+    const raw = localStorage.getItem(PINNED_IMAGES_STORAGE_KEY);
+    if (!raw) return {};
+
+    const parsed: unknown = JSON.parse(raw);
+    return isStoredPinnedImages(parsed) ? parsed : {};
   } catch {
-    // fall through
+    return {};
   }
-  return "png";
 }
 
-/** Make a filesystem-safe filename from a prompt + model. */
-function buildDownloadName(promptText: string, model: string, ext: string) {
-  const slug = promptText
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
-  const base = slug.length > 0 ? slug : "image";
-  return `${base}-${model}.${ext}`;
-}
+function readPinnedMapForImages(imageIds: string[]) {
+  const imageIdSet = new Set(imageIds);
 
-function compareImages(a: ImageRow, b: ImageRow) {
-  const createdAtDiff =
-    new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-  if (createdAtDiff !== 0) return createdAtDiff;
-  return a.id.localeCompare(b.id);
-}
-
-function representativeImage(images: ImageRow[]) {
-  return (
-    images.find((image) => image.status === "succeeded" && image.url) ??
-    images[0]!
+  return new Map(
+    Object.entries(readStoredPinnedImages()).filter(([imageId]) =>
+      imageIdSet.has(imageId),
+    ),
   );
 }
 
-function groupImagesByModel(images: ImageRow[]): ModelImageGroup[] {
-  const groups = new Map<string, ImageRow[]>();
-
-  for (const image of [...images].sort(compareImages)) {
-    const existing = groups.get(image.model);
-    if (existing) existing.push(image);
-    else groups.set(image.model, [image]);
-  }
-
-  return [...groups.entries()]
-    .sort(([a], [b]) => modelLabel(a).localeCompare(modelLabel(b)))
-    .map(([model, groupedImages]) => ({ model, images: groupedImages }));
+function imageIdsFromKey(imageIdKey: string) {
+  return imageIdKey.length > 0 ? imageIdKey.split("\n") : [];
 }
 
-async function downloadImage(url: string, filename: string) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-  const blob = await res.blob();
-  const objUrl = URL.createObjectURL(blob);
+function writePinnedMapForImages(imageIds: string[], pinnedMap: Map<string, number>) {
+  const imageIdSet = new Set(imageIds);
+  const stored = readStoredPinnedImages();
+
+  for (const imageId of imageIdSet) {
+    delete stored[imageId];
+  }
+
+  for (const [imageId, pinnedAt] of pinnedMap) {
+    if (imageIdSet.has(imageId)) {
+      stored[imageId] = pinnedAt;
+    }
+  }
+
   try {
-    const a = document.createElement("a");
-    a.href = objUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  } finally {
-    // Defer revoke a tick so the click has actually been processed.
-    setTimeout(() => URL.revokeObjectURL(objUrl), 0);
+    localStorage.setItem(PINNED_IMAGES_STORAGE_KEY, JSON.stringify(stored));
+  } catch {
+    // Ignore unavailable storage, such as private browsing quota failures.
   }
 }
 
-function IconTooltipButton({
-  tooltip,
-  ariaLabel,
-  disabled,
-  onClick,
-  className,
-  children,
-}: {
-  tooltip: string;
-  ariaLabel: string;
-  disabled?: boolean;
-  onClick?: MouseEventHandler<HTMLButtonElement>;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={disabled}
-            className={className}
-            aria-label={ariaLabel}
-          />
-        }
-        onClick={onClick}
-      >
-        {children}
-      </TooltipTrigger>
-      <TooltipContent>{tooltip}</TooltipContent>
-    </Tooltip>
-  );
+export type PromptGroupProps = {
+  id: string;
+  prompt: string;
+  aspectRatio?: string;
+  createdAt: Date;
+  images: ImageShape[];
+  referenceImages: { url?: string; id: string }[];
+  models: ModelInfo[];
+  onDeletePrompt?: () => void;
+  onDeleteImage?: (imageId: string) => void;
+  onRetryImage?: (imageId: string) => void;
+  onReuseAsReference?: (imageId: string) => Promise<void>;
+};
+
+function parseAspectRatio(ar: string): string {
+  const parts = ar.split(":");
+  const w = Number(parts[0]);
+  const h = Number(parts[1]);
+  if (w > 0 && h > 0) return `${w} / ${h}`;
+  return "1 / 1";
 }
 
-export function PromptGroup({
-  prompt,
-  pinnedImageIds,
-  onTogglePin,
-  onReuseAsReference,
-}: PromptGroupProps) {
-  const utils = api.useUtils();
-  const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
-  const [confirmDeletePrompt, setConfirmDeletePrompt] = useState(false);
+// Fan stack padding for n visible cards. Values: pt = (n-1)*4px, pr/pb = (n-1)*14+4px.
+const FAN_PADDING = [
+  "p-0",
+  "p-0",
+  "pt-1 pr-[18px] pb-[18px] pl-1",
+  "pt-2 pr-8 pb-8 pl-2",
+  "pt-3 pr-[46px] pb-[46px] pl-3",
+];
 
-  const deletePrompt = api.prompt.deletePrompt.useMutation({
-    onSuccess: () => {
-      void utils.prompt.list.invalidate();
-    },
+// Per-depth Tailwind classes for fanned card items (depth 0 = top).
+// sign = depth%2===0 ? +1 : -1. tx=depth*14*sign, ty=depth*7.7, rot=depth*2.2*sign.
+const FAN_DEPTH = [
+  {
+    pos:    "relative",
+    xform:  "",
+    z:      "z-10",
+    shadow: "shadow-[0_6px_20px_oklch(0_0_0/0.5),0_1px_3px_oklch(0_0_0/0.4)]",
+  },
+  {
+    pos:    "absolute inset-0",
+    xform:  "-translate-x-[14px] translate-y-[7.7px] -rotate-[2.2deg]",
+    z:      "z-[9]",
+    shadow: "shadow-[0_3px_10px_oklch(0_0_0/0.4)]",
+  },
+  {
+    pos:    "absolute inset-0",
+    xform:  "translate-x-[28px] translate-y-[15.4px] rotate-[4.4deg]",
+    z:      "z-[8]",
+    shadow: "shadow-[0_3px_10px_oklch(0_0_0/0.4)]",
+  },
+  {
+    pos:    "absolute inset-0",
+    xform:  "-translate-x-[42px] translate-y-[23.1px] -rotate-[6.6deg]",
+    z:      "z-[7]",
+    shadow: "shadow-[0_3px_10px_oklch(0_0_0/0.4)]",
+  },
+];
+
+const fmtDate = (d: Date) =>
+  d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 
-  // Reference image IDs are stored as JSON on the prompt row. Look up the
-  // actual URLs from the cached reference-image query so we can render
-  // thumbnails alongside the prompt text.
-  const referenceImageIds = Array.isArray(prompt.referenceImages)
-    ? (prompt.referenceImages as unknown[]).filter(
-        (v): v is string => typeof v === "string",
-      )
-    : [];
-  const referenceImagesQuery = api.referenceImage.getReferenceImages.useQuery(
-    { ids: referenceImageIds },
-    { enabled: referenceImageIds.length > 0 },
+function Spinner() {
+  return (
+    <div className="size-[18px] rounded-full border-2 border-border border-t-blue-500 animate-spin" />
   );
-  const modelGroups = groupImagesByModel(prompt.images);
+}
 
-  const toggleExpandedModel = (model: string) => {
-    setExpandedModels((prev) => {
-      const next = new Set(prev);
-      if (next.has(model)) next.delete(model);
-      else next.add(model);
-      return next;
-    });
-  };
+function PinIcon({ size = 12, filled = false }: { size?: number; filled?: boolean }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+      <path
+        d="M10.5 1.5L14.5 5.5M9 3L13 7M9.5 6.5L4 12M5.5 8L2 11.5L4.5 14L8 10.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill={filled ? "currentColor" : "none"}
+      />
+      <path
+        d="M10 2L14 6L11 9L7 5L10 2Z"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
-  const pinnedGalleryItems: ReactElement[] = [];
-  const albumGalleryItems: ReactElement[] = [];
-  for (const group of modelGroups) {
-    const isExpanded = expandedModels.has(group.model);
-    const pinnedInGroup = group.images.filter((image) =>
-      pinnedImageIds.has(image.id),
+async function downloadImage(url: string, expectedMimeType?: string) {
+  const res = await fetch(url);
+  if(!res.ok) throw new Error(`Download failed: Got ${res.status} from UploadThing`);
+
+  const extension = extensionFor(
+    res.headers.get("Content-Type")?.split(';')[0],
+    expectedMimeType ?? "dat");
+
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = `generated-${Date.now()}.${extension}`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(blobUrl);
+}
+
+type ImageCellProps = {
+  image: ImageShape;
+  ar: string;
+  isPinned: boolean;
+  pinIndex: number;
+  totalPinned: number;
+  onTogglePin: () => void;
+  onDownload: () => void;
+  onDelete: () => void;
+  onRetry?: () => void;
+  onReuseAsReference?: () => Promise<void>;
+};
+
+function ImageCell({
+  image,
+  ar,
+  isPinned,
+  pinIndex,
+  totalPinned,
+  onTogglePin,
+  onDownload,
+  onDelete,
+  onRetry,
+  onReuseAsReference,
+}: ImageCellProps) {
+  const [reusing, setReusing] = useState(false);
+
+  let body: React.ReactNode;
+  if (image.status === "pending" || image.status === "running") {
+    body = (
+      <div className="relative w-full bg-muted" style={{ aspectRatio: parseAspectRatio(ar) }}>
+        <div className="absolute inset-0 flex items-center justify-center gap-2">
+          <Spinner />
+          <span className="text-xs text-muted-foreground animate-pulse">Generating…</span>
+        </div>
+      </div>
     );
-
-    if (isExpanded) {
-      albumGalleryItems.push(
-        <ModelGroupCard
-          key={`${prompt.id}-${group.model}`}
-          prompt={prompt}
-          model={group.model}
-          images={group.images}
-          visibleImages={group.images}
-          hasHiddenImages={false}
-          isExpanded={true}
-          pinnedImageIds={pinnedImageIds}
-          onToggleExpanded={() => toggleExpandedModel(group.model)}
-          onTogglePin={onTogglePin}
-          onReuseAsReference={onReuseAsReference}
-        />,
-      );
-      continue;
-    }
-
-    if (pinnedInGroup.length === 0) {
-      albumGalleryItems.push(
-        <ModelGroupCard
-          key={`${prompt.id}-${group.model}`}
-          prompt={prompt}
-          model={group.model}
-          images={group.images}
-          visibleImages={[representativeImage(group.images)]}
-          hasHiddenImages={group.images.length > 1}
-          isExpanded={false}
-          pinnedImageIds={pinnedImageIds}
-          onToggleExpanded={() => toggleExpandedModel(group.model)}
-          onTogglePin={onTogglePin}
-          onReuseAsReference={onReuseAsReference}
-        />,
-      );
-      continue;
-    }
-
-    const unpinnedImages = group.images.filter(
-      (image) => !pinnedImageIds.has(image.id),
+  } else if (image.status === "failed") {
+    body = (
+      <div className="relative w-full bg-muted" style={{ aspectRatio: parseAspectRatio(ar) }}>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5">
+          <p className="text-xs text-destructive">Generation failed</p>
+          {onRetry && (
+            <Button variant="outline" size="xs" onClick={onRetry} className="cursor-pointer">
+              Retry
+            </Button>
+          )}
+        </div>
+      </div>
     );
-
-    if (unpinnedImages.length > 0) {
-      albumGalleryItems.push(
-        <ModelGroupCard
-          key={`${prompt.id}-${group.model}`}
-          prompt={prompt}
-          model={group.model}
-          images={group.images}
-          visibleImages={[representativeImage(unpinnedImages)]}
-          hasHiddenImages={unpinnedImages.length > 1}
-          isExpanded={false}
-          pinnedImageIds={pinnedImageIds}
-          onToggleExpanded={() => toggleExpandedModel(group.model)}
-          onTogglePin={onTogglePin}
-          onReuseAsReference={onReuseAsReference}
-        />,
-      );
-    }
-
-    pinnedGalleryItems.push(
-      ...pinnedInGroup.map((image) => (
-        <PinnedImageCard
-          key={`${prompt.id}-${group.model}-${image.id}`}
-          prompt={prompt}
-          model={group.model}
-          image={image}
-          isPinned={true}
-          onTogglePin={onTogglePin}
-          onReuseAsReference={onReuseAsReference}
+  } else {
+    body = (
+      <div className="relative w-full" style={{ aspectRatio: parseAspectRatio(ar) }}>
+        <img
+          src={image.url}
+          alt="Generated image"
+          className="absolute inset-0 w-full h-full object-cover"
         />
-      )),
+      </div>
     );
   }
-  const galleryItems = [...pinnedGalleryItems, ...albumGalleryItems];
 
   return (
-    <li className="flex flex-col gap-3">
-      <div className="group/prompt flex items-start gap-2">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                className="mt-0.5 inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-red-400/50 opacity-0 transition-opacity group-hover/prompt:opacity-100 hover:text-red-400 focus:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-red-400/40 focus-visible:outline-none"
-                aria-label="Delete prompt"
-              />
-            }
-            onClick={() => setConfirmDeletePrompt(true)}
-          >
-            <Trash2 className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipContent>Delete prompt</TooltipContent>
-        </Tooltip>
-        <div className="flex flex-col gap-1">
-          <p className="text-sm text-neutral-200">{prompt.text}</p>
-          <p className="text-[10px] tracking-wide text-neutral-600 uppercase">
-            {new Date(prompt.createdAt).toLocaleString()}
-          </p>
-        </div>
-      </div>
-
-      {referenceImageIds.length > 0 ? (
-        <div className="flex flex-col gap-1">
-          <p className="text-[10px] tracking-wide text-neutral-600 uppercase">
-            References
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {referenceImageIds.map((id) => {
-              const url = referenceImagesQuery.data?.find(
-                (r) => r.id === id,
-              )?.url;
-
-              if (url) {
-                return (
-                  <div
-                    key={id}
-                    className="relative h-12 w-12 overflow-hidden rounded border border-neutral-800 bg-neutral-900"
-                  >
-                    <Image
-                      src={url}
-                      alt="Reference image"
-                      fill
-                      sizes="48px"
-                      className="object-cover"
-                      unoptimized
-                    />
-                  </div>
-                );
-              }
-
-              if (referenceImagesQuery.isLoading) {
-                return <Skeleton key={id} className="h-12 w-12 rounded" />;
-              }
-
-              {
-                /* Query finished but image wasn't found — it was deleted. */
-              }
-              return (
-                <div
-                  key={id}
-                  className="flex h-12 w-12 items-center justify-center rounded border border-neutral-800 bg-neutral-900"
-                  title="Reference image deleted"
-                >
-                  <ImageOff className="size-4 text-neutral-600" />
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-        {galleryItems}
-      </div>
-
-      <ConfirmDialog
-        open={confirmDeletePrompt}
-        title="Delete prompt?"
-        description="This will permanently delete the prompt and all of its generated images."
-        onConfirm={() => {
-          deletePrompt.mutate(
-            { id: prompt.id },
-            { onSettled: () => setConfirmDeletePrompt(false) },
-          );
-        }}
-        onCancel={() => setConfirmDeletePrompt(false)}
-        isPending={deletePrompt.isPending}
-      />
-    </li>
-  );
-}
-
-function ModelGroupCard({
-  prompt,
-  model,
-  images,
-  visibleImages,
-  hasHiddenImages,
-  isExpanded,
-  pinnedImageIds,
-  onToggleExpanded,
-  onTogglePin,
-  onReuseAsReference,
-}: {
-  prompt: PromptWithImages;
-  model: string;
-  images: ImageRow[];
-  visibleImages: ImageRow[];
-  hasHiddenImages: boolean;
-  isExpanded: boolean;
-  pinnedImageIds: Set<string>;
-  onToggleExpanded: () => void;
-  onTogglePin: (imageId: string) => void;
-  onReuseAsReference: (imageId: string) => Promise<void>;
-}) {
-  const collapsedInteractive = hasHiddenImages && !isExpanded;
-  const showToggleButton = isExpanded ? images.length > 1 : hasHiddenImages;
-  const pinnedCount = images.filter((image) =>
-    pinnedImageIds.has(image.id),
-  ).length;
-
-  return (
-    <Card
+    <div
       className={cn(
-        "overflow-hidden border-neutral-800 bg-neutral-900 py-0 text-neutral-100",
-        isExpanded && "md:col-span-2 xl:col-span-3 2xl:col-span-4",
-        collapsedInteractive &&
-          "cursor-pointer transition hover:border-neutral-700 hover:bg-neutral-900/90",
+        "group/cell relative w-full rounded-md overflow-hidden [animation:promptGroupFadeIn_0.25s_ease_both]",
+        isPinned
+          ? "outline-2 outline-[oklch(0.63_0.18_258)] outline"
+          : "outline outline-1 outline-border",
       )}
-      onClick={collapsedInteractive ? onToggleExpanded : undefined}
-      onKeyDown={
-        collapsedInteractive
-          ? (event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                onToggleExpanded();
-              }
-            }
-          : undefined
-      }
-      role={collapsedInteractive ? "button" : undefined}
-      tabIndex={collapsedInteractive ? 0 : undefined}
     >
-      <CardHeader className="px-4 pt-4 pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <CardTitle className="text-sm leading-tight font-medium text-neutral-200">
-              {modelLabel(model)}
-            </CardTitle>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className="inline-flex min-w-6 items-center justify-center rounded-full border border-neutral-700 bg-neutral-950 px-2 text-[10px] tracking-wide text-neutral-400 uppercase">
-                {images.length} total
-              </span>
-              {pinnedCount > 0 ? (
-                <span className="inline-flex min-w-6 items-center justify-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 text-[10px] tracking-wide text-amber-300 uppercase">
-                  <Pin className="size-3 fill-current" />
-                  {pinnedCount} pinned
-                </span>
-              ) : null}
-              {hasHiddenImages && !isExpanded ? (
-                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-neutral-700 bg-neutral-950 text-neutral-400">
-                  <Layers3 className="size-3.5" />
-                </span>
-              ) : null}
-            </div>
-          </div>
-          {showToggleButton ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0 text-neutral-400 hover:text-neutral-100"
-              onClick={(event) => {
-                event.stopPropagation();
-                onToggleExpanded();
+      {body}
+      {isPinned && totalPinned > 1 && (
+        <div className="absolute top-1.5 left-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-500 text-white flex items-center gap-1 shadow-md">
+          <PinIcon size={9} filled />
+          {pinIndex + 1}/{totalPinned}
+        </div>
+      )}
+      {isPinned && totalPinned === 1 && (
+        <div className="absolute top-1.5 left-1.5 size-5 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-md">
+          <PinIcon size={10} filled />
+        </div>
+      )}
+      {image.status === "succeeded" && (
+        <div className="absolute top-1.5 right-1.5 flex gap-1 items-center opacity-0 transition-opacity group-hover/cell:opacity-100 group-focus-within/cell:opacity-100">
+          <button
+            onClick={onTogglePin}
+            title={isPinned ? "Unpin" : "Pin as cover"}
+            className={cn(
+              "h-6 px-2 rounded-full text-[11px] font-medium flex items-center gap-1 cursor-pointer border transition-colors",
+              isPinned
+                ? "bg-blue-500 border-blue-500 text-white"
+                : "bg-[oklch(0.09_0.012_258/0.82)] border-border text-foreground backdrop-blur-sm",
+            )}
+          >
+            <PinIcon size={11} filled={isPinned} />
+            {isPinned ? "Pinned" : "Pin"}
+          </button>
+          {onReuseAsReference && (
+            <button
+              onClick={() => {
+                if (reusing) return;
+                setReusing(true);
+                void onReuseAsReference().finally(() => setReusing(false));
               }}
-              aria-label={
-                isExpanded ? "Collapse image group" : "Expand image group"
-              }
+              disabled={reusing}
+              aria-label="Reuse as reference"
+              title={reusing ? "Saving as reference…" : "Reuse as reference image"}
+              className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm disabled:opacity-50"
             >
-              {isExpanded ? (
-                <ChevronUp className="size-4" />
-              ) : (
-                <ChevronDown className="size-4" />
-              )}
-            </Button>
-          ) : null}
-        </div>
-      </CardHeader>
-      <CardContent className="px-4 pb-4">
-        <div
-          className={cn(
-            "grid gap-3",
-            isExpanded
-              ? "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3"
-              : visibleImages.length > 1
-                ? "grid-cols-1 sm:grid-cols-2"
-                : "grid-cols-1",
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+                <circle cx="5.5" cy="6.5" r="1.2" stroke="currentColor" strokeWidth="1" />
+                <path d="M2 11L5.5 8L8 10L11 7L14 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
           )}
-        >
-          {visibleImages.map((image) => (
-            <ImageTile
-              key={image.id}
-              prompt={prompt}
-              image={image}
-              isPinned={pinnedImageIds.has(image.id)}
-              onTogglePin={onTogglePin}
-              onReuseAsReference={onReuseAsReference}
-            />
-          ))}
+          <button
+            onClick={onDownload}
+            aria-label="Download"
+            title="Download"
+            className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm"
+          >
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+              <path
+                d="M6 1V8M6 8L3 5.5M6 8L9 5.5M2 10.5H10"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+          <button
+            onClick={onDelete}
+            aria-label="Delete image"
+            title="Delete image"
+            className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-muted-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm"
+          >
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+              <path
+                d="M1 1L7 7M7 1L1 7"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
         </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function PinnedImageCard({
-  prompt,
-  model,
-  image,
-  isPinned,
-  onTogglePin,
-  onReuseAsReference,
-}: {
-  prompt: PromptWithImages;
-  model: string;
-  image: ImageRow;
-  isPinned: boolean;
-  onTogglePin: (imageId: string) => void;
-  onReuseAsReference: (imageId: string) => Promise<void>;
-}) {
-  return (
-    <div className="flex min-w-0 flex-col gap-2">
-      <p className="text-[10px] tracking-wide text-neutral-600 uppercase">
-        {modelLabel(model)}
-      </p>
-      <ImageTile
-        prompt={prompt}
-        image={image}
-        isPinned={isPinned}
-        onTogglePin={onTogglePin}
-        onReuseAsReference={onReuseAsReference}
-      />
+      )}
     </div>
   );
 }
 
-function ImageTile({
-  prompt,
-  image,
-  isPinned,
-  onTogglePin,
-  onReuseAsReference,
-}: {
-  prompt: PromptWithImages;
-  image: ImageRow;
-  isPinned: boolean;
-  onTogglePin: (imageId: string) => void;
-  onReuseAsReference: (imageId: string) => Promise<void>;
-}) {
-  const utils = api.useUtils();
-  const retry = api.image.runGeneration.useMutation({
-    onSettled: () => {
-      void utils.prompt.list.invalidate();
-    },
-  });
-  const deleteImage = api.image.deleteImage.useMutation({
-    onSuccess: () => {
-      void utils.prompt.list.invalidate();
-    },
-  });
-  const [downloading, setDownloading] = useState(false);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [reusing, setReusing] = useState(false);
+type ModelAlbumProps = {
+  modelId: string;
+  images: ImageShape[];
+  ar: string;
+  models: ModelInfo[];
+  onDeleteImage?: (imageId: string) => void;
+  onRetryImage?: (imageId: string) => void;
+  onReuseAsReference?: (imageId: string) => Promise<void>;
+};
 
-  // Flip `isStale` once a pending row has been pending too long. We rely on
-  // the row's `updatedAt` (server bumps it on retry) so a fresh retry resets
-  // the staleness clock.
-  const [isStale, setIsStale] = useState(false);
+function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, onReuseAsReference }: ModelAlbumProps) {
+  const model = models.find((m) => m.slug === modelId);
+  const [expanded, setExpanded] = useState(false);
+  const imageIdKey = images.map((image) => image.id).join("\n");
+  const skipNextPinnedSaveRef = useRef(true);
+  // map of imageId → timestamp when pinned (higher = more recently pinned = on top)
+  const [pinnedMap, setPinnedMap] = useState<Map<string, number>>(new Map());
+
   useEffect(() => {
-    if (image.status !== "pending") {
-      setIsStale(false);
+    skipNextPinnedSaveRef.current = true;
+    setPinnedMap(readPinnedMapForImages(imageIdsFromKey(imageIdKey)));
+  }, [imageIdKey]);
+
+  useEffect(() => {
+    if (skipNextPinnedSaveRef.current) {
+      skipNextPinnedSaveRef.current = false;
       return;
     }
-    const elapsed = Date.now() - new Date(image.updatedAt).getTime();
-    if (elapsed >= STALE_PENDING_MS) {
-      setIsStale(true);
-      return;
-    }
-    setIsStale(false);
-    const t = setTimeout(() => setIsStale(true), STALE_PENDING_MS - elapsed);
-    return () => clearTimeout(t);
-  }, [image.status, image.updatedAt]);
 
-  const handleRetry = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    retry.mutate({ imageId: image.id, retry: true });
+    writePinnedMapForImages(imageIdsFromKey(imageIdKey), pinnedMap);
+  }, [imageIdKey, pinnedMap]);
+
+  const togglePin = (id: string) => {
+    setPinnedMap((prev) => {
+      const next = new Map(prev);
+      if(next.has(id)){
+        next.delete(id);
+      } else {
+        next.set(id, Date.now());
+      };
+      return next;
+    });
   };
 
-  const handleDownload = async (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    if (!image.url) return;
-    setDownloading(true);
-    setDownloadError(null);
-    try {
-      const ext = extensionFromUrl(image.url);
-      const filename = buildDownloadName(prompt.text, image.model, ext);
-      await downloadImage(image.url, filename);
-    } catch (err) {
-      setDownloadError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDownloading(false);
-    }
-  };
+  const pinned = images
+    .filter((i) => pinnedMap.has(i.id))
+    .sort((a, b) => (pinnedMap.get(b.id) ?? 0) - (pinnedMap.get(a.id) ?? 0));
+  const unpinned = images.filter((i) => !pinnedMap.has(i.id));
+  const allDisplay = [...pinned, ...unpinned];
 
-  const handleTogglePin = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    onTogglePin(image.id);
-  };
+  const successCount = images.filter((i) => i.status === "succeeded").length;
+  const failedCount = images.filter((i) => i.status === "failed").length;
 
-  const handleDeleteClick = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    setConfirmDelete(true);
-  };
-
-  const handleReuseAsReference = async (
-    event: React.MouseEvent<HTMLButtonElement>,
-  ) => {
-    event.stopPropagation();
-    if (reusing) return;
-    setReusing(true);
-    try {
-      await onReuseAsReference(image.id);
-    } catch (err) {
-      setDownloadError(
-        err instanceof Error ? `Reuse failed: ${err.message}` : "Reuse failed",
-      );
-    } finally {
-      setReusing(false);
-    }
-  };
-
-  // While a retry is in flight, the row may still read as `failed` until the
-  // server-side update lands and the list query refetches. Treat that window
-  // as pending in the UI so the user gets immediate feedback. Conversely,
-  // a row that has been pending too long is almost certainly orphaned, so
-  // surface it as "failed" to expose the Retry button.
-  const displayStatus: ImageRow["status"] =
-    retry.isPending && image.status !== "succeeded"
-      ? "pending"
-      : image.status === "pending" && isStale
-        ? "failed"
-        : image.status;
-  const stuckMessage =
-    image.status === "pending" && isStale && !retry.isPending
-      ? "Generation appears stuck — the server may have restarted."
-      : null;
+  const coverStack = pinned.length > 0 ? pinned : images;
+  const visibleStack = coverStack.slice(0, 4);
+  const hiddenStackCount = Math.max(0, coverStack.length - visibleStack.length);
 
   return (
-    <div className="group/tile overflow-hidden rounded-xl border border-neutral-800 bg-neutral-950">
-      {displayStatus === "succeeded" && image.url ? (
-        <div className="relative aspect-square w-full bg-neutral-950">
-          <Image
-            src={image.url}
-            alt={prompt.text}
-            fill
-            sizes="(min-width: 1280px) 28vw, (min-width: 640px) 40vw, 100vw"
-            className="object-contain p-2"
-            unoptimized
-          />
-          <button
-            type="button"
-            onClick={handleTogglePin}
-            className={cn(
-              "absolute top-2 right-2 inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-neutral-700 bg-neutral-950/85 text-neutral-300 backdrop-blur transition hover:text-neutral-100",
-              isPinned && "border-amber-500/60 text-amber-300",
+    <Card
+      className="group/album rounded-lg gap-0 py-0 [animation:promptGroupFadeIn_0.3s_ease_both]"
+    >
+      {/* header */}
+      <div className="px-3 py-2.5 flex items-center justify-between gap-2 border-b border-border">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold">{model?.name ?? modelId}</div>
+          <div className="flex items-center gap-1.5 mt-px text-[10px] text-muted-foreground">
+            <span>{model?.provider}</span>
+            {successCount > 0 && (
+              <>
+                <span className="opacity-50">·</span>
+                <span>{successCount} image{successCount !== 1 ? "s" : ""}</span>
+              </>
             )}
-            aria-label={isPinned ? "Unpin image" : "Pin image"}
-          >
-            <Pin className={cn("size-4", isPinned && "fill-current")} />
-          </button>
+            {pinned.length > 0 && (
+              <>
+                <span className="opacity-50">·</span>
+                <span className="text-blue-500 flex items-center gap-0.5">
+                  <PinIcon size={9} filled />
+                  {pinned.length} pinned
+                </span>
+              </>
+            )}
+            {failedCount > 0 && (
+              <>
+                <span className="opacity-50">·</span>
+                <span className="text-destructive">{failedCount} failed</span>
+              </>
+            )}
+          </div>
         </div>
-      ) : displayStatus === "failed" ? (
-        <div className="flex aspect-square w-full flex-col items-center justify-center gap-3 bg-neutral-950 px-4 text-center">
-          <p className="text-xs text-red-400">
-            {stuckMessage ?? image.error ?? "Generation failed"}
-          </p>
+        {images.length > 1 && (
           <Button
             variant="outline"
-            size="sm"
-            onClick={handleRetry}
-            disabled={retry.isPending}
+            size="xs"
+            onClick={() => setExpanded((e) => !e)}
+            className="shrink-0 gap-1 cursor-pointer"
           >
-            Retry
+            {expanded ? "Collapse" : `View all ${images.length}`}
+            <svg
+              width="9"
+              height="9"
+              viewBox="0 0 10 10"
+              fill="none"
+              className={cn("transition-transform duration-200", expanded && "rotate-180")}
+            >
+              <path
+                d="M2 4L5 7L8 4"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           </Button>
-        </div>
-      ) : (
-        <Skeleton className="aspect-square w-full rounded-none" />
-      )}
-      <CardFooter className="justify-between gap-2 border-t border-neutral-800 bg-neutral-950/80 px-3 py-2">
-        <p className="text-[10px] tracking-wide text-neutral-600 uppercase">
-          {displayStatus === "pending"
-            ? "Generating…"
-            : displayStatus === "failed"
-              ? "Failed"
-              : new Date(image.createdAt).toLocaleString()}
-        </p>
-        <div className="flex items-center gap-1">
-          <IconTooltipButton
-            tooltip="Delete image"
-            ariaLabel="Delete image"
-            onClick={handleDeleteClick}
-            className="h-7 w-7 cursor-pointer p-0 text-red-400/50 opacity-0 transition-opacity group-hover/tile:opacity-100 hover:text-red-400 focus:opacity-100 focus-visible:opacity-100"
-          >
-            <Trash2 className="size-3.5" />
-          </IconTooltipButton>
-          {displayStatus === "succeeded" && image.url ? (
-            <>
-              <IconTooltipButton
-                tooltip={
-                  reusing ? "Saving as reference..." : "Reuse as reference"
-                }
-                ariaLabel={
-                  reusing ? "Saving as reference…" : "Reuse as reference image"
-                }
-                onClick={handleReuseAsReference}
-                disabled={reusing}
-                className="h-7 w-7 cursor-pointer p-0 text-neutral-300 hover:text-neutral-100"
-              >
-                <ImagePlus className="size-3.5" />
-              </IconTooltipButton>
-              <IconTooltipButton
-                tooltip={downloading ? "Downloading image" : "Download image"}
-                ariaLabel={downloading ? "Downloading image" : "Download image"}
-                onClick={handleDownload}
-                disabled={downloading}
-                className="h-7 w-7 cursor-pointer p-0 text-neutral-300 hover:text-neutral-100"
-              >
-                <Download className="size-3.5" />
-              </IconTooltipButton>
-            </>
-          ) : null}
-        </div>
-      </CardFooter>
-      {downloadError ? (
-        <div className="border-t border-neutral-800 px-3 py-2">
-          <p className="text-[10px] text-red-400">{downloadError}</p>
-        </div>
-      ) : null}
+        )}
+      </div>
 
-      <ConfirmDialog
-        open={confirmDelete}
-        title="Delete image?"
-        description="This generated image will be permanently deleted."
-        onConfirm={() => {
-          deleteImage.mutate(
-            { id: image.id },
-            { onSettled: () => setConfirmDelete(false) },
-          );
-        }}
-        onCancel={() => setConfirmDelete(false)}
-        isPending={deleteImage.isPending}
-      />
+      {/* body */}
+      <div className="p-3.5">
+        {!expanded ? (
+          <div className="relative">
+            <div className={cn("relative", FAN_PADDING[visibleStack.length])}>
+              {visibleStack.length === 0 ? (
+                <div className="rounded-md bg-muted" style={{ aspectRatio: parseAspectRatio(ar) }} />
+              ) : (
+                [...visibleStack].reverse().map((img, idx) => {
+                  const depth = visibleStack.length - 1 - idx; // 0 = top
+                  const dc = FAN_DEPTH[depth]!;
+                  const isPinned = pinnedMap.has(img.id);
+                  const pinIdx = pinned.findIndex((p) => p.id === img.id);
+                  return (
+                    <div
+                      key={img.id}
+                      inert={depth !== 0 ? true : undefined}
+                      className={cn(
+                        "rounded-md transition-transform duration-[250ms]",
+                        dc.pos,
+                        dc.xform,
+                        dc.z,
+                        dc.shadow,
+                      )}
+                    >
+                      <ImageCell
+                        image={img}
+                        ar={ar}
+                        isPinned={isPinned}
+                        pinIndex={pinIdx}
+                        totalPinned={pinned.length}
+                        onTogglePin={() => togglePin(img.id)}
+                        onDownload={() => downloadImage(img.url)}
+                        onDelete={() => onDeleteImage?.(img.id)}
+                        onRetry={onRetryImage ? () => onRetryImage(img.id) : undefined}
+                        onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(img.id) : undefined}
+                      />
+                    </div>
+                  );
+                })
+              )}
+              {hiddenStackCount > 0 && (
+                <div className="absolute bottom-2 right-2 text-[11px] font-semibold px-2 py-1 rounded-full bg-[oklch(0.09_0.012_258/0.85)] border border-border text-foreground z-20 backdrop-blur-sm">
+                  +{hiddenStackCount} more{pinned.length > 0 ? " pinned" : ""}
+                </div>
+              )}
+            </div>
+            {pinned.length === 0 && images.length > 1 && (
+              <div className="absolute bottom-2 left-2 text-[11px] px-2 py-1 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-muted-foreground flex items-center gap-1 pointer-events-none z-20 backdrop-blur-sm opacity-0 transition-opacity group-hover/album:opacity-100 group-focus-within/album:opacity-100">
+                <PinIcon size={10} />
+                Pin to set cover · expand to see all
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className={cn("grid gap-2.5", images.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
+            {allDisplay.map((img) => {
+              const isPinned = pinnedMap.has(img.id);
+              const pinIdx = pinned.findIndex((p) => p.id === img.id);
+              return (
+                <ImageCell
+                  key={img.id}
+                  image={img}
+                  ar={ar}
+                  isPinned={isPinned}
+                  pinIndex={pinIdx}
+                  totalPinned={pinned.length}
+                  onTogglePin={() => togglePin(img.id)}
+                  onDownload={() => downloadImage(img.url)}
+                  onDelete={() => onDeleteImage?.(img.id)}
+                  onRetry={onRetryImage ? () => onRetryImage(img.id) : undefined}
+                  onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(img.id) : undefined}
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+export default function PromptGroup(props: PromptGroupProps) {
+  const modelOrder: string[] = [];
+  const byModel: Record<string, ImageShape[]> = {};
+  for (const img of props.images) {
+    if (!byModel[img.modelSlug]) {
+      byModel[img.modelSlug] = [];
+      modelOrder.push(img.modelSlug);
+    }
+    byModel[img.modelSlug]!.push(img);
+  }
+
+  const refImages = props.referenceImages.filter((r) => r.url);
+
+  return (
+    <div
+      className="group/prompt flex flex-col gap-3 [animation:promptGroupFadeIn_0.4s_ease_both]"
+    >
+      {/* prompt header */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-foreground leading-relaxed">{props.prompt}</p>
+          <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
+            <p className="text-[11px] text-muted-foreground/60">{fmtDate(props.createdAt)}</p>
+            {refImages.length > 0 && (
+              <div className="flex items-center gap-1">
+                {refImages.map((r) => (
+                  <div
+                    key={r.id}
+                    className="size-[18px] rounded border border-border overflow-hidden shrink-0"
+                  >
+                    <img src={r.url} alt="Reference" className="w-full h-full object-cover" />
+                  </div>
+                ))}
+                <span className="text-[10px] text-muted-foreground/60 ml-0.5">
+                  {refImages.length} ref{refImages.length > 1 ? "s" : ""}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+        {props.onDeletePrompt && (
+          <button
+            onClick={props.onDeletePrompt}
+            className="px-2.5 py-1 text-[11px] bg-transparent border border-border rounded-md text-muted-foreground cursor-pointer hover:border-destructive hover:text-destructive transition-colors shrink-0 opacity-0 group-hover/prompt:opacity-100 group-focus-within/prompt:opacity-100"
+          >
+            Delete
+          </button>
+        )}
+      </div>
+
+      {/* model albums — 3-column grid */}
+      <div className="grid grid-cols-3 gap-3.5 items-start">
+        {modelOrder.map((modelId) => (
+          <ModelAlbum
+            key={modelId}
+            modelId={modelId}
+            images={byModel[modelId]!}
+            ar={props.aspectRatio ?? "1:1"}
+            models={props.models}
+            onDeleteImage={props.onDeleteImage}
+            onRetryImage={props.onRetryImage}
+            onReuseAsReference={props.onReuseAsReference}
+          />
+        ))}
+      </div>
     </div>
   );
 }

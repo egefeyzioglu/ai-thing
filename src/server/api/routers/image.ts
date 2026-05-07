@@ -2,6 +2,8 @@ import { TRPCError } from "@trpc/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
+import { extensionFor } from "src/lib/utils";
+
 import { env } from "src/env";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
@@ -46,6 +48,24 @@ type GeneratedImage = {
   mimeType: string;
 };
 
+// Gemini-allowed aspect ratios
+const GEMINI_ALLOWED_ASPECT_RATIOS = new Set([
+  "1:1",
+  "1:4",
+  "4:1",
+  "1:8",
+  "8:1",
+  "2:3",
+  "3:2",
+  "3:4",
+  "4:3",
+  "4:5",
+  "5:4",
+  "9:16",
+  "16:9",
+  "21:9",
+]);
+
 function parseReferenceImageIds(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((value): value is string => typeof value === "string");
@@ -82,6 +102,8 @@ async function generateImageOpenAI(
   userId: string,
   prompt: string,
   referenceImageIds?: string[],
+  resolution?: string,
+  aspectRatio?: string,
 ): Promise<GeneratedImage> {
   const ownedReferenceImages = await loadOwnedReferenceImages(
     userId,
@@ -98,6 +120,25 @@ async function generateImageOpenAI(
     })),
   ];
 
+  // OpenAI only supports 1024x1024, 1024x1536, 1536x1024, and auto.
+  // Map aspect ratio to the closest supported size; ignore raw resolution.
+  let size = "auto";
+  if (aspectRatio) {
+    const parts = aspectRatio.split(":").map(Number);
+    const w = parts[0];
+    const h = parts[1];
+    if (w && h) {
+      const ratio = w / h;
+      if (ratio >= 0.99 && ratio <= 1.01) {
+        size = "1024x1024";
+      } else if (ratio > 1) {
+        size = "1536x1024";
+      } else {
+        size = "1024x1536";
+      }
+    }
+  }
+
   const body = JSON.stringify({
     model: "gpt-5.4-mini",
     input: [
@@ -106,7 +147,7 @@ async function generateImageOpenAI(
         content: [...modelInputs],
       },
     ],
-    tools: [{ type: "image_generation" }],
+    tools: [{ type: "image_generation", size }],
   });
 
   const res = await fetch("https://api.openai.com/v1/responses", {
@@ -141,6 +182,8 @@ async function generateImageGemini(
   userId: string,
   prompt: string,
   referenceImageIds?: string[],
+  resolution?: string,
+  aspectRatio?: string,
 ): Promise<GeneratedImage> {
   const ownedReferenceImages = await loadOwnedReferenceImages(
     userId,
@@ -154,7 +197,7 @@ async function generateImageGemini(
         return Buffer.from(imageBytes).toString("base64");
       }),
     )
-  ).filter((x?: string) => x !== undefined);
+  ).filter((x): x is string => x !== undefined);
   const modelInputs = [
     ...referenceImageB64s.map((b64: string) => ({
       inline_data: {
@@ -166,14 +209,45 @@ async function generateImageGemini(
     { text: "Generate an image based on the following user input:" + prompt },
   ];
   // "Nano Banana" = gemini-2.5-flash-image, Google's image-gen Gemini variant.
+
+  // Map resolution to Gemini imageSize
+  let imageSize: string | undefined;
+  if (resolution) {
+    const res = parseInt(resolution, 10);
+    if (res <= 512) imageSize = "512";
+    else if (res <= 1024) imageSize = "1K";
+    else if (res <= 2048) imageSize = "2K";
+    else imageSize = "4K";
+  }
+
+  // Validate aspectRatio against Gemini's whitelist
+  if (aspectRatio && !GEMINI_ALLOWED_ASPECT_RATIOS.has(aspectRatio)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Invalid aspect ratio "${aspectRatio}". Allowed values: ${[...GEMINI_ALLOWED_ASPECT_RATIOS].join(", ")}`,
+    });
+  }
+
+  const requestBody: Record<string, unknown> = {
+    contents: [{ parts: [...modelInputs] }],
+  };
+
+  requestBody.generationConfig = {
+    responseModalities: ["IMAGE"],
+    ...((imageSize != null || aspectRatio != null) && {
+      imageConfig: {
+        ...(imageSize && { imageSize }),
+        ...(aspectRatio && { aspectRatio }),
+      },
+    }),
+  };
+
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${env.GEMINI_API_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [...modelInputs] }],
-      }),
+      body: JSON.stringify(requestBody),
     },
   );
 
@@ -203,12 +277,6 @@ function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   return out;
 }
 
-function extensionFor(mimeType: string): string {
-  if (mimeType.includes("jpeg") || mimeType.includes("jpg")) return "jpg";
-  if (mimeType.includes("webp")) return "webp";
-  return "png";
-}
-
 async function uploadGeneratedImage(args: {
   imageId: string;
   generated: GeneratedImage;
@@ -236,12 +304,14 @@ async function generateForModel(
   userId: string,
   prompt: string,
   referenceImageIds?: string[],
+  resolution?: string,
+  aspectRatio?: string,
 ): Promise<GeneratedImage> {
   switch (model) {
     case "gpt-5.4-mini":
-      return generateImageOpenAI(userId, prompt, referenceImageIds);
+      return generateImageOpenAI(userId, prompt, referenceImageIds, resolution, aspectRatio);
     case "gemini-2.5-flash-image":
-      return generateImageGemini(userId, prompt, referenceImageIds);
+      return generateImageGemini(userId, prompt, referenceImageIds, resolution, aspectRatio);
     default:
       throw new Error(`Unsupported model: ${model}`);
   }
@@ -311,37 +381,63 @@ export const imageRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }): Promise<Image> => {
+      console.log("[runGeneration] input:", { imageId: input.imageId, retry: input.retry });
+
       const [imageRow] = await db
         .select()
         .from(images)
         .where(and(eq(images.id, input.imageId), eq(images.userId, ctx.user)))
         .limit(1);
       if (!imageRow) {
+        console.error("[runGeneration] image row not found:", input.imageId);
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Image row not found",
         });
       }
 
-      // Idempotent for completed rows. For failed rows, only re-run if
-      // the caller explicitly opts in via `retry`. Pending rows normally
-      // proceed straight to generation, but `retry: true` is also honored
-      // there to let the client recover orphaned rows (e.g. ones whose
-      // original handler died because the server restarted mid-flight).
-      if (imageRow.status === "succeeded") return imageRow;
-      if (imageRow.status === "failed" && !input.retry) return imageRow;
-      if (imageRow.status === "failed" || input.retry) {
-        // Reset to pending so the row reflects the in-flight (re-)run.
-        await db
-          .update(images)
-          .set({ status: "pending", error: null, updatedAt: new Date() })
-          .where(and(eq(images.id, imageRow.id), eq(images.userId, ctx.user)));
+      console.log("[runGeneration] image row found:", { status: imageRow.status, model: imageRow.model, error: imageRow.error });
+
+      if (imageRow.status === "succeeded") {
+        console.log("[runGeneration] already succeeded, returning early");
+        return imageRow;
+      }
+      if (imageRow.status === "failed" && !input.retry) {
+        console.log("[runGeneration] status=failed but retry not set, returning early");
+        return imageRow;
+      }
+
+      // Atomic claim: only proceed if we can transition from the expected
+      // status to "running". This prevents duplicate generation if the same
+      // image is requested concurrently.
+      const claimableStatus = imageRow.status === "failed" ? "failed" : "pending";
+      const [claimed] = await db
+        .update(images)
+        .set({ status: "running", error: null, updatedAt: new Date() })
+        .where(
+          and(
+            eq(images.id, imageRow.id),
+            eq(images.userId, ctx.user),
+            eq(images.status, claimableStatus),
+          ),
+        )
+        .returning();
+      if (!claimed) {
+        console.log("[runGeneration] claim failed, another worker claimed it");
+        const [current] = await db
+          .select()
+          .from(images)
+          .where(and(eq(images.id, imageRow.id), eq(images.userId, ctx.user)))
+          .limit(1);
+        return current ?? imageRow;
       }
 
       const [promptRow] = await db
         .select({
           text: prompts.text,
           referenceImages: prompts.referenceImages,
+          resolution: prompts.resolution,
+          aspectRatio: prompts.aspectRatio,
         })
         .from(prompts)
         .where(
@@ -349,11 +445,18 @@ export const imageRouter = createTRPCRouter({
         )
         .limit(1);
       if (!promptRow) {
+        console.error("[runGeneration] prompt row not found for promptId:", imageRow.promptId);
+        await db
+          .update(images)
+          .set({ status: "failed", error: "Prompt not found", updatedAt: new Date() })
+          .where(and(eq(images.id, imageRow.id), eq(images.userId, ctx.user)));
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Prompt not found",
         });
       }
+
+      console.log("[runGeneration] starting generation for model:", imageRow.model);
 
       const referenceImageIds = parseReferenceImageIds(
         promptRow.referenceImages,
@@ -365,7 +468,10 @@ export const imageRouter = createTRPCRouter({
           ctx.user,
           promptRow.text,
           referenceImageIds,
+          promptRow.resolution ?? undefined,
+          promptRow.aspectRatio ?? undefined,
         );
+        console.log("[runGeneration] generation succeeded, uploading");
         const { url, key } = await uploadGeneratedImage({
           imageId: imageRow.id,
           generated,
@@ -388,8 +494,10 @@ export const imageRouter = createTRPCRouter({
             message: "Failed to update image row",
           });
         }
+        console.log("[runGeneration] done, status: succeeded");
         return updated;
       } catch (err) {
+        console.error("[runGeneration] generation/upload failed:", err);
         const message = err instanceof Error ? err.message : String(err);
         const [updated] = await db
           .update(images)
@@ -406,6 +514,7 @@ export const imageRouter = createTRPCRouter({
             message: "Failed to record image failure",
           });
         }
+        console.log("[runGeneration] done, status: failed, error:", message);
         return updated;
       }
     }),

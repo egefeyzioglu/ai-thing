@@ -7,19 +7,49 @@ import { db } from "src/server/db";
 import { images, prompts, referenceImages } from "src/server/db/schema";
 import { utapi } from "src/server/uploadthing";
 
+export type SupportedModel = {
+  slug: string;
+  humanName: string;
+  provider: string;
+};
+
 export const SUPPORTED_MODELS = [
-  "gpt-5.4-mini",
-  "gemini-2.5-flash-image",
-] as const;
+  {
+    slug: "gpt-5.4-mini",
+    humanName: "GPT 5.4 Mini",
+    provider: "Open AI"
+  },
+  {
+    slug: "gemini-2.5-flash-image",
+    humanName: "Gemini 2.5 Flash",
+    provider: "Google"
+  }
+ ] as const satisfies SupportedModel[];
+
+ type ModelSlug = (typeof SUPPORTED_MODELS)[number]["slug"];
+
+const supportedModelSlugs = SUPPORTED_MODELS.map(
+  (m) => m.slug,
+) as unknown as [ModelSlug, ...ModelSlug[]];
 
 export const promptRouter = createTRPCRouter({
+  getModels: protectedProcedure.query(() => {
+    return SUPPORTED_MODELS.map((model) => ({
+      slug: model.slug,
+      name: model.humanName,
+      provider: model.provider,
+    }));
+  }),
+
   createWithGenerations: protectedProcedure
     .input(
       z.object({
         text: z.string().min(1).max(1000),
-        models: z.array(z.enum(SUPPORTED_MODELS)).min(1),
+        models: z.array(z.enum(supportedModelSlugs)).min(1),
         repeatCount: z.number().int().min(1).max(8),
         referenceImages: z.array(z.string()).optional(),
+        resolution: z.string().optional(),
+        aspectRatio: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -58,6 +88,8 @@ export const promptRouter = createTRPCRouter({
             userId: ctx.user,
             text: input.text,
             referenceImages: referenceImageIds,
+            resolution: input.resolution,
+            aspectRatio: input.aspectRatio,
           })
           .returning();
         if (!promptRow) throw new Error("Failed to insert prompt");
