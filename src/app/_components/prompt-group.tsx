@@ -308,6 +308,7 @@ function ImageCell({
                 void onReuseAsReference().finally(() => setReusing(false));
               }}
               disabled={reusing}
+              aria-label="Reuse as reference"
               title={reusing ? "Saving as reference…" : "Reuse as reference image"}
               className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm disabled:opacity-50"
             >
@@ -320,6 +321,7 @@ function ImageCell({
           )}
           <button
             onClick={onDownload}
+            aria-label="Download"
             title="Download"
             className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm"
           >
@@ -335,6 +337,7 @@ function ImageCell({
           </button>
           <button
             onClick={onDelete}
+            aria-label="Delete image"
             title="Delete image"
             className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-muted-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm"
           >
