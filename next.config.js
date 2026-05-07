@@ -10,7 +10,6 @@ const config = {
     remotePatterns: [
       { protocol: "https", hostname: "*.ufs.sh" },
       { protocol: "https", hostname: "utfs.io" },
-      { protocol: "https", hostname: "picsum.photos" },
     ],
   },
 };
