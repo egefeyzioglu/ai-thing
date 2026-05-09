@@ -223,7 +223,7 @@ export default function Home() {
         }
       });
 
-      await Promise.allSettled(
+      const generationResults = await Promise.allSettled(
         result.images.map((img) =>
           runGeneration.mutateAsync({
             imageId: img.id
@@ -236,7 +236,19 @@ export default function Home() {
           }),
         ),
       );
-      notifyPromptDone();
+      const failedGenerationCount = generationResults.filter(
+        (generationResult) =>
+          generationResult.status === "rejected" ||
+          generationResult.value.status === "failed",
+      ).length;
+      notifyPromptDone({
+        failureState:
+          failedGenerationCount === 0
+            ? "none"
+            : failedGenerationCount === generationResults.length
+              ? "all"
+              : "some",
+      });
     } catch {
       // createPrompt failed
       console.error(`Failed to generate one or more images for prompt: "${trimmedPrompt}"`);
@@ -610,10 +622,12 @@ export default function Home() {
                     {
                       onSuccess: (data) => console.log("[retry] succeeded, result:", data),
                       onError: (err) => console.error("[retry] mutation error:", err),
-                      onSettled: () => {
+                      onSettled: (data, error) => {
                         console.log("[retry] settled, invalidating list");
                         void utils.prompt.list.invalidate();
-                        notifyPromptDone();
+                        notifyPromptDone({
+                          failureState: !!error || data?.status === "failed" ? "all" : "none",
+                        });
                       },
                     },
                   );

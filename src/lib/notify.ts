@@ -11,6 +11,8 @@
 const TITLE_PREFIX = "(✓) ";
 const PUSH_NOTIFICATION_TITLE = "Generation complete";
 const PUSH_NOTIFICATION_BODY = "Your images are ready.";
+const PUSH_NOTIFICATION_PARTIAL_FAILURE_BODY = "Some images failed. Return to AI Thing to review.";
+const PUSH_NOTIFICATION_TOTAL_FAILURE_BODY = "All images failed. Return to AI Thing to review.";
 
 let originalTitle: string | null = null;
 let visibilityHandler: (() => void) | null = null;
@@ -57,7 +59,17 @@ function windowHasFocus() {
   return document.hasFocus();
 }
 
-function sendPushNotification() {
+type NotifyPromptDoneOptions = {
+  failureState?: "none" | "some" | "all";
+};
+
+function notificationBody(failureState: NotifyPromptDoneOptions["failureState"]) {
+  if (failureState === "all") return PUSH_NOTIFICATION_TOTAL_FAILURE_BODY;
+  if (failureState === "some") return PUSH_NOTIFICATION_PARTIAL_FAILURE_BODY;
+  return PUSH_NOTIFICATION_BODY;
+}
+
+function sendPushNotification(options: NotifyPromptDoneOptions = {}) {
   if (typeof window === "undefined") return;
   if (!("Notification" in window)) return;
   if (Notification.permission !== "granted") return;
@@ -65,7 +77,7 @@ function sendPushNotification() {
 
   try {
     new Notification(PUSH_NOTIFICATION_TITLE, {
-      body: PUSH_NOTIFICATION_BODY,
+      body: notificationBody(options.failureState),
     });
   } catch {
     /* ignore */
@@ -77,10 +89,10 @@ function sendPushNotification() {
  * the tab is currently hidden, sends a push notification if the window is not
  * focused and permission was granted, and plays a ding either way.
  */
-export function notifyPromptDone() {
+export function notifyPromptDone(options: NotifyPromptDoneOptions = {}) {
   if (typeof document !== "undefined" && document.hidden) {
     markTitle();
   }
-  sendPushNotification();
+  sendPushNotification(options);
   playDing();
 }
