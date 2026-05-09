@@ -17,6 +17,12 @@ import clsx from "clsx";
 
 import { api, type RouterInputs } from "src/trpc/react";
 import { useUploadThing } from "src/lib/uploadthing";
+import {
+  dismissPromptDoneNotificationPrompt,
+  notifyPromptDone,
+  requestPromptDoneNotificationPermission,
+  shouldPromptForPromptDoneNotifications,
+} from "src/lib/notify";
 
 // import { SUPPORTED_MODELS } from "src/server/api/routers/prompt";
 import PromptGroup from "./_components/prompt-group";
@@ -85,6 +91,7 @@ export default function Home() {
   const [promptText, setPromptText] = useState("");
   const [runs, setRuns] = useState(1);
   const [batchRunning, setBatchRunning] = useState(false);
+  const [notificationPromptOpen, setNotificationPromptOpen] = useState(false);
   const batchRunningRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -151,10 +158,13 @@ export default function Home() {
     }
   };
 
-  const handleGenerate = async () => {
+  const runGenerate = async (options?: { requestNotifications?: boolean }) => {
     const trimmedPrompt = promptText.trim();
     if (!trimmedPrompt || selectedModels.length === 0) return;
     if (batchRunningRef.current) return;
+    if (options?.requestNotifications) {
+      await requestPromptDoneNotificationPermission();
+    }
     batchRunningRef.current = true;
     setBatchRunning(true);
     try {
@@ -186,6 +196,7 @@ export default function Home() {
           }),
         ),
       );
+      notifyPromptDone();
     } catch {
       // createPrompt failed
       console.error(`Failed to generate one or more images for prompt: "${trimmedPrompt}"`);
@@ -193,6 +204,27 @@ export default function Home() {
       batchRunningRef.current = false;
       setBatchRunning(false);
     }
+  };
+
+  const handleGenerate = () => {
+    if (!promptText.trim() || selectedModels.length === 0) return;
+    if (batchRunningRef.current) return;
+    if (shouldPromptForPromptDoneNotifications()) {
+      setNotificationPromptOpen(true);
+      return;
+    }
+    void runGenerate();
+  };
+
+  const handleEnableNotificationsAndGenerate = () => {
+    setNotificationPromptOpen(false);
+    void runGenerate({ requestNotifications: true });
+  };
+
+  const handleSkipNotificationsAndGenerate = () => {
+    dismissPromptDoneNotificationPrompt();
+    setNotificationPromptOpen(false);
+    void runGenerate();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -240,6 +272,48 @@ export default function Home() {
 
   return (
     <main className="w-full grow flex flex-row text-gray-200">
+      {notificationPromptOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="notification-prompt-title"
+          aria-describedby="notification-prompt-desc"
+        >
+          <div className="absolute inset-0 bg-black/60" />
+          <div className="relative z-10 mx-4 w-full max-w-sm rounded-lg border border-neutral-800 bg-neutral-900 p-6 shadow-xl">
+            <h2
+              id="notification-prompt-title"
+              className="text-sm font-medium text-neutral-100"
+            >
+              Notify you when generations finish?
+            </h2>
+            <p
+              id="notification-prompt-desc"
+              className="mt-2 text-sm text-neutral-400"
+            >
+              AI Thing can send a browser notification if this window is not
+              focused when generation completes.
+            </p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                className="h-8 rounded-lg border border-border bg-background px-2.5 text-sm font-medium text-foreground hover:bg-muted"
+                onClick={handleSkipNotificationsAndGenerate}
+              >
+                Not now
+              </button>
+              <button
+                type="button"
+                className="h-8 rounded-lg bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/80"
+                onClick={handleEnableNotificationsAndGenerate}
+              >
+                Enable notifications
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <aside className="w-1/5 h-screen border border-x border-(--border) flex flex-col">
         <div className="border-y border-(--border) flex flex-row gap-4 items-center p-5">
           <div className="w-8 h-8 bg-blue-400 rounded-md"></div>
