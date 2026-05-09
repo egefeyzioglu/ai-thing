@@ -6,6 +6,7 @@ import { Card } from "src/components/ui/card";
 import { Button } from "src/components/ui/button";
 import Image from "next/image";
 import { cn } from "src/lib/utils";
+import { captureHandledException } from "src/lib/utils";
 
 import { extensionFor } from "src/lib/utils";
 
@@ -48,7 +49,10 @@ function readStoredPinnedImages(): StoredPinnedImages {
 
     const parsed: unknown = JSON.parse(raw);
     return isStoredPinnedImages(parsed) ? parsed : {};
-  } catch {
+  } catch (error) {
+    captureHandledException(error, {
+      source: "PromptGroup.readStoredPinnedImages",
+    });
     return {};
   }
 }
@@ -83,7 +87,10 @@ function writePinnedMapForImages(imageIds: string[], pinnedMap: Map<string, numb
 
   try {
     localStorage.setItem(PINNED_IMAGES_STORAGE_KEY, JSON.stringify(stored));
-  } catch {
+  } catch (error) {
+    captureHandledException(error, {
+      source: "PromptGroup.writePinnedMapForImages",
+    });
     // Ignore unavailable storage, such as private browsing quota failures.
   }
 }

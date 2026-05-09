@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
+import { captureServerException } from "src/lib/server-utils";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import { images, prompts, referenceImages } from "src/server/db/schema";
@@ -145,7 +146,13 @@ export const promptRouter = createTRPCRouter({
         .filter((k): k is string => !!k);
 
       if (keys.length > 0) {
-          await utapi.deleteFiles(keys).catch((r) => {
+          await utapi.deleteFiles(keys).catch(async (r) => {
+            await captureServerException(r, {
+              source: "prompt.deletePrompt.deleteUploadThingFiles",
+              promptId: input.id,
+              fileKeys: keys,
+              userId: ctx.user,
+            }, ctx.user);
             console.error(
               `Failed to delete some files from UploadThing for image ${input.id}`,
               r

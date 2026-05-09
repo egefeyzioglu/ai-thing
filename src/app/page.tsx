@@ -16,6 +16,7 @@ import { ChevronUp, ChevronDown, Upload, AlertTriangle} from "lucide-react"
 import clsx from "clsx";
 
 import { api, type RouterInputs } from "src/trpc/react";
+import { captureHandledException } from "src/lib/utils";
 import { useUploadThing } from "src/lib/uploadthing";
 
 // import { SUPPORTED_MODELS } from "src/server/api/routers/prompt";
@@ -145,6 +146,9 @@ export default function Home() {
         }
       }
     } catch (error) {
+      captureHandledException(error, {
+        source: "Home.handleFileUpload",
+      });
       console.error("Failed to upload reference image", error);
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -168,6 +172,9 @@ export default function Home() {
       }, {
         onSuccess: ()=>{
           utils.prompt.list.invalidate().catch((reason) => {
+            captureHandledException(reason, {
+              source: "Home.handleGenerate.invalidatePromptList",
+            });
             console.error("Failed to invalidate prompt.list, user will have to refresh.", reason);
           });
         }
@@ -180,13 +187,21 @@ export default function Home() {
           }, {
             onSuccess: () => {
               utils.prompt.list.invalidate().catch((reason) => {
+                captureHandledException(reason, {
+                  source: "Home.handleGenerate.invalidateImagesQuery",
+                  imageId: img.id,
+                });
                 console.error("Failed to invalidate images query, user will have to refresh.", reason);
               });
             }
           }),
         ),
       );
-    } catch {
+    } catch (error) {
+      captureHandledException(error, {
+        source: "Home.handleGenerate",
+        prompt: trimmedPrompt,
+      });
       // createPrompt failed
       console.error(`Failed to generate one or more images for prompt: "${trimmedPrompt}"`);
     } finally {
@@ -208,6 +223,10 @@ export default function Home() {
     try {
       result = await reuseAsReference.mutateAsync({ imageId });
     } catch (err) {
+      captureHandledException(err, {
+        source: "Home.handleReuseAsReference",
+        imageId,
+      });
       console.error("Failed to reuse image as reference", err);
       return;
     }
@@ -508,6 +527,10 @@ export default function Home() {
                     {
                       onSuccess: () => {
                         utils.prompt.list.invalidate().catch((reason) => {
+                          captureHandledException(reason, {
+                            source: "Home.deletePrompt.invalidatePromptList",
+                            promptId: prompt.id,
+                          });
                           if(reason instanceof Error) throw reason;
                           console.error("Failed to invalidate images query, user will have to refresh.", reason);
                         });
@@ -518,6 +541,10 @@ export default function Home() {
                     {
                       onSuccess: () => {
                         utils.image.invalidate().catch((reason) => {
+                          captureHandledException(reason, {
+                            source: "Home.deleteImage.invalidateImages",
+                            imageId,
+                          });
                           if(reason instanceof Error) throw reason;
                           console.error("Failed to invalidate images query, user will have to refresh.", reason);
                         });
@@ -540,7 +567,13 @@ export default function Home() {
                     { imageId, retry: true },
                     {
                       onSuccess: (data) => console.log("[retry] succeeded, result:", data),
-                      onError: (err) => console.error("[retry] mutation error:", err),
+                      onError: (err) => {
+                        captureHandledException(err, {
+                          source: "Home.retryImage",
+                          imageId,
+                        });
+                        console.error("[retry] mutation error:", err);
+                      },
                       onSettled: () => {
                         console.log("[retry] settled, invalidating list");
                         void utils.prompt.list.invalidate();

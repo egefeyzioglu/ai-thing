@@ -6,6 +6,8 @@
 //
 // Both are no-ops on the server.
 
+import { captureHandledException } from "src/lib/utils";
+
 const TITLE_PREFIX = "(✓) ";
 
 let originalTitle: string | null = null;
@@ -40,11 +42,15 @@ function playDing() {
     const audio = new Audio("/ding.mp3");
     // Best-effort; browsers may reject if there's been no user gesture, but
     // generation is always user-initiated so this should normally succeed.
-    void audio.play().catch(() => {
-      /* swallow autoplay errors */
+    void audio.play().catch((error) => {
+      captureHandledException(error, {
+        source: "notifyPromptDone.playDing.play",
+      });
     });
-  } catch {
-    /* ignore */
+  } catch (error) {
+    captureHandledException(error, {
+      source: "notifyPromptDone.playDing",
+    });
   }
 }
 
