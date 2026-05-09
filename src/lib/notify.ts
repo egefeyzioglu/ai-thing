@@ -64,7 +64,8 @@ function wasNotificationPromptDismissed() {
   if (typeof window === "undefined") return true;
   try {
     return (
-      window.sessionStorage.getItem(NOTIFICATION_PROMPT_DISMISSED_KEY) === "true"
+      window.sessionStorage.getItem(NOTIFICATION_PROMPT_DISMISSED_KEY) ===
+      "true"
     );
   } catch {
     return false;
