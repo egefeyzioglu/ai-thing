@@ -108,7 +108,7 @@ export default function Home() {
 
   useEffect(() => {
     unlockGenerateButton();
-  }, [selectedModels, selectedReferenceImages, resolution, aspect, runs]);
+  }, [promptText, selectedModels, selectedReferenceImages, resolution, aspect, runs]);
 
   const user = useUser();
 
