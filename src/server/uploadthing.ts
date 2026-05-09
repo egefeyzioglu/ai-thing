@@ -3,6 +3,7 @@ import "server-only";
 import { UTApi, UTFile } from "uploadthing/server";
 
 import { env } from "src/env";
+import { captureServerException } from "src/lib/server-utils";
 
 const globalForUt = globalThis as unknown as {
   utapi: UTApi | undefined;
@@ -26,7 +27,11 @@ export function extractFileKey(url: string): string | null {
   try {
     const match = /\/f\/(.+)/.exec(new URL(url).pathname);
     return match?.[1] ?? null;
-  } catch {
+  } catch (error) {
+    void captureServerException(error, {
+      source: "extractFileKey",
+      url,
+    });
     return null;
   }
 }

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { extensionFor } from "src/lib/utils";
 
 import { env } from "src/env";
+import { captureServerException } from "src/lib/server-utils";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import {
@@ -352,12 +353,23 @@ export const imageRouter = createTRPCRouter({
         })
       } catch (err) {
         if(err instanceof TRPCError) throw err;
+        await captureServerException(err, {
+          source: "image.deleteImage.transaction",
+          imageId: input.id,
+          userId: ctx.user,
+        }, ctx.user);
         console.error(`Error deleting image with id ${input.id}`, err);
         return { success: false }
       }
 
       if (fileKey){
-        await utapi.deleteFiles(fileKey).catch((r)=>{
+        await utapi.deleteFiles(fileKey).catch(async (r)=>{
+          await captureServerException(r, {
+            source: "image.deleteImage.deleteUploadThingFile",
+            imageId: input.id,
+            fileKey,
+            userId: ctx.user,
+          }, ctx.user);
           console.error(
             `Failed to delete image with key ${fileKey} from UploadThing`,
             r
@@ -497,6 +509,12 @@ export const imageRouter = createTRPCRouter({
         console.log("[runGeneration] done, status: succeeded");
         return updated;
       } catch (err) {
+        await captureServerException(err, {
+          source: "image.runGeneration",
+          imageId: input.imageId,
+          model: imageRow.model,
+          userId: ctx.user,
+        }, ctx.user);
         console.error("[runGeneration] generation/upload failed:", err);
         const message = err instanceof Error ? err.message : String(err);
         const [updated] = await db

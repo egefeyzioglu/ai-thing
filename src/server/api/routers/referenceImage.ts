@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
+import { captureServerException } from "src/lib/server-utils";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import { extractFileKey, utapi } from "src/server/uploadthing";
@@ -53,7 +54,13 @@ export const referenceImageRouter = createTRPCRouter({
         if (key) {
           try {
             await utapi.deleteFiles(key);
-          } catch {
+          } catch (error) {
+            await captureServerException(error, {
+              source: "referenceImage.deleteReferenceImage.deleteUploadThingFile",
+              referenceImageId: input.id,
+              fileKey: key,
+              userId: ctx.user,
+            }, ctx.user);
             // If the file is already gone we still want to remove the row.
           }
         }

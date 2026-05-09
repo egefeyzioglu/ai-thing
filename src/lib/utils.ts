@@ -5,6 +5,21 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+export function captureHandledException(
+  error: unknown,
+  additionalProperties?: Record<string, unknown>,
+) {
+  if (typeof window === "undefined") return;
+
+  void import("posthog-js")
+    .then(({ default: posthog }) => {
+      posthog.captureException(error, additionalProperties);
+    })
+    .catch(() => {
+      // Never let telemetry failures change the handled-error path.
+    });
+}
+
 export function extensionFor(mimeType?: string | null, defaultValue?: string): string {
   switch (mimeType?.toLowerCase()) {
     case "image/jpg":
