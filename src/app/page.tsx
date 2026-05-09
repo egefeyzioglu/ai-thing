@@ -211,20 +211,18 @@ export default function Home() {
     if (batchRunningRef.current) return;
     if (shouldPromptForPromptDoneNotifications()) {
       setNotificationPromptOpen(true);
-      return;
     }
     void runGenerate();
   };
 
-  const handleEnableNotificationsAndGenerate = () => {
+  const handleEnableNotifications = () => {
     setNotificationPromptOpen(false);
-    void runGenerate({ requestNotifications: true });
+    void requestPromptDoneNotificationPermission();
   };
 
-  const handleSkipNotificationsAndGenerate = () => {
+  const handleSkipNotifications = () => {
     dismissPromptDoneNotificationPrompt();
     setNotificationPromptOpen(false);
-    void runGenerate();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -299,14 +297,14 @@ export default function Home() {
               <button
                 type="button"
                 className="h-8 rounded-lg border border-border bg-background px-2.5 text-sm font-medium text-foreground hover:bg-muted"
-                onClick={handleSkipNotificationsAndGenerate}
+                onClick={handleSkipNotifications}
               >
                 Not now
               </button>
               <button
                 type="button"
                 className="h-8 rounded-lg bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/80"
-                onClick={handleEnableNotificationsAndGenerate}
+                onClick={handleEnableNotifications}
               >
                 Enable notifications
               </button>
