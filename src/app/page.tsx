@@ -85,8 +85,19 @@ export default function Home() {
   const [promptText, setPromptText] = useState("");
   const [runs, setRuns] = useState(1);
   const [batchRunning, setBatchRunning] = useState(false);
+  const [generateButtonEnabled, setGenerateButtonEnabled] = useState(true);
+  const generateButtonLockedRef = useRef(false);
   const batchRunningRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const generateButtonTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (generateButtonTimeoutRef.current !== null) {
+        clearTimeout(generateButtonTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const user = useUser();
 
@@ -154,11 +165,16 @@ export default function Home() {
   const handleGenerate = async () => {
     const trimmedPrompt = promptText.trim();
     if (!trimmedPrompt || selectedModels.length === 0) return;
-    if (batchRunningRef.current) return;
+    if (generateButtonLockedRef.current) return;
+
+    generateButtonLockedRef.current = true;
     batchRunningRef.current = true;
     setBatchRunning(true);
+    setGenerateButtonEnabled(false);
+    let result;
+
     try {
-      const result = await createPrompt.mutateAsync({
+      result = await createPrompt.mutateAsync({
         text: trimmedPrompt,
         models: selectedModels,
         repeatCount: runs,
@@ -172,7 +188,22 @@ export default function Home() {
           });
         }
       });
+    } catch (reason) {
+      console.error(`Error when generating prompt with text "${trimmedPrompt}"`, reason);
+      return;
+    } finally {
+      if (generateButtonTimeoutRef.current !== null) {
+        clearTimeout(generateButtonTimeoutRef.current);
+      }
 
+      generateButtonTimeoutRef.current = setTimeout(() => {
+        generateButtonLockedRef.current = false;
+        generateButtonTimeoutRef.current = null;
+        setGenerateButtonEnabled(true);
+      }, 3000);
+    }
+
+    try {
       await Promise.allSettled(
         result.images.map((img) =>
           runGeneration.mutateAsync({
@@ -435,16 +466,17 @@ export default function Home() {
         </div>
         <div className="border-y border-(--border) flex flex-col items-center-safe py-4 gap-2">
           <button
+            aria-busy={batchRunning}
             className={clsx(
               "px-4 py-2 border border-1 rounded-md cursor-pointer w-2/3",
-              (promptText.trim() && selectedModels.length > 0 && !batchRunning)
+              (promptText.trim() && selectedModels.length > 0 && generateButtonEnabled)
                 ? "hover:bg-gray-900 active:bg-gray-500"
                 : "opacity-50 cursor-not-allowed"
             )}
-            disabled={!promptText.trim() || selectedModels.length === 0 || batchRunning}
+            disabled={!promptText.trim() || selectedModels.length === 0 || !generateButtonEnabled}
             onClick={handleGenerate}
           >
-            {batchRunning ? "Generating..." : "Generate"}
+            {generateButtonEnabled ? "Generate" : "Generating..."}
           </button>
           <br/>
           <div className="flex flex-row items-center-safe gap-4 justify-start w-full px-4">
