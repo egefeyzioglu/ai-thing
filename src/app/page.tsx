@@ -84,10 +84,8 @@ export default function Home() {
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
   const [promptText, setPromptText] = useState("");
   const [runs, setRuns] = useState(1);
-  const [batchRunning, setBatchRunning] = useState(false);
-  const [generateButtonEnabled, setGenerateButtonEnabled] = useState(true);
+  const [generateButtonLocked, setGenerateButtonLocked] = useState(false);
   const generateButtonLockedRef = useRef(false);
-  const batchRunningRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generateButtonTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -97,7 +95,7 @@ export default function Home() {
       clearTimeout(generateButtonTimeoutRef.current);
       generateButtonTimeoutRef.current = null;
     }
-    setGenerateButtonEnabled(true);
+    setGenerateButtonLocked(false);
   };
 
   useEffect(() => {
@@ -181,9 +179,7 @@ export default function Home() {
     if (generateButtonLockedRef.current) return;
 
     generateButtonLockedRef.current = true;
-    batchRunningRef.current = true;
-    setBatchRunning(true);
-    setGenerateButtonEnabled(false);
+    setGenerateButtonLocked(true);
     let result;
 
     try {
@@ -208,7 +204,7 @@ export default function Home() {
       generateButtonTimeoutRef.current = setTimeout(() => {
         generateButtonLockedRef.current = false;
         generateButtonTimeoutRef.current = null;
-        setGenerateButtonEnabled(true);
+        setGenerateButtonLocked(false);
       }, 3000);
     }
 
@@ -229,9 +225,6 @@ export default function Home() {
     } catch {
       // createPrompt failed
       console.error(`Failed to generate one or more images for prompt: "${trimmedPrompt}"`);
-    } finally {
-      batchRunningRef.current = false;
-      setBatchRunning(false);
     }
   };
 
@@ -475,17 +468,17 @@ export default function Home() {
         </div>
         <div className="border-y border-(--border) flex flex-col items-center-safe py-4 gap-2">
           <button
-            aria-busy={batchRunning}
+            aria-busy={generateButtonLocked}
             className={clsx(
               "px-4 py-2 border border-1 rounded-md cursor-pointer w-2/3",
-              (promptText.trim() && selectedModels.length > 0 && generateButtonEnabled)
+              (promptText.trim() && selectedModels.length > 0 && !generateButtonLocked)
                 ? "hover:bg-gray-900 active:bg-gray-500"
                 : "opacity-50 cursor-not-allowed"
             )}
-            disabled={!promptText.trim() || selectedModels.length === 0 || !generateButtonEnabled}
+            disabled={!promptText.trim() || selectedModels.length === 0 || generateButtonLocked}
             onClick={handleGenerate}
           >
-            {generateButtonEnabled ? "Generate" : "Generating..."}
+            {generateButtonLocked ? "Generating..." : "Generate"}
           </button>
           <br/>
           <div className="flex flex-row items-center-safe gap-4 justify-start w-full px-4">
