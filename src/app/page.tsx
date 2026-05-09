@@ -113,10 +113,32 @@ export default function Home() {
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
   const [promptText, setPromptText] = useState("");
   const [runs, setRuns] = useState(1);
-  const [batchRunning, setBatchRunning] = useState(false);
   const [pushPermissionDialogOpen, setPushPermissionDialogOpen] = useState(false);
-  const batchRunningRef = useRef(false);
+  const [generateButtonLocked, setGenerateButtonLocked] = useState(false);
+  const generateButtonLockedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const generateButtonTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const unlockGenerateButton = () => {
+    generateButtonLockedRef.current = false;
+    if (generateButtonTimeoutRef.current !== null) {
+      clearTimeout(generateButtonTimeoutRef.current);
+      generateButtonTimeoutRef.current = null;
+    }
+    setGenerateButtonLocked(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (generateButtonTimeoutRef.current !== null) {
+        clearTimeout(generateButtonTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    unlockGenerateButton();
+  }, [promptText, selectedModels, selectedReferenceImages, resolution, aspect, runs]);
 
   const user = useUser();
 
@@ -203,12 +225,15 @@ export default function Home() {
   const handleGenerate = async () => {
     const trimmedPrompt = promptText.trim();
     if (!trimmedPrompt || selectedModels.length === 0) return;
-    if (batchRunningRef.current) return;
-    batchRunningRef.current = true;
-    setBatchRunning(true);
+    if (generateButtonLockedRef.current) return;
+
     maybeShowPushPermissionDialog();
+    generateButtonLockedRef.current = true;
+    setGenerateButtonLocked(true);
+    let result;
+
     try {
-      const result = await createPrompt.mutateAsync({
+      result = await createPrompt.mutateAsync({
         text: trimmedPrompt,
         models: selectedModels,
         repeatCount: runs,
@@ -222,8 +247,20 @@ export default function Home() {
           });
         }
       });
+    } catch (reason) {
+      console.error(`Error when generating prompt with text "${trimmedPrompt}"`, reason);
+      return;
+    } finally {
+      generateButtonTimeoutRef.current = setTimeout(() => {
+        generateButtonLockedRef.current = false;
+        generateButtonTimeoutRef.current = null;
+        setGenerateButtonLocked(false);
+      }, 3000);
+    }
 
-      const generationResults = await Promise.allSettled(
+    let generationResults;
+    try {
+      generationResults = await Promise.allSettled(
         result.images.map((img) =>
           runGeneration.mutateAsync({
             imageId: img.id
@@ -252,9 +289,6 @@ export default function Home() {
     } catch {
       // createPrompt failed
       console.error(`Failed to generate one or more images for prompt: "${trimmedPrompt}"`);
-    } finally {
-      batchRunningRef.current = false;
-      setBatchRunning(false);
     }
   };
 
@@ -516,16 +550,17 @@ export default function Home() {
         </div>
         <div className="border-y border-(--border) flex flex-col items-center-safe py-4 gap-2">
           <button
+            aria-busy={generateButtonLocked}
             className={clsx(
               "px-4 py-2 border border-1 rounded-md cursor-pointer w-2/3",
-              (promptText.trim() && selectedModels.length > 0 && !batchRunning)
+              (promptText.trim() && selectedModels.length > 0 && !generateButtonLocked)
                 ? "hover:bg-gray-900 active:bg-gray-500"
                 : "opacity-50 cursor-not-allowed"
             )}
-            disabled={!promptText.trim() || selectedModels.length === 0 || batchRunning}
+            disabled={!promptText.trim() || selectedModels.length === 0 || generateButtonLocked}
             onClick={handleGenerate}
           >
-            {batchRunning ? "Generating..." : "Generate"}
+            {generateButtonLocked ? "Generating..." : "Generate"}
           </button>
           <br/>
           <div className="flex flex-row items-center-safe gap-4 justify-start w-full px-4">
