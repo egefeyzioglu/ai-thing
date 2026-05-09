@@ -1,12 +1,16 @@
 // Client-side helpers to attract the user's attention when a prompt finishes
-// generating. Two channels:
+// generating. Three channels:
 //   - Tab title: prefix with a marker while the tab is hidden; revert when it
 //     becomes visible again.
+//   - Push notification: show a browser notification if the window is not
+//     focused and permission was granted.
 //   - Ding sound: play /ding.mp3 once.
 //
 // Both are no-ops on the server.
 
 const TITLE_PREFIX = "(✓) ";
+const PUSH_NOTIFICATION_TITLE = "Generation complete";
+const PUSH_NOTIFICATION_BODY = "Your images are ready.";
 
 let originalTitle: string | null = null;
 let visibilityHandler: (() => void) | null = null;
@@ -48,13 +52,35 @@ function playDing() {
   }
 }
 
+function windowHasFocus() {
+  if (typeof document === "undefined") return true;
+  return document.hasFocus();
+}
+
+function sendPushNotification() {
+  if (typeof window === "undefined") return;
+  if (!("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+  if (windowHasFocus()) return;
+
+  try {
+    new Notification(PUSH_NOTIFICATION_TITLE, {
+      body: PUSH_NOTIFICATION_BODY,
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * Notify the user that a prompt finished generating. Marks the tab title if
- * the tab is currently hidden, and plays a ding either way.
+ * the tab is currently hidden, sends a push notification if the window is not
+ * focused and permission was granted, and plays a ding either way.
  */
 export function notifyPromptDone() {
   if (typeof document !== "undefined" && document.hidden) {
     markTitle();
   }
+  sendPushNotification();
   playDing();
 }

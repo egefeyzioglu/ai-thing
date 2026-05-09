@@ -6,6 +6,16 @@ import { Textarea } from "src/components/ui/textarea";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "src/components/ui/collapsible";
 import { Checkbox } from "src/components/ui/checkbox";
 import { Skeleton } from "src/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "src/components/ui/alert-dialog";
 
 import { useUser, UserButton } from "@clerk/nextjs";
 
@@ -17,12 +27,31 @@ import clsx from "clsx";
 
 import { api, type RouterInputs } from "src/trpc/react";
 import { useUploadThing } from "src/lib/uploadthing";
+import { notifyPromptDone } from "src/lib/notify";
 
 // import { SUPPORTED_MODELS } from "src/server/api/routers/prompt";
 import PromptGroup from "./_components/prompt-group";
 
 type PromptModelSlug =
   RouterInputs["prompt"]["createWithGenerations"]["models"][number];
+
+const PUSH_PERMISSION_PROMPT_STORAGE_KEY = "ai-thing.pushPermissionPrompt";
+
+function hasDismissedPushPermissionPrompt() {
+  try {
+    return sessionStorage.getItem(PUSH_PERMISSION_PROMPT_STORAGE_KEY) === "dismissed";
+  } catch {
+    return true;
+  }
+}
+
+function rememberPushPermissionPromptDismissal() {
+  try {
+    sessionStorage.setItem(PUSH_PERMISSION_PROMPT_STORAGE_KEY, "dismissed");
+  } catch {
+    /* ignore unavailable storage */
+  }
+}
 
 type ReferenceImageProps = {
   src: string;
@@ -85,6 +114,7 @@ export default function Home() {
   const [promptText, setPromptText] = useState("");
   const [runs, setRuns] = useState(1);
   const [batchRunning, setBatchRunning] = useState(false);
+  const [pushPermissionDialogOpen, setPushPermissionDialogOpen] = useState(false);
   const batchRunningRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -134,6 +164,25 @@ export default function Home() {
     }
   };
 
+  const maybeShowPushPermissionDialog = () => {
+    if (typeof window === "undefined") return;
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "default") return;
+    if (hasDismissedPushPermissionPrompt()) return;
+
+    setPushPermissionDialogOpen(true);
+  };
+
+  const handleAllowPushNotifications = () => {
+    setPushPermissionDialogOpen(false);
+    void Notification.requestPermission();
+  };
+
+  const handleDeclinePushNotifications = () => {
+    rememberPushPermissionPromptDismissal();
+    setPushPermissionDialogOpen(false);
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files?.length) return;
@@ -157,6 +206,7 @@ export default function Home() {
     if (batchRunningRef.current) return;
     batchRunningRef.current = true;
     setBatchRunning(true);
+    maybeShowPushPermissionDialog();
     try {
       const result = await createPrompt.mutateAsync({
         text: trimmedPrompt,
@@ -186,6 +236,7 @@ export default function Home() {
           }),
         ),
       );
+      notifyPromptDone();
     } catch {
       // createPrompt failed
       console.error(`Failed to generate one or more images for prompt: "${trimmedPrompt}"`);
@@ -240,6 +291,24 @@ export default function Home() {
 
   return (
     <main className="w-full grow flex flex-row text-gray-200">
+      <AlertDialog open={pushPermissionDialogOpen} onOpenChange={setPushPermissionDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Notify when images are ready?</AlertDialogTitle>
+            <AlertDialogDescription>
+              If this window is not focused when generation finishes, we can send a browser notification.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleDeclinePushNotifications}>
+              Not now
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleAllowPushNotifications}>
+              Allow notifications
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <aside className="w-1/5 h-screen border border-x border-(--border) flex flex-col">
         <div className="border-y border-(--border) flex flex-row gap-4 items-center p-5">
           <div className="w-8 h-8 bg-blue-400 rounded-md"></div>
@@ -544,6 +613,7 @@ export default function Home() {
                       onSettled: () => {
                         console.log("[retry] settled, invalidating list");
                         void utils.prompt.list.invalidate();
+                        notifyPromptDone();
                       },
                     },
                   );
