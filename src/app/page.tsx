@@ -91,6 +91,15 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generateButtonTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const unlockGenerateButton = () => {
+    generateButtonLockedRef.current = false;
+    if (generateButtonTimeoutRef.current !== null) {
+      clearTimeout(generateButtonTimeoutRef.current);
+      generateButtonTimeoutRef.current = null;
+    }
+    setGenerateButtonEnabled(true);
+  };
+
   useEffect(() => {
     return () => {
       if (generateButtonTimeoutRef.current !== null) {
@@ -98,6 +107,10 @@ export default function Home() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    unlockGenerateButton();
+  }, [selectedModels, selectedReferenceImages, resolution, aspect, runs]);
 
   const user = useUser();
 
@@ -192,10 +205,6 @@ export default function Home() {
       console.error(`Error when generating prompt with text "${trimmedPrompt}"`, reason);
       return;
     } finally {
-      if (generateButtonTimeoutRef.current !== null) {
-        clearTimeout(generateButtonTimeoutRef.current);
-      }
-
       generateButtonTimeoutRef.current = setTimeout(() => {
         generateButtonLockedRef.current = false;
         generateButtonTimeoutRef.current = null;
