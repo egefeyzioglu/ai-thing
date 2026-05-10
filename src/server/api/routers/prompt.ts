@@ -16,10 +16,16 @@ export type SupportedModel = {
 
 export const SUPPORTED_MODELS = [
   {
+    slug: "gpt-image-2",
+    humanName: "GPT Image 2",
+    provider: "Open AI",
+    isArchived: false,
+  },
+  {
     slug: "gpt-5.4-mini",
     humanName: "GPT 5.4 Mini",
     provider: "Open AI",
-    isArchived: false,
+    isArchived: true,
   },
   {
     slug: "gemini-2.5-flash-image",
