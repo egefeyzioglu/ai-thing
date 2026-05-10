@@ -449,7 +449,7 @@ export default function Home() {
             <FieldLabel className="uppercase text-xxs text-(--muted-foreground)">Models</FieldLabel>
             {isLoadingModels ? (
               <div className="flex flex-col gap-2">
-                {Array.from({ length: 3 }).map((_, i) => (
+                {Array.from({ length: 2 }).map((_, i) => (
                   <Skeleton key={i} className="h-12 rounded-md" />
                 ))}
               </div>
