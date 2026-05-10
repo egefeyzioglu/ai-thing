@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Card } from "src/components/ui/card";
 import { Button } from "src/components/ui/button";
 import Image from "next/image";
+import { Trash2 } from "lucide-react";
 import { cn } from "src/lib/utils";
 import { toast } from "sonner";
 
@@ -345,14 +346,7 @@ function ImageCell({
             title="Delete image"
             className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-muted-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm"
           >
-            <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-              <path
-                d="M1 1L7 7M7 1L1 7"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                strokeLinecap="round"
-              />
-            </svg>
+            <Trash2 className="size-3.5" strokeWidth={2} />
           </button>
         </div>
       )}

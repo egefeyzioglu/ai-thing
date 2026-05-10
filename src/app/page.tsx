@@ -22,7 +22,7 @@ import { useUser, UserButton } from "@clerk/nextjs";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image"
 
-import { ChevronUp, ChevronDown, Upload, AlertTriangle} from "lucide-react"
+import { ChevronUp, ChevronDown, Trash2, Upload, AlertTriangle} from "lucide-react"
 import clsx from "clsx";
 import { toast } from "sonner";
 
@@ -71,6 +71,10 @@ type ReferenceImageProps = {
 function ReferenceImage(props: ReferenceImageProps) {
   return (
     <div className={clsx("group border-1 rounded-md overflow-clip relative")}>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-10 bg-linear-to-b from-black/45 via-black/20 to-transparent"
+      />
       <button
         type="button"
         onClick={props.setSelected}
@@ -78,7 +82,7 @@ function ReferenceImage(props: ReferenceImageProps) {
         aria-pressed={props.isSelected}
         className="block w-full cursor-pointer bg-transparent text-left"
       >
-        <div className={clsx("size-4 border-2 border-(--muted-foreground) absolute top-1.5 left-1.5 rounded-full cursor-pointer",
+        <div className={clsx("size-4 border-2 border-(--muted-foreground) absolute top-1.5 left-1.5 z-10 rounded-full cursor-pointer",
           props.isSelected ? "opacity-100 border-blue-500" : "opacity-30 transition-opacity group-hover:opacity-100")}>
           <div className={clsx("size-2.5 absolute top-0.25 left-0.25 rounded-full",
             props.isSelected ? "bg-blue-500 opacity-100" :
@@ -101,10 +105,7 @@ function ReferenceImage(props: ReferenceImageProps) {
         }}
         className="size-4 absolute top-1.5 right-1.5 rounded-full border-2 border-(--muted-foreground) opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring flex items-center justify-center cursor-pointer z-10"
       >
-        <div className="relative size-2.5">
-          <div className="absolute inset-0 rotate-45 bg-(--muted-foreground) h-[2px] m-auto" />
-          <div className="absolute inset-0 -rotate-45 bg-(--muted-foreground) h-[2px] m-auto" />
-        </div>
+        <Trash2 className="size-2.5 text-(--muted-foreground)" strokeWidth={2.2} />
       </button>
     </div>
   );
