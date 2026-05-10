@@ -179,7 +179,10 @@ async function generateImageOpenAI(
 }
 
 async function generateImageGeminiModel(
-  model: "gemini-2.5-flash-image" | "gemini-3.1-flash-image-preview",
+  model:
+    | "gemini-2.5-flash-image"
+    | "gemini-3.1-flash-image-preview"
+    | "gemini-3-pro-image-preview",
   userId: string,
   prompt: string,
   referenceImageIds?: string[],
@@ -311,6 +314,7 @@ async function generateForModel(
       return generateImageOpenAI(userId, prompt, referenceImageIds, resolution, aspectRatio);
     case "gemini-2.5-flash-image":
     case "gemini-3.1-flash-image-preview":
+    case "gemini-3-pro-image-preview":
       return generateImageGeminiModel(
         model,
         userId,
