@@ -11,7 +11,7 @@ export type SupportedModel = {
   slug: string;
   humanName: string;
   provider: string;
-  isArchived?: boolean;
+  isArchived: boolean;
 };
 
 export const SUPPORTED_MODELS = [
