@@ -36,7 +36,6 @@ type PromptModelSlug =
   RouterInputs["prompt"]["createWithGenerations"]["models"][number];
 
 const PUSH_PERMISSION_PROMPT_STORAGE_KEY = "ai-thing.pushPermissionPrompt";
-const ARCHIVED_MODEL_SLUGS = new Set<PromptModelSlug>(["gemini-2.5-flash-image"]);
 
 function hasDismissedPushPermissionPrompt() {
   try {
@@ -330,8 +329,8 @@ export default function Home() {
       if (models && !hasInitializedModels) {
         setSelectedModels(
           models
-            .map((m) => m.slug)
-            .filter((slug) => !ARCHIVED_MODEL_SLUGS.has(slug)),
+            .filter((model) => !model.isArchived)
+            .map((model) => model.slug),
         );
         setHasInitializedModels(true);
       }
@@ -340,8 +339,8 @@ export default function Home() {
   );
 
   const totalGenerations = runs * selectedModels.length;
-  const activeModels = models?.filter(({ slug }) => !ARCHIVED_MODEL_SLUGS.has(slug)) ?? [];
-  const archivedModels = models?.filter(({ slug }) => ARCHIVED_MODEL_SLUGS.has(slug)) ?? [];
+  const activeModels = models?.filter((model) => !model.isArchived) ?? [];
+  const archivedModels = models?.filter((model) => model.isArchived) ?? [];
 
   return (
     <main className="w-full grow flex flex-row text-gray-200">

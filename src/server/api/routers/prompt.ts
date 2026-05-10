@@ -11,23 +11,27 @@ export type SupportedModel = {
   slug: string;
   humanName: string;
   provider: string;
+  isArchived?: boolean;
 };
 
 export const SUPPORTED_MODELS = [
   {
     slug: "gpt-5.4-mini",
     humanName: "GPT 5.4 Mini",
-    provider: "Open AI"
+    provider: "Open AI",
+    isArchived: false,
   },
   {
     slug: "gemini-2.5-flash-image",
     humanName: "Nano Banana",
-    provider: "Google"
+    provider: "Google",
+    isArchived: true,
   },
   {
     slug: "gemini-3.1-flash-image-preview",
     humanName: "Nano Banana 2",
-    provider: "Google"
+    provider: "Google",
+    isArchived: false,
   }
  ] as const satisfies SupportedModel[];
 
@@ -43,6 +47,7 @@ export const promptRouter = createTRPCRouter({
       slug: model.slug,
       name: model.humanName,
       provider: model.provider,
+      isArchived: model.isArchived,
     }));
   }),
 
