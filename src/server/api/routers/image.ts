@@ -27,6 +27,11 @@ type ResponsesApiResponse = {
   error?: { message?: string };
 };
 
+type OpenAIImagesApiResponse = {
+  data?: { b64_json?: string }[];
+  error?: { message?: string };
+};
+
 type GeminiInlineData = {
   mimeType?: string;
   data?: string;
@@ -98,7 +103,7 @@ async function loadOwnedReferenceImages(
   return ownedReferenceImages;
 }
 
-async function generateImageOpenAI(
+async function generateImageOpenAIResponses(
   userId: string,
   prompt: string,
   referenceImageIds?: string[],
@@ -176,6 +181,81 @@ async function generateImageOpenAI(
   }
 
   return { base64: imageCall.result, mimeType: "image/png" };
+}
+
+async function generateImageGptImage2(
+  userId: string,
+  prompt: string,
+  referenceImageIds?: string[],
+  resolution?: string,
+  aspectRatio?: string,
+): Promise<GeneratedImage> {
+  const ownedReferenceImages = await loadOwnedReferenceImages(
+    userId,
+    referenceImageIds,
+  );
+
+  // OpenAI image generation supports 1024x1024, 1024x1536, 1536x1024, and auto.
+  // Map aspect ratio to the closest supported size; ignore raw resolution.
+  let size = "auto";
+  if (aspectRatio) {
+    const parts = aspectRatio.split(":").map(Number);
+    const w = parts[0];
+    const h = parts[1];
+    if (w && h) {
+      const ratio = w / h;
+      if (ratio >= 0.99 && ratio <= 1.01) {
+        size = "1024x1024";
+      } else if (ratio > 1) {
+        size = "1536x1024";
+      } else {
+        size = "1024x1536";
+      }
+    }
+  }
+
+  const endpoint =
+    ownedReferenceImages.length > 0
+      ? "https://api.openai.com/v1/images/edits"
+      : "https://api.openai.com/v1/images/generations";
+  const body =
+    ownedReferenceImages.length > 0
+      ? JSON.stringify({
+          model: "gpt-image-2-2026-04-21",
+          prompt,
+          images: ownedReferenceImages.map((image) => ({
+            image_url: image.url,
+          })),
+          size,
+        })
+      : JSON.stringify({
+          model: "gpt-image-2-2026-04-21",
+          prompt,
+          size,
+        });
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+    },
+    body,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`OpenAI Images API error (${res.status}): ${text}`);
+  }
+
+  const data = (await res.json()) as OpenAIImagesApiResponse;
+  const imageBase64 = data.data?.[0]?.b64_json;
+
+  if (!imageBase64) {
+    throw new Error("OpenAI Images API response did not contain an image");
+  }
+
+  return { base64: imageBase64, mimeType: "image/png" };
 }
 
 async function generateImageGeminiModel(
@@ -310,8 +390,22 @@ async function generateForModel(
   aspectRatio?: string,
 ): Promise<GeneratedImage> {
   switch (model) {
+    case "gpt-image-2":
+      return generateImageGptImage2(
+        userId,
+        prompt,
+        referenceImageIds,
+        resolution,
+        aspectRatio,
+      );
     case "gpt-5.4-mini":
-      return generateImageOpenAI(userId, prompt, referenceImageIds, resolution, aspectRatio);
+      return generateImageOpenAIResponses(
+        userId,
+        prompt,
+        referenceImageIds,
+        resolution,
+        aspectRatio,
+      );
     case "gemini-2.5-flash-image":
     case "gemini-3.1-flash-image-preview":
     case "gemini-3-pro-image-preview":
