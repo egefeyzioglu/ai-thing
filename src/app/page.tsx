@@ -36,6 +36,11 @@ import PromptGroup from "./_components/prompt-group";
 type PromptModelSlug =
   RouterInputs["prompt"]["createWithGenerations"]["models"][number];
 
+type PendingDelete =
+  | { type: "referenceImage"; id: string }
+  | { type: "prompt"; id: string }
+  | { type: "image"; id: string };
+
 const PUSH_PERMISSION_PROMPT_STORAGE_KEY = "ai-thing.pushPermissionPrompt";
 
 function hasDismissedPushPermissionPrompt() {
@@ -116,6 +121,7 @@ export default function Home() {
   const [runs, setRuns] = useState(1);
   const [pushPermissionDialogOpen, setPushPermissionDialogOpen] = useState(false);
   const [generateButtonLocked, setGenerateButtonLocked] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const generateButtonLockedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generateButtonTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -220,6 +226,44 @@ export default function Home() {
   const handleDeclinePushNotifications = () => {
     rememberPushPermissionPromptDismissal();
     setPushPermissionDialogOpen(false);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!pendingDelete) return;
+
+    if (pendingDelete.type === "referenceImage") {
+      const id = pendingDelete.id;
+      deleteRefImage.mutate(
+        { id },
+        {
+          onSuccess: () => {
+            setSelectedReferenceImages((prev) => prev.filter((e) => e !== id));
+          },
+        },
+      );
+    } else if (pendingDelete.type === "prompt") {
+      deletePromptMutation.mutate(
+        { id: pendingDelete.id},
+        {
+          onSuccess: () => {
+            utils.prompt.list.invalidate().catch((reason) => {
+              if(reason instanceof Error) throw reason;
+              console.error("Failed to invalidate images query, user will have to refresh.", reason);
+            });
+          }});
+    } else {
+      deleteImageMutation.mutate(
+        { id: pendingDelete.id },
+        {
+          onSuccess: () => {
+            utils.image.invalidate().catch((reason) => {
+              if(reason instanceof Error) throw reason;
+              console.error("Failed to invalidate images query, user will have to refresh.", reason);
+            });
+          }});
+    }
+
+    setPendingDelete(null);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -391,6 +435,24 @@ export default function Home() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => {
+        if (!open) setPendingDelete(null);
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmDelete}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <aside className="w-1/5 h-screen border border-x border-(--border) flex flex-col">
         <div className="border-y border-(--border) flex flex-row gap-4 items-center p-5">
           <div className="w-8 h-8 bg-blue-400 rounded-md"></div>
@@ -448,8 +510,7 @@ export default function Home() {
                           setSelectedReferenceImages([...selectedReferenceImages, img.id]);
                       }}
                       onDelete={() => {
-                        deleteRefImage.mutate({ id: img.id });
-                        setSelectedReferenceImages(selectedReferenceImages.filter((e) => e !== img.id));
+                        setPendingDelete({ type: "referenceImage", id: img.id });
                       }}
                     />
                   ))
@@ -655,25 +716,9 @@ export default function Home() {
                     : []
                 }
                 onDeletePrompt={
-                  () => deletePromptMutation.mutate(
-                    { id: prompt.id},
-                    {
-                      onSuccess: () => {
-                        utils.prompt.list.invalidate().catch((reason) => {
-                          if(reason instanceof Error) throw reason;
-                          console.error("Failed to invalidate images query, user will have to refresh.", reason);
-                        });
-                      }})}
+                  () => setPendingDelete({ type: "prompt", id: prompt.id })}
                 onDeleteImage={
-                  (imageId) => deleteImageMutation.mutate(
-                    { id: imageId },
-                    {
-                      onSuccess: () => {
-                        utils.image.invalidate().catch((reason) => {
-                          if(reason instanceof Error) throw reason;
-                          console.error("Failed to invalidate images query, user will have to refresh.", reason);
-                        });
-                      }})}
+                  (imageId) => setPendingDelete({ type: "image", id: imageId })}
                 onReuseAsReference={handleReuseAsReference}
                 onRetryImage={(imageId) => {
                   toast.info("Retry generation started");
