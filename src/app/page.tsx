@@ -24,6 +24,7 @@ import Image from "next/image"
 
 import { ChevronUp, ChevronDown, Upload, AlertTriangle} from "lucide-react"
 import clsx from "clsx";
+import { toast } from "sonner";
 
 import { api, type RouterInputs } from "src/trpc/react";
 import { useUploadThing } from "src/lib/uploadthing";
@@ -152,7 +153,11 @@ export default function Home() {
 
   const deleteRefImage = api.referenceImage.deleteReferenceImage.useMutation({
     onSuccess: () => {
+      toast.success("Reference image deleted");
       void utils.referenceImage.getReferenceImages.invalidate();
+    },
+    onError: () => {
+      toast.error("Failed to delete reference image");
     },
   });
 
@@ -170,10 +175,22 @@ export default function Home() {
   const createPrompt = api.prompt.createWithGenerations.useMutation();
   const runGeneration = api.image.runGeneration.useMutation();
   const deletePromptMutation = api.prompt.deletePrompt.useMutation({
-    onSuccess: () => void utils.prompt.list.invalidate(),
+    onSuccess: () => {
+      toast.success("Generation deleted");
+      void utils.prompt.list.invalidate();
+    },
+    onError: () => {
+      toast.error("Failed to delete generation");
+    },
   });
   const deleteImageMutation = api.image.deleteImage.useMutation({
-    onSuccess: () => void utils.prompt.list.invalidate(),
+    onSuccess: () => {
+      toast.success("Image deleted");
+      void utils.prompt.list.invalidate();
+    },
+    onError: () => {
+      toast.error("Failed to delete image");
+    },
   });
   const reuseAsReference =
     api.referenceImage.createReferenceImageFromGenerated.useMutation();
@@ -210,13 +227,30 @@ export default function Home() {
     if (!files?.length) return;
     try {
       const res = await startUpload(Array.from(files));
-      if (res) {
-        for (const uploaded of res) {
-          createRefImage.mutate({ url: uploaded.ufsUrl });
+      if (res?.length) {
+        const created = await Promise.allSettled(
+          res.map((uploaded) => createRefImage.mutateAsync({ url: uploaded.ufsUrl })),
+        );
+        const failedCount = created.filter((result) => result.status === "rejected").length;
+        if (failedCount === 0) {
+          toast.success(
+            res.length === 1
+              ? "Reference image uploaded"
+              : `${res.length} reference images uploaded`,
+          );
+        } else {
+          toast.error(
+            failedCount === 1
+              ? "Failed to upload 1 reference image"
+              : `Failed to upload ${failedCount} reference images`,
+          );
         }
+      } else {
+        toast.error("Reference image upload failed");
       }
     } catch (error) {
       console.error("Failed to upload reference image", error);
+      toast.error("Reference image upload failed");
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
@@ -306,6 +340,7 @@ export default function Home() {
       result = await reuseAsReference.mutateAsync({ imageId });
     } catch (err) {
       console.error("Failed to reuse image as reference", err);
+      toast.error("Failed to reuse image as reference");
       return;
     }
     await utils.referenceImage.getReferenceImages.invalidate();
@@ -314,6 +349,7 @@ export default function Home() {
         ? prev
         : [...prev, result.referenceImageRow.id],
     );
+    toast.success("Image reused as reference");
     setReferenceImagesOpen(true);
   };
 
@@ -640,6 +676,7 @@ export default function Home() {
                       }})}
                 onReuseAsReference={handleReuseAsReference}
                 onRetryImage={(imageId) => {
+                  toast.info("Retry generation started");
                   console.log("[retry] clicked, imageId:", imageId);
                   utils.prompt.list.setData(undefined, (old) =>
                     old?.map((p) => ({

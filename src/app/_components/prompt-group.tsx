@@ -6,6 +6,7 @@ import { Card } from "src/components/ui/card";
 import { Button } from "src/components/ui/button";
 import Image from "next/image";
 import { cn } from "src/lib/utils";
+import { toast } from "sonner";
 
 import { extensionFor } from "src/lib/utils";
 
@@ -508,7 +509,12 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
                         pinIndex={pinIdx}
                         totalPinned={pinned.length}
                         onTogglePin={() => togglePin(img.id)}
-                        onDownload={() => downloadImage(img.url)}
+                        onDownload={() => {
+                          void downloadImage(img.url).catch((err) => {
+                            console.error("Failed to download image", err);
+                            toast.error("Image download failed");
+                          });
+                        }}
                         onDelete={() => onDeleteImage?.(img.id)}
                         onRetry={onRetryImage ? () => onRetryImage(img.id) : undefined}
                         onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(img.id) : undefined}
@@ -544,7 +550,12 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
                   pinIndex={pinIdx}
                   totalPinned={pinned.length}
                   onTogglePin={() => togglePin(img.id)}
-                  onDownload={() => downloadImage(img.url)}
+                  onDownload={() => {
+                    void downloadImage(img.url).catch((err) => {
+                      console.error("Failed to download image", err);
+                      toast.error("Image download failed");
+                    });
+                  }}
                   onDelete={() => onDeleteImage?.(img.id)}
                   onRetry={onRetryImage ? () => onRetryImage(img.id) : undefined}
                   onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(img.id) : undefined}
