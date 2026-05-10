@@ -242,25 +242,9 @@ export default function Home() {
         },
       );
     } else if (pendingDelete.type === "prompt") {
-      deletePromptMutation.mutate(
-        { id: pendingDelete.id},
-        {
-          onSuccess: () => {
-            utils.prompt.list.invalidate().catch((reason) => {
-              if(reason instanceof Error) throw reason;
-              console.error("Failed to invalidate images query, user will have to refresh.", reason);
-            });
-          }});
+      deletePromptMutation.mutate({ id: pendingDelete.id});
     } else {
-      deleteImageMutation.mutate(
-        { id: pendingDelete.id },
-        {
-          onSuccess: () => {
-            utils.image.invalidate().catch((reason) => {
-              if(reason instanceof Error) throw reason;
-              console.error("Failed to invalidate images query, user will have to refresh.", reason);
-            });
-          }});
+      deleteImageMutation.mutate({ id: pendingDelete.id });
     }
 
     setPendingDelete(null);
