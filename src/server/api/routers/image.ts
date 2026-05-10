@@ -178,7 +178,8 @@ async function generateImageOpenAI(
   return { base64: imageCall.result, mimeType: "image/png" };
 }
 
-async function generateImageGemini(
+async function generateImageGeminiModel(
+  model: "gemini-2.5-flash-image" | "gemini-3.1-flash-image-preview",
   userId: string,
   prompt: string,
   referenceImageIds?: string[],
@@ -208,8 +209,6 @@ async function generateImageGemini(
     })),
     { text: "Generate an image based on the following user input:" + prompt },
   ];
-  // "Nano Banana" = gemini-2.5-flash-image, Google's image-gen Gemini variant.
-
   // Map resolution to Gemini imageSize
   let imageSize: string | undefined;
   if (resolution) {
@@ -243,7 +242,7 @@ async function generateImageGemini(
   };
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${env.GEMINI_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -311,7 +310,15 @@ async function generateForModel(
     case "gpt-5.4-mini":
       return generateImageOpenAI(userId, prompt, referenceImageIds, resolution, aspectRatio);
     case "gemini-2.5-flash-image":
-      return generateImageGemini(userId, prompt, referenceImageIds, resolution, aspectRatio);
+    case "gemini-3.1-flash-image-preview":
+      return generateImageGeminiModel(
+        model,
+        userId,
+        prompt,
+        referenceImageIds,
+        resolution,
+        aspectRatio,
+      );
     default:
       throw new Error(`Unsupported model: ${model}`);
   }

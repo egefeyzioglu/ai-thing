@@ -468,8 +468,8 @@ export default function Home() {
                     tabIndex={-1}
                     className="pointer-events-none" />
                   <Label id={`model-select-${slug}-label`} className="pointer-events-none flex-col items-start cursor-pointer">
-                    {name}<br/>
-                    <span className="text-(--muted-foreground)">{by}</span>
+                    <span>{name}</span>
+                    <span className="text-(--muted-foreground)">{by} · {slug}</span>
                   </Label>
                 </div>
               ))
@@ -479,7 +479,7 @@ export default function Home() {
             <FieldLabel className="uppercase text-xxs text-(--muted-foreground)">Resolution</FieldLabel>
             <div className="flex flex-row gap-2">
               {
-                ["512", "1024", "2048"].map((resolutionOption) => (
+                ["512", "1024", "2048", "4096"].map((resolutionOption) => (
                   <button key={resolutionOption}
                     className={clsx("px-2 py-1 border border-1 text-sm rounded-md cursor-pointer grow",
                       resolution === resolutionOption ? "bg-blue-500 text-(--foreground)" : "hover:bg-gray-900 text-(--muted-foreground) "
@@ -489,7 +489,7 @@ export default function Home() {
                       setResolution(resolutionOption)
                     }}
                   >
-                    {resolutionOption} px
+                    {resolutionOption === "4096" ? "4K" : `${resolutionOption} px`}
                   </button>
                 ))
               }

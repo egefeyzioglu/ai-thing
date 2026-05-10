@@ -21,7 +21,12 @@ export const SUPPORTED_MODELS = [
   },
   {
     slug: "gemini-2.5-flash-image",
-    humanName: "Gemini 2.5 Flash",
+    humanName: "Nano Banana",
+    provider: "Google"
+  },
+  {
+    slug: "gemini-3.1-flash-image-preview",
+    humanName: "Nano Banana 2",
     provider: "Google"
   }
  ] as const satisfies SupportedModel[];
