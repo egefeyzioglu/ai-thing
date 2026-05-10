@@ -112,6 +112,7 @@ function ReferenceImage(props: ReferenceImageProps) {
 
 export default function Home() {
   const [referenceImagesOpen, setReferenceImagesOpen] = useState(false);
+  const [archivedModelsOpen, setArchivedModelsOpen] = useState(false);
   const [selectedReferenceImages, setSelectedReferenceImages] = useState<string[]>([]);
   const [selectedModels, setSelectedModels] = useState<PromptModelSlug[]>([]);
   const [resolution, setResolution] = useState("1024");
@@ -390,7 +391,11 @@ export default function Home() {
   useEffect(
     () => {
       if (models && !hasInitializedModels) {
-        setSelectedModels(models.map(m => m.slug));
+        setSelectedModels(
+          models
+            .filter((model) => !model.isArchived)
+            .map((model) => model.slug),
+        );
         setHasInitializedModels(true);
       }
     },
@@ -398,6 +403,8 @@ export default function Home() {
   );
 
   const totalGenerations = runs * selectedModels.length;
+  const activeModels = models?.filter((model) => !model.isArchived) ?? [];
+  const archivedModels = models?.filter((model) => model.isArchived) ?? [];
 
   return (
     <main className="w-full grow flex flex-row text-gray-200">
@@ -527,40 +534,79 @@ export default function Home() {
                 ))}
               </div>
             ) : (
-              models?.map(({ slug, name, provider: by }) => (
-                <div key={slug}
-                  role="checkbox"
-                  aria-checked={selectedModels.includes(slug)}
-                  aria-labelledby={`model-select-${slug}-label`}
-                  tabIndex={0}
-                  className={clsx("flex flex-row items-center gap-4 px-4 py-2 border border-1 text-(--foreground) rounded-md cursor-pointer",
-                    selectedModels.includes(slug) ? "bg-gray-800 border-blue-500" : "hover:bg-gray-900"
-                  )}
-                  onClick={() => toggleSelectedModel(slug)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      toggleSelectedModel(slug);
-                    }
-                  }}
-                >
-                  <Checkbox id={`model-select-${slug}`} accentColor="blue-500"
-                    checked={selectedModels.includes(slug)}
-                    tabIndex={-1}
-                    className="pointer-events-none" />
-                  <Label id={`model-select-${slug}-label`} className="pointer-events-none flex-col items-start cursor-pointer">
-                    {name}<br/>
-                    <span className="text-(--muted-foreground)">{by}</span>
-                  </Label>
-                </div>
-              ))
+              <div className="flex flex-col gap-2">
+                {activeModels.map(({ slug, name }) => (
+                  <div key={slug}
+                    role="checkbox"
+                    aria-checked={selectedModels.includes(slug)}
+                    aria-labelledby={`model-select-${slug}-label`}
+                    tabIndex={0}
+                    className={clsx("flex flex-row items-center gap-4 px-4 py-2 border border-1 text-(--foreground) rounded-md cursor-pointer",
+                      selectedModels.includes(slug) ? "bg-gray-800 border-blue-500" : "hover:bg-gray-900"
+                    )}
+                    onClick={() => toggleSelectedModel(slug)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggleSelectedModel(slug);
+                      }
+                    }}
+                  >
+                    <Checkbox id={`model-select-${slug}`} accentColor="blue-500"
+                      checked={selectedModels.includes(slug)}
+                      tabIndex={-1}
+                      className="pointer-events-none" />
+                    <Label id={`model-select-${slug}-label`} className="pointer-events-none flex-col items-start cursor-pointer">
+                      <span>{name}</span>
+                      <span className="text-xs text-(--muted-foreground)">{slug}</span>
+                    </Label>
+                  </div>
+                ))}
+                {archivedModels.length > 0 && (
+                  <Collapsible open={archivedModelsOpen} onOpenChange={setArchivedModelsOpen}>
+                    <CollapsibleTrigger className="flex w-full items-center justify-between rounded-md border border-1 border-dashed border-(--border) px-4 py-2 text-left cursor-pointer">
+                      <span className="text-xs uppercase tracking-wide text-(--muted-foreground)">Archived Models</span>
+                      {archivedModelsOpen ? <ChevronUp color="var(--muted-foreground)" size={16} /> : <ChevronDown color="var(--muted-foreground)" size={16} />}
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="mt-2 flex flex-col gap-2">
+                      {archivedModels.map(({ slug, name }) => (
+                        <div key={slug}
+                          role="checkbox"
+                          aria-checked={selectedModels.includes(slug)}
+                          aria-labelledby={`model-select-${slug}-label`}
+                          tabIndex={0}
+                          className={clsx("flex flex-row items-center gap-4 px-4 py-2 border border-1 text-(--foreground) rounded-md cursor-pointer",
+                            selectedModels.includes(slug) ? "bg-gray-800 border-blue-500" : "hover:bg-gray-900"
+                          )}
+                          onClick={() => toggleSelectedModel(slug)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              toggleSelectedModel(slug);
+                            }
+                          }}
+                        >
+                          <Checkbox id={`model-select-${slug}`} accentColor="blue-500"
+                            checked={selectedModels.includes(slug)}
+                            tabIndex={-1}
+                            className="pointer-events-none" />
+                          <Label id={`model-select-${slug}-label`} className="pointer-events-none flex-col items-start cursor-pointer">
+                            <span>{name}</span>
+                            <span className="text-xs text-(--muted-foreground)">{slug}</span>
+                          </Label>
+                        </div>
+                      ))}
+                    </CollapsibleContent>
+                  </Collapsible>
+                )}
+              </div>
             )}
           </Field>
           <Field className="w-full">
             <FieldLabel className="uppercase text-xxs text-(--muted-foreground)">Resolution</FieldLabel>
             <div className="flex flex-row gap-2">
               {
-                ["512", "1024", "2048"].map((resolutionOption) => (
+                ["512", "1024", "2048", "4096"].map((resolutionOption) => (
                   <button key={resolutionOption}
                     className={clsx("px-2 py-1 border border-1 text-sm rounded-md cursor-pointer grow",
                       resolution === resolutionOption ? "bg-blue-500 text-(--foreground)" : "hover:bg-gray-900 text-(--muted-foreground) "
@@ -570,7 +616,7 @@ export default function Home() {
                       setResolution(resolutionOption)
                     }}
                   >
-                    {resolutionOption} px
+                    {resolutionOption}
                   </button>
                 ))
               }
