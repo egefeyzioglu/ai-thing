@@ -430,8 +430,8 @@ export default function Home() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmDelete}>
+            <AlertDialogCancel className="cursor-pointer">Cancel</AlertDialogCancel>
+            <AlertDialogAction className="cursor-pointer" onClick={handleConfirmDelete}>
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
