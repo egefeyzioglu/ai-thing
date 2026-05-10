@@ -32,7 +32,13 @@ export const SUPPORTED_MODELS = [
     humanName: "Nano Banana 2",
     provider: "Google",
     isArchived: false,
-  }
+  },
+  {
+    slug: "gemini-3-pro-image-preview",
+    humanName: "Nano Banana Pro",
+    provider: "Google",
+    isArchived: false,
+  },
  ] as const satisfies SupportedModel[];
 
  type ModelSlug = (typeof SUPPORTED_MODELS)[number]["slug"];
