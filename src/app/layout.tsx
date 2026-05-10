@@ -6,6 +6,7 @@ import { Geist } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 
 import { TooltipProvider } from "src/components/ui/tooltip";
+import { Toaster } from "src/components/ui/sonner";
 import { TRPCReactProvider } from "src/trpc/react";
 
 import { PostHogProvider } from "./providers";
@@ -31,6 +32,7 @@ export default function RootLayout({
           <PostHogProvider>
             <TooltipProvider>
               <TRPCReactProvider>{children}</TRPCReactProvider>
+              <Toaster />
             </TooltipProvider>
           </PostHogProvider>
         </ClerkProvider>

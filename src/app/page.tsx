@@ -24,6 +24,7 @@ import Image from "next/image"
 
 import { ChevronUp, ChevronDown, Upload, AlertTriangle} from "lucide-react"
 import clsx from "clsx";
+import { toast } from "sonner";
 
 import { api, type RouterInputs } from "src/trpc/react";
 import { useUploadThing } from "src/lib/uploadthing";
@@ -34,6 +35,11 @@ import PromptGroup from "./_components/prompt-group";
 
 type PromptModelSlug =
   RouterInputs["prompt"]["createWithGenerations"]["models"][number];
+
+type PendingDelete =
+  | { type: "referenceImage"; id: string }
+  | { type: "prompt"; id: string }
+  | { type: "image"; id: string };
 
 const PUSH_PERMISSION_PROMPT_STORAGE_KEY = "ai-thing.pushPermissionPrompt";
 
@@ -115,6 +121,7 @@ export default function Home() {
   const [runs, setRuns] = useState(1);
   const [pushPermissionDialogOpen, setPushPermissionDialogOpen] = useState(false);
   const [generateButtonLocked, setGenerateButtonLocked] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const generateButtonLockedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generateButtonTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -152,7 +159,11 @@ export default function Home() {
 
   const deleteRefImage = api.referenceImage.deleteReferenceImage.useMutation({
     onSuccess: () => {
+      toast.success("Reference image deleted");
       void utils.referenceImage.getReferenceImages.invalidate();
+    },
+    onError: () => {
+      toast.error("Failed to delete reference image");
     },
   });
 
@@ -170,10 +181,22 @@ export default function Home() {
   const createPrompt = api.prompt.createWithGenerations.useMutation();
   const runGeneration = api.image.runGeneration.useMutation();
   const deletePromptMutation = api.prompt.deletePrompt.useMutation({
-    onSuccess: () => void utils.prompt.list.invalidate(),
+    onSuccess: () => {
+      toast.success("Generation deleted");
+      void utils.prompt.list.invalidate();
+    },
+    onError: () => {
+      toast.error("Failed to delete generation");
+    },
   });
   const deleteImageMutation = api.image.deleteImage.useMutation({
-    onSuccess: () => void utils.prompt.list.invalidate(),
+    onSuccess: () => {
+      toast.success("Image deleted");
+      void utils.prompt.list.invalidate();
+    },
+    onError: () => {
+      toast.error("Failed to delete image");
+    },
   });
   const reuseAsReference =
     api.referenceImage.createReferenceImageFromGenerated.useMutation();
@@ -205,18 +228,57 @@ export default function Home() {
     setPushPermissionDialogOpen(false);
   };
 
+  const handleConfirmDelete = () => {
+    if (!pendingDelete) return;
+
+    if (pendingDelete.type === "referenceImage") {
+      const id = pendingDelete.id;
+      deleteRefImage.mutate(
+        { id },
+        {
+          onSuccess: () => {
+            setSelectedReferenceImages((prev) => prev.filter((e) => e !== id));
+          },
+        },
+      );
+    } else if (pendingDelete.type === "prompt") {
+      deletePromptMutation.mutate({ id: pendingDelete.id});
+    } else {
+      deleteImageMutation.mutate({ id: pendingDelete.id });
+    }
+
+    setPendingDelete(null);
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files?.length) return;
     try {
       const res = await startUpload(Array.from(files));
-      if (res) {
-        for (const uploaded of res) {
-          createRefImage.mutate({ url: uploaded.ufsUrl });
+      if (res?.length) {
+        const created = await Promise.allSettled(
+          res.map((uploaded) => createRefImage.mutateAsync({ url: uploaded.ufsUrl })),
+        );
+        const failedCount = created.filter((result) => result.status === "rejected").length;
+        if (failedCount === 0) {
+          toast.success(
+            res.length === 1
+              ? "Reference image uploaded"
+              : `${res.length} reference images uploaded`,
+          );
+        } else {
+          toast.error(
+            failedCount === 1
+              ? "Failed to upload 1 reference image"
+              : `Failed to upload ${failedCount} reference images`,
+          );
         }
+      } else {
+        toast.error("Reference image upload failed");
       }
     } catch (error) {
       console.error("Failed to upload reference image", error);
+      toast.error("Reference image upload failed");
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
@@ -306,6 +368,7 @@ export default function Home() {
       result = await reuseAsReference.mutateAsync({ imageId });
     } catch (err) {
       console.error("Failed to reuse image as reference", err);
+      toast.error("Failed to reuse image as reference");
       return;
     }
     await utils.referenceImage.getReferenceImages.invalidate();
@@ -314,6 +377,7 @@ export default function Home() {
         ? prev
         : [...prev, result.referenceImageRow.id],
     );
+    toast.success("Image reused as reference");
     setReferenceImagesOpen(true);
   };
 
@@ -351,6 +415,24 @@ export default function Home() {
             </AlertDialogCancel>
             <AlertDialogAction onClick={handleAllowPushNotifications}>
               Allow notifications
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => {
+        if (!open) setPendingDelete(null);
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmDelete}>
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -412,8 +494,7 @@ export default function Home() {
                           setSelectedReferenceImages([...selectedReferenceImages, img.id]);
                       }}
                       onDelete={() => {
-                        deleteRefImage.mutate({ id: img.id });
-                        setSelectedReferenceImages(selectedReferenceImages.filter((e) => e !== img.id));
+                        setPendingDelete({ type: "referenceImage", id: img.id });
                       }}
                     />
                   ))
@@ -619,27 +700,12 @@ export default function Home() {
                     : []
                 }
                 onDeletePrompt={
-                  () => deletePromptMutation.mutate(
-                    { id: prompt.id},
-                    {
-                      onSuccess: () => {
-                        utils.prompt.list.invalidate().catch((reason) => {
-                          if(reason instanceof Error) throw reason;
-                          console.error("Failed to invalidate images query, user will have to refresh.", reason);
-                        });
-                      }})}
+                  () => setPendingDelete({ type: "prompt", id: prompt.id })}
                 onDeleteImage={
-                  (imageId) => deleteImageMutation.mutate(
-                    { id: imageId },
-                    {
-                      onSuccess: () => {
-                        utils.image.invalidate().catch((reason) => {
-                          if(reason instanceof Error) throw reason;
-                          console.error("Failed to invalidate images query, user will have to refresh.", reason);
-                        });
-                      }})}
+                  (imageId) => setPendingDelete({ type: "image", id: imageId })}
                 onReuseAsReference={handleReuseAsReference}
                 onRetryImage={(imageId) => {
+                  toast.info("Retry generation started");
                   console.log("[retry] clicked, imageId:", imageId);
                   utils.prompt.list.setData(undefined, (old) =>
                     old?.map((p) => ({
