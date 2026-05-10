@@ -469,7 +469,7 @@ export default function Home() {
                     className="pointer-events-none" />
                   <Label id={`model-select-${slug}-label`} className="pointer-events-none flex-col items-start cursor-pointer">
                     <span>{name}</span>
-                    <span className="text-(--muted-foreground)">{by} · {slug}</span>
+                    <span className="text-xs text-(--muted-foreground)">{slug}</span>
                   </Label>
                 </div>
               ))
@@ -489,7 +489,7 @@ export default function Home() {
                       setResolution(resolutionOption)
                     }}
                   >
-                    {resolutionOption === "4096" ? "4K" : `${resolutionOption} px`}
+                    {resolutionOption}
                   </button>
                 ))
               }
