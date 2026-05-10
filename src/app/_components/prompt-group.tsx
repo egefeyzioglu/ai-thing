@@ -1,10 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Card } from "src/components/ui/card";
 import { Button } from "src/components/ui/button";
-import Image from "next/image";
 import { Trash2 } from "lucide-react";
 import { cn } from "src/lib/utils";
 import { toast } from "sonner";
@@ -216,7 +217,99 @@ type ImageCellProps = {
   onDelete: () => void;
   onRetry?: () => void;
   onReuseAsReference?: () => Promise<void>;
+  onOpen?: () => void;
 };
+
+type GeneratedImageActionsProps = {
+  isPinned?: boolean;
+  onTogglePin?: () => void;
+  onDownload: () => void;
+  onDelete: () => void;
+  onReuseAsReference?: () => Promise<void>;
+};
+
+function GeneratedImageActions({
+  isPinned = false,
+  onTogglePin,
+  onDownload,
+  onDelete,
+  onReuseAsReference,
+}: GeneratedImageActionsProps) {
+  const [reusing, setReusing] = useState(false);
+
+  return (
+    <div className="flex gap-1 items-center">
+      {onTogglePin && (
+        <button
+          onClick={(event) => {
+            event.stopPropagation();
+            onTogglePin();
+          }}
+          title={isPinned ? "Unpin" : "Pin as cover"}
+          className={cn(
+            "h-6 px-2 rounded-full text-[11px] font-medium flex items-center gap-1 cursor-pointer border transition-colors",
+            isPinned
+              ? "bg-blue-500 border-blue-500 text-white"
+              : "bg-[oklch(0.09_0.012_258/0.82)] border-border text-foreground backdrop-blur-sm",
+          )}
+        >
+          <PinIcon size={11} filled={isPinned} />
+          {isPinned ? "Pinned" : "Pin"}
+        </button>
+      )}
+      {onReuseAsReference && (
+        <button
+          onClick={(event) => {
+            event.stopPropagation();
+            if (reusing) return;
+            setReusing(true);
+            void onReuseAsReference().finally(() => setReusing(false));
+          }}
+          disabled={reusing}
+          aria-label="Reuse as reference"
+          title={reusing ? "Saving as reference…" : "Reuse as reference image"}
+          className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm disabled:opacity-50"
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+            <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+            <circle cx="5.5" cy="6.5" r="1.2" stroke="currentColor" strokeWidth="1" />
+            <path d="M2 11L5.5 8L8 10L11 7L14 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      )}
+      <button
+        onClick={(event) => {
+          event.stopPropagation();
+          onDownload();
+        }}
+        aria-label="Download"
+        title="Download"
+        className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm"
+      >
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+          <path
+            d="M6 1V8M6 8L3 5.5M6 8L9 5.5M2 10.5H10"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+      <button
+        onClick={(event) => {
+          event.stopPropagation();
+          onDelete();
+        }}
+        aria-label="Delete image"
+        title="Delete image"
+        className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-muted-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm"
+      >
+        <Trash2 className="size-3.5" strokeWidth={2} />
+      </button>
+    </div>
+  );
+}
 
 function ImageCell({
   image,
@@ -229,8 +322,13 @@ function ImageCell({
   onDelete,
   onRetry,
   onReuseAsReference,
+  onOpen,
 }: ImageCellProps) {
-  const [reusing, setReusing] = useState(false);
+  const canOpen = image.status === "succeeded" && Boolean(onOpen);
+
+  const handleRootClick = () => {
+    if (canOpen) onOpen?.();
+  };
 
   let body: React.ReactNode;
   if (image.status === "pending" || image.status === "running") {
@@ -271,8 +369,19 @@ function ImageCell({
 
   return (
     <div
+      role={canOpen ? "button" : undefined}
+      tabIndex={canOpen ? 0 : undefined}
+      onClick={handleRootClick}
+      onKeyDown={(event) => {
+        if (!canOpen) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen?.();
+        }
+      }}
       className={cn(
         "group/cell relative w-full rounded-md overflow-hidden [animation:promptGroupFadeIn_0.25s_ease_both]",
+        canOpen && "cursor-pointer",
         isPinned
           ? "outline-2 outline-[oklch(0.63_0.18_258)] outline"
           : "outline outline-1 outline-border",
@@ -292,65 +401,80 @@ function ImageCell({
       )}
       {image.status === "succeeded" && (
         <div className="absolute top-1.5 right-1.5 flex gap-1 items-center opacity-0 transition-opacity group-hover/cell:opacity-100 group-focus-within/cell:opacity-100">
-          <button
-            onClick={onTogglePin}
-            title={isPinned ? "Unpin" : "Pin as cover"}
-            className={cn(
-              "h-6 px-2 rounded-full text-[11px] font-medium flex items-center gap-1 cursor-pointer border transition-colors",
-              isPinned
-                ? "bg-blue-500 border-blue-500 text-white"
-                : "bg-[oklch(0.09_0.012_258/0.82)] border-border text-foreground backdrop-blur-sm",
-            )}
-          >
-            <PinIcon size={11} filled={isPinned} />
-            {isPinned ? "Pinned" : "Pin"}
-          </button>
-          {onReuseAsReference && (
-            <button
-              onClick={() => {
-                if (reusing) return;
-                setReusing(true);
-                void onReuseAsReference().finally(() => setReusing(false));
-              }}
-              disabled={reusing}
-              aria-label="Reuse as reference"
-              title={reusing ? "Saving as reference…" : "Reuse as reference image"}
-              className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm disabled:opacity-50"
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
-                <circle cx="5.5" cy="6.5" r="1.2" stroke="currentColor" strokeWidth="1" />
-                <path d="M2 11L5.5 8L8 10L11 7L14 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-          )}
-          <button
-            onClick={onDownload}
-            aria-label="Download"
-            title="Download"
-            className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm"
-          >
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path
-                d="M6 1V8M6 8L3 5.5M6 8L9 5.5M2 10.5H10"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-          <button
-            onClick={onDelete}
-            aria-label="Delete image"
-            title="Delete image"
-            className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-muted-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm"
-          >
-            <Trash2 className="size-3.5" strokeWidth={2} />
-          </button>
+          <GeneratedImageActions
+            isPinned={isPinned}
+            onTogglePin={onTogglePin}
+            onDownload={onDownload}
+            onDelete={onDelete}
+            onReuseAsReference={onReuseAsReference}
+          />
         </div>
       )}
     </div>
+  );
+}
+
+function ImageModal({
+  src,
+  alt,
+  actions,
+  onClose,
+}: {
+  src: string;
+  alt: string;
+  actions?: React.ReactNode;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Expanded image preview"
+      onClick={onClose}
+    >
+      <button
+        onClick={(event) => {
+          event.stopPropagation();
+          onClose();
+        }}
+        aria-label="Close image preview"
+        className="absolute right-4 top-4 z-10 size-9 rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm cursor-pointer"
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="mx-auto">
+          <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </button>
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+      <div className="relative z-10 flex h-[90vh] w-full items-center justify-center">
+        <div
+          className="relative overflow-hidden rounded-lg border border-white/10 bg-black/30 shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={src}
+            alt={alt}
+            className="block max-h-[90vh] max-w-full h-auto w-auto"
+          />
+          {actions && (
+            <div className="absolute top-3 right-3 z-10">
+              {actions}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -367,6 +491,7 @@ type ModelAlbumProps = {
 function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, onReuseAsReference }: ModelAlbumProps) {
   const model = models.find((m) => m.slug === modelId);
   const [expanded, setExpanded] = useState(false);
+  const [modalImage, setModalImage] = useState<ImageShape | null>(null);
   const imageIdKey = images.map((image) => image.id).join("\n");
   const skipNextPinnedSaveRef = useRef(true);
   // map of imageId → timestamp when pinned (higher = more recently pinned = on top)
@@ -410,10 +535,32 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
   const coverStack = pinned.length > 0 ? pinned : images;
   const visibleStack = coverStack.slice(0, 4);
   const hiddenStackCount = Math.max(0, coverStack.length - visibleStack.length);
+  const canExpand = images.length > 1;
+
+  const handleDownload = (img: ImageShape) => {
+    void downloadImage(img.url).catch((err) => {
+      console.error("Failed to download image", err);
+      toast.error("Image download failed");
+    });
+  };
+
+  const handleAlbumClick = (event: React.MouseEvent) => {
+    if (!canExpand || expanded) return;
+
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (target.closest("button, a, input, textarea, select, [role='button']")) return;
+
+    setExpanded(true);
+  };
 
   return (
     <Card
-      className="group/album rounded-lg gap-0 py-0 [animation:promptGroupFadeIn_0.3s_ease_both]"
+      className={cn(
+        "group/album rounded-lg gap-0 py-0 [animation:promptGroupFadeIn_0.3s_ease_both]",
+        canExpand && !expanded && "cursor-pointer",
+      )}
+      onClick={handleAlbumClick}
     >
       {/* header */}
       <div className="px-3 py-2.5 flex items-center justify-between gap-2 border-b border-border">
@@ -448,7 +595,10 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
           <Button
             variant="outline"
             size="xs"
-            onClick={() => setExpanded((e) => !e)}
+            onClick={(event) => {
+              event.stopPropagation();
+              setExpanded((e) => !e);
+            }}
             className="shrink-0 gap-1 cursor-pointer"
           >
             {expanded ? "Collapse" : `View all ${images.length}`}
@@ -503,15 +653,11 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
                         pinIndex={pinIdx}
                         totalPinned={pinned.length}
                         onTogglePin={() => togglePin(img.id)}
-                        onDownload={() => {
-                          void downloadImage(img.url).catch((err) => {
-                            console.error("Failed to download image", err);
-                            toast.error("Image download failed");
-                          });
-                        }}
+                        onDownload={() => handleDownload(img)}
                         onDelete={() => onDeleteImage?.(img.id)}
                         onRetry={onRetryImage ? () => onRetryImage(img.id) : undefined}
                         onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(img.id) : undefined}
+                        onOpen={expanded ? () => setModalImage(img) : undefined}
                       />
                     </div>
                   );
@@ -544,26 +690,40 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
                   pinIndex={pinIdx}
                   totalPinned={pinned.length}
                   onTogglePin={() => togglePin(img.id)}
-                  onDownload={() => {
-                    void downloadImage(img.url).catch((err) => {
-                      console.error("Failed to download image", err);
-                      toast.error("Image download failed");
-                    });
-                  }}
+                  onDownload={() => handleDownload(img)}
                   onDelete={() => onDeleteImage?.(img.id)}
                   onRetry={onRetryImage ? () => onRetryImage(img.id) : undefined}
                   onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(img.id) : undefined}
+                  onOpen={() => setModalImage(img)}
                 />
               );
             })}
           </div>
         )}
       </div>
+      {modalImage && (
+        <ImageModal
+          src={modalImage.url}
+          alt="Expanded generated image"
+          onClose={() => setModalImage(null)}
+          actions={
+            <GeneratedImageActions
+              onDownload={() => handleDownload(modalImage)}
+              onDelete={() => {
+                setModalImage(null);
+                onDeleteImage?.(modalImage.id);
+              }}
+              onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(modalImage.id) : undefined}
+            />
+          }
+        />
+      )}
     </Card>
   );
 }
 
 export default function PromptGroup(props: PromptGroupProps) {
+  const [referenceModalImage, setReferenceModalImage] = useState<string | null>(null);
   const modelOrder: string[] = [];
   const byModel: Record<string, ImageShape[]> = {};
   for (const img of props.images) {
@@ -591,7 +751,16 @@ export default function PromptGroup(props: PromptGroupProps) {
                 {refImages.map((r) => (
                   <div
                     key={r.id}
-                    className="relative size-[18px] rounded border border-border overflow-hidden shrink-0"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setReferenceModalImage(r.url!)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setReferenceModalImage(r.url!);
+                      }
+                    }}
+                    className="relative size-[18px] rounded border border-border overflow-hidden shrink-0 cursor-pointer"
                   >
                     <Image src={r.url!} alt="Reference" fill className="object-cover" sizes="18px" />
                   </div>
@@ -628,6 +797,13 @@ export default function PromptGroup(props: PromptGroupProps) {
           />
         ))}
       </div>
+      {referenceModalImage && (
+        <ImageModal
+          src={referenceModalImage}
+          alt="Expanded reference image"
+          onClose={() => setReferenceModalImage(null)}
+        />
+      )}
     </div>
   );
 }
