@@ -255,11 +255,17 @@ export default function Home() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files?.length) return;
+    const filesToUpload = Array.from(files);
     try {
-      const res = await startUpload(Array.from(files));
+      const res = await startUpload(filesToUpload);
       if (res?.length) {
         const created = await Promise.allSettled(
-          res.map((uploaded) => createRefImage.mutateAsync({ url: uploaded.ufsUrl })),
+          res.map((uploaded, index) =>
+            createRefImage.mutateAsync({
+              url: uploaded.ufsUrl,
+              mimeType: filesToUpload[index]?.type ?? undefined,
+            }),
+          ),
         );
         const failedCount = created.filter((result) => result.status === "rejected").length;
         if (failedCount === 0) {

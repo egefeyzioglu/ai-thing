@@ -70,6 +70,7 @@ export const referenceImages = createTable(
     id: d.text("id").primaryKey(),
     userId: d.text("user_id"),
     url: d.text("url"),
+    mimeType: d.text("mime_type").notNull().default("image/png"),
     uploadedAt: d
       .timestamp("uploaded_at", { withTimezone: true })
       .notNull()

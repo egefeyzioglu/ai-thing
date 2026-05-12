@@ -1,0 +1,1 @@
+ALTER TABLE "ai-thing_reference" ADD COLUMN "mime_type" text DEFAULT 'image/png' NOT NULL;

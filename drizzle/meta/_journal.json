@@ -64,6 +64,13 @@
       "when": 1777864218916,
       "tag": "0008_stormy_the_santerians",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1778551253974,
+      "tag": "0009_kind_silver_sable",
+      "breakpoints": true
     }
   ]
 }

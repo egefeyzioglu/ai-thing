@@ -273,21 +273,23 @@ async function generateImageGeminiModel(
     userId,
     referenceImageIds,
   );
-  const referenceImageB64s = (
+  const referenceImageInputs = (
     await Promise.all(
       ownedReferenceImages.map(async (image) => {
         if (!image?.url) return undefined;
         const imageBytes = await (await fetch(image.url)).bytes();
-        return Buffer.from(imageBytes).toString("base64");
+        return {
+          b64: Buffer.from(imageBytes).toString("base64"),
+          mimeType: image.mimeType,
+        };
       }),
     )
-  ).filter((x): x is string => x !== undefined);
+  ).filter((x): x is { b64: string; mimeType: string } => x !== undefined);
   const modelInputs = [
-    ...referenceImageB64s.map((b64: string) => ({
+    ...referenceImageInputs.map((image) => ({
       inline_data: {
-        // TODO: Don't hardcode the mime type
-        mime_type: "image/png",
-        data: b64,
+        mime_type: image.mimeType,
+        data: image.b64,
       },
     })),
     { text: "Generate an image based on the following user input:" + prompt },

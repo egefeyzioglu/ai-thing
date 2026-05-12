@@ -12,15 +12,41 @@ export const referenceImageRouter = createTRPCRouter({
     .input(
       z.object({
         url: z.string().min(1),
+        // Optional because it's easier to validate and delete from UT on the
+        // server than on the client
+        mimeType: z.unknown().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      if (
+        typeof input.mimeType !== "string" ||
+        !input.mimeType.startsWith("image/")
+      ) {
+        const key = extractFileKey(input.url);
+        if (key) {
+          try {
+            await utapi.deleteFiles(key);
+          } catch (reason) {
+            console.error(
+              `Deleting image with key ${key} failed. Was deleting because no MIME type was provided/the provided MIME type is invalid`,
+              reason,
+            );
+          }
+        }
+
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Reference image MIME type must start with image/",
+        });
+      }
+
       const [referenceImageRow] = await db
         .insert(referenceImages)
         .values({
           id: crypto.randomUUID(),
           userId: ctx.user,
           url: input.url,
+          mimeType: input.mimeType,
         })
         .returning();
 
@@ -122,6 +148,8 @@ export const referenceImageRouter = createTRPCRouter({
         id: newId,
         reusedFrom: input.imageId,
         url: generatedImageRow.url,
+        // TODO: Probably shouldn't assume this but it's correct for all the models we support atm
+        mimeType: "image/png",
         userId: ctx.user,
       })
       .onConflictDoUpdate({
