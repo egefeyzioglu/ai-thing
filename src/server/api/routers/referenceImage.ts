@@ -14,24 +14,29 @@ export const referenceImageRouter = createTRPCRouter({
         url: z.string().min(1),
         // Optional because it's easier to validate and delete from UT on the
         // server than on the client
-        mimeType: z.string().min(1).optional(),
+        mimeType: z.unknown().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      if (!input.mimeType) {
+      if (
+        typeof input.mimeType !== "string" ||
+        !input.mimeType.startsWith("image/")
+      ) {
         const key = extractFileKey(input.url);
         if (key) {
-          utapi.deleteFiles(key).catch((reason) => {
+          try {
+            await utapi.deleteFiles(key);
+          } catch (reason) {
             console.error(
-              `Deleting image with key ${key} failed. Was deleting because no mime type was provided`,
-              reason
-            )
-          });
+              `Deleting image with key ${key} failed. Was deleting because no MIME type was provided/the provided MIME type is invalid`,
+              reason,
+            );
+          }
         }
 
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Reference image MIME type is required",
+          message: "Reference image MIME type must start with image/",
         });
       }
 
