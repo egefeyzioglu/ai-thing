@@ -14,7 +14,7 @@ import { PostHogProvider } from "./providers";
 export const metadata: Metadata = {
   title: "AI Thing",
   description: "",
-  icons: [{ rel: "icon", url: "/favicon.ico" }],
+  icons: [{ rel: "icon", url: "/favicon_32x32.webp" }],
 };
 
 const geist = Geist({
