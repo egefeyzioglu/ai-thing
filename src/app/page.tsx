@@ -267,7 +267,27 @@ export default function Home() {
             }),
           ),
         );
+        const createdReferenceIds = created
+          .filter(
+            (
+              result,
+            ): result is PromiseFulfilledResult<
+              Awaited<ReturnType<typeof createRefImage.mutateAsync>>
+            > => result.status === "fulfilled",
+          )
+          .map((result) => result.value?.id)
+          .filter((id): id is string => typeof id === "string");
         const failedCount = created.filter((result) => result.status === "rejected").length;
+
+        if (createdReferenceIds.length > 0) {
+          await utils.referenceImage.getReferenceImages.invalidate();
+          setSelectedReferenceImages((prev) => [
+            ...prev,
+            ...createdReferenceIds.filter((id) => !prev.includes(id)),
+          ]);
+          setReferenceImagesOpen(true);
+        }
+
         if (failedCount === 0) {
           toast.success(
             res.length === 1
