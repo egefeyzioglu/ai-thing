@@ -330,17 +330,14 @@ export default function Home() {
         referenceImages: selectedReferenceImages.length > 0 ? selectedReferenceImages : undefined,
         resolution,
         aspectRatio: aspect,
-      }, {
-        onSuccess: ()=>{
-          utils.prompt.list.invalidate().catch((reason) => {
-            console.error("Failed to invalidate prompt.list, user will have to refresh.", reason);
-          });
-        }
       });
     } catch (reason) {
       console.error(`Error when generating prompt with text "${trimmedPrompt}"`, reason);
       return;
     } finally {
+      utils.prompt.list.invalidate().catch((reason) => {
+        console.error("Failed to invalidate prompt.list, user will have to refresh.", reason);
+      });
       generateButtonTimeoutRef.current = setTimeout(() => {
         generateButtonLockedRef.current = false;
         generateButtonTimeoutRef.current = null;
@@ -377,8 +374,12 @@ export default function Home() {
               : "some",
       });
     } catch {
-      // createPrompt failed
+      // runGeneration failed
       console.error(`Failed to generate one or more images for prompt: "${trimmedPrompt}"`);
+    } finally {
+      utils.prompt.list.invalidate().catch((reason) => {
+        console.error("Failed to invalidate images query. Some images may be stuck generating until a refresh", reason);
+      })
     }
   };
 
