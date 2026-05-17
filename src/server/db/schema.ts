@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { index, pgTableCreator } from "drizzle-orm/pg-core";
+import { index, pgTableCreator, uniqueIndex } from "drizzle-orm/pg-core";
 
 /**
  * This is an example of how to use the multi-project schema feature of Drizzle ORM. Use the same
@@ -9,11 +9,38 @@ import { index, pgTableCreator } from "drizzle-orm/pg-core";
  */
 export const createTable = pgTableCreator((name) => `ai-thing_${name}`);
 
+export const projects = createTable(
+  "project",
+  (d) => ({
+    id: d.text("id").primaryKey(),
+    userId: d.text("user_id").notNull(),
+    name: d.text("name").notNull(),
+    isDefault: d.boolean("is_default").notNull().default(false),
+    createdAt: d
+      .timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: d
+      .timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  }),
+  (t) => [
+    index("project_user_id_idx").on(t.userId),
+    uniqueIndex("project_user_name_unique").on(t.userId, t.name),
+    index("project_user_default_idx").on(t.userId, t.isDefault),
+  ],
+);
+
 export const prompts = createTable(
   "prompt",
   (d) => ({
     id: d.text("id").primaryKey(),
     userId: d.text("user_id"),
+    projectId: d
+      .text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "restrict" }),
     text: d.text("text").notNull(),
     createdAt: d
       .timestamp("created_at", { withTimezone: true })
@@ -28,10 +55,16 @@ export const prompts = createTable(
   (t) => [
     index("prompt_created_at_idx").on(t.createdAt),
     index("prompt_user_id_idx").on(t.userId),
+    index("prompt_project_created_at_idx").on(t.projectId, t.createdAt),
   ],
 );
 
-export const IMAGE_STATUSES = ["pending", "running", "succeeded", "failed"] as const;
+export const IMAGE_STATUSES = [
+  "pending",
+  "running",
+  "succeeded",
+  "failed",
+] as const;
 export type ImageStatus = (typeof IMAGE_STATUSES)[number];
 
 export const images = createTable(
@@ -75,9 +108,10 @@ export const referenceImages = createTable(
       .timestamp("uploaded_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
-    reusedFrom: d.text("reused_from_image_id")
-      .references(()=>images.id, {onDelete: "set null"})
-      .unique()
+    reusedFrom: d
+      .text("reused_from_image_id")
+      .references(() => images.id, { onDelete: "set null" })
+      .unique(),
   }),
   (t) => [
     index("reference_user_id_idx").on(t.userId),
@@ -85,8 +119,16 @@ export const referenceImages = createTable(
   ],
 );
 
-export const promptsRelations = relations(prompts, ({ many }) => ({
+export const projectsRelations = relations(projects, ({ many }) => ({
+  prompts: many(prompts),
+}));
+
+export const promptsRelations = relations(prompts, ({ many, one }) => ({
   images: many(images),
+  project: one(projects, {
+    fields: [prompts.projectId],
+    references: [projects.id],
+  }),
 }));
 
 export const imagesRelations = relations(images, ({ one }) => ({
@@ -101,3 +143,4 @@ export const referenceImageRelations = relations(referenceImages, () => ({}));
 export type Prompt = typeof prompts.$inferSelect;
 export type Image = typeof images.$inferSelect;
 export type ReferenceImage = typeof referenceImages.$inferSelect;
+export type Project = typeof projects.$inferSelect;

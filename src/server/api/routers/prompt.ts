@@ -4,7 +4,12 @@ import { z } from "zod";
 
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
-import { images, prompts, referenceImages } from "src/server/db/schema";
+import {
+  images,
+  projects,
+  prompts,
+  referenceImages,
+} from "src/server/db/schema";
 import { utapi } from "src/server/uploadthing";
 
 export type SupportedModel = {
@@ -45,13 +50,14 @@ export const SUPPORTED_MODELS = [
     provider: "Google",
     isArchived: false,
   },
- ] as const satisfies SupportedModel[];
+] as const satisfies SupportedModel[];
 
- type ModelSlug = (typeof SUPPORTED_MODELS)[number]["slug"];
+type ModelSlug = (typeof SUPPORTED_MODELS)[number]["slug"];
 
-const supportedModelSlugs = SUPPORTED_MODELS.map(
-  (m) => m.slug,
-) as unknown as [ModelSlug, ...ModelSlug[]];
+const supportedModelSlugs = SUPPORTED_MODELS.map((m) => m.slug) as unknown as [
+  ModelSlug,
+  ...ModelSlug[],
+];
 
 export const promptRouter = createTRPCRouter({
   getModels: protectedProcedure.query(() => {
@@ -66,6 +72,7 @@ export const promptRouter = createTRPCRouter({
   createWithGenerations: protectedProcedure
     .input(
       z.object({
+        projectId: z.string().min(1),
         text: z.string().min(1).max(1000),
         models: z.array(z.enum(supportedModelSlugs)).min(1),
         repeatCount: z.number().int().min(1).max(8),
@@ -80,6 +87,21 @@ export const promptRouter = createTRPCRouter({
       const referenceImageIds = Array.from(
         new Set(input.referenceImages ?? []),
       );
+
+      const [project] = await db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(
+          and(eq(projects.id, input.projectId), eq(projects.userId, ctx.user)),
+        )
+        .limit(1);
+
+      if (!project) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Project not found",
+        });
+      }
 
       if (referenceImageIds.length > 0) {
         const ownedReferenceImages = await db
@@ -108,6 +130,7 @@ export const promptRouter = createTRPCRouter({
           .values({
             id: promptId,
             userId: ctx.user,
+            projectId: input.projectId,
             text: input.text,
             referenceImages: referenceImageIds,
             resolution: input.resolution,
@@ -154,12 +177,10 @@ export const promptRouter = createTRPCRouter({
       // Collect UploadThing keys for every generated image that isn't reused
       // so we can remove the files before the cascade-delete wipes the rows.
       const imageRows = await db
-        .select({ key: images.key, reusedBy: referenceImages.reusedFrom})
+        .select({ key: images.key, reusedBy: referenceImages.reusedFrom })
         .from(images)
         .leftJoin(referenceImages, eq(images.id, referenceImages.reusedFrom))
-        .where(
-          and(eq(images.promptId, input.id), eq(images.userId, ctx.user)),
-        );
+        .where(and(eq(images.promptId, input.id), eq(images.userId, ctx.user)));
 
       const keys = imageRows
         .filter((r) => !r.reusedBy)
@@ -167,11 +188,12 @@ export const promptRouter = createTRPCRouter({
         .filter((k): k is string => !!k);
 
       if (keys.length > 0) {
-          await utapi.deleteFiles(keys).catch((r) => {
-            console.error(
-              `Failed to delete some files from UploadThing for image ${input.id}`,
-              r
-            )});
+        await utapi.deleteFiles(keys).catch((r) => {
+          console.error(
+            `Failed to delete some files from UploadThing for image ${input.id}`,
+            r,
+          );
+        });
       }
 
       // The `onDelete: "cascade"` on images.promptId handles child rows.
@@ -184,15 +206,35 @@ export const promptRouter = createTRPCRouter({
       return { success: true };
     }),
 
-  list: protectedProcedure.query(async ({ ctx }) => {
-    return db.query.prompts.findMany({
-      where: eq(prompts.userId, ctx.user),
-      orderBy: [desc(prompts.createdAt)],
-      with: {
-        images: {
-          where: eq(images.userId, ctx.user),
+  list: protectedProcedure
+    .input(z.object({ projectId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const [project] = await db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(
+          and(eq(projects.id, input.projectId), eq(projects.userId, ctx.user)),
+        )
+        .limit(1);
+
+      if (!project) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Project not found",
+        });
+      }
+
+      return db.query.prompts.findMany({
+        where: and(
+          eq(prompts.userId, ctx.user),
+          eq(prompts.projectId, input.projectId),
+        ),
+        orderBy: [desc(prompts.createdAt)],
+        with: {
+          images: {
+            where: eq(images.userId, ctx.user),
+          },
         },
-      },
-    });
-  }),
+      });
+    }),
 });

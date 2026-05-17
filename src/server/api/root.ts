@@ -1,5 +1,6 @@
 import { imageRouter } from "src/server/api/routers/image";
 import { promptRouter } from "src/server/api/routers/prompt";
+import { projectRouter } from "src/server/api/routers/project";
 import { createCallerFactory, createTRPCRouter } from "src/server/api/trpc";
 import { referenceImageRouter } from "./routers/referenceImage";
 
@@ -11,6 +12,7 @@ import { referenceImageRouter } from "./routers/referenceImage";
 export const appRouter = createTRPCRouter({
   image: imageRouter,
   prompt: promptRouter,
+  project: projectRouter,
   referenceImage: referenceImageRouter,
 });
 
