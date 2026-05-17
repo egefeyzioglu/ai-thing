@@ -57,16 +57,27 @@ const OPENAI_IMAGE_MAX_EDGE = 3840;
 const OPENAI_IMAGE_MIN_PIXELS = 655_360;
 const OPENAI_IMAGE_MAX_PIXELS = 8_294_400;
 
-function truncateToMultipleOf16(value: number): number {
-  return Math.floor(value / 16) * 16;
+function parseResolutionPreset(resolution?: string): number | undefined {
+  switch (resolution) {
+    case "512":
+      return 512;
+    case "1K":
+      return 1024;
+    case "2K":
+      return 2048;
+    case "4K":
+      return 4096;
+    default:
+      return undefined;
+  }
 }
 
 function resolveImageSize(
   resolution?: string,
   aspectRatio?: string,
 ): string | undefined {
-  const parsedResolution = resolution ? parseInt(resolution, 10) : NaN;
-  if (!Number.isFinite(parsedResolution) || parsedResolution <= 0) {
+  const parsedResolution = parseResolutionPreset(resolution);
+  if (parsedResolution === undefined) {
     return undefined;
   }
 
@@ -91,8 +102,8 @@ function resolveImageSize(
     height *= edgeScale;
   }
 
-  width = truncateToMultipleOf16(width);
-  height = truncateToMultipleOf16(height);
+  width &= 0xfffffff0;
+  height &= 0xfffffff0;
 
   if (width < 16 || height < 16) {
     console.error("[resolveImageSize] Computed dimensions are too small", {
@@ -326,11 +337,11 @@ async function generateImageGeminiModel(
   ];
   // Map resolution to Gemini imageSize
   let imageSize: string | undefined;
-  if (resolution) {
-    const res = parseInt(resolution, 10);
-    if (res <= 512) imageSize = "512";
-    else if (res <= 1024) imageSize = "1K";
-    else if (res <= 2048) imageSize = "2K";
+  const parsedResolution = parseResolutionPreset(resolution);
+  if (parsedResolution) {
+    if (parsedResolution <= 512) imageSize = "512";
+    else if (parsedResolution <= 1024) imageSize = "1K";
+    else if (parsedResolution <= 2048) imageSize = "2K";
     else imageSize = "4K";
   }
 
