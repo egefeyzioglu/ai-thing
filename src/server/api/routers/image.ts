@@ -221,7 +221,7 @@ async function generateImageOpenAIResponses(
         content: [...modelInputs],
       },
     ],
-    tools: [{ type: "image_generation", size }],
+    tools: [{ type: "image_generation", size, output_format: "png" }],
   });
 
   const res = await fetch("https://api.openai.com/v1/responses", {
@@ -278,11 +278,13 @@ async function generateImageGptImage2(
             image_url: image.url,
           })),
           size,
+          output_format: "png",
         })
       : JSON.stringify({
           model: "gpt-image-2-2026-04-21",
           prompt,
           size,
+          output_format: "png",
         });
 
   const res = await fetch(endpoint, {
