@@ -35,6 +35,7 @@ import PromptGroup from "./_components/prompt-group";
 
 type PromptModelSlug =
   RouterInputs["prompt"]["createWithGenerations"]["models"][number];
+type ResolutionOption = "512" | "1K" | "2K" | "4K";
 
 type PendingDelete =
   | { type: "referenceImage"; id: string }
@@ -42,6 +43,8 @@ type PendingDelete =
   | { type: "image"; id: string };
 
 const PUSH_PERMISSION_PROMPT_STORAGE_KEY = "ai-thing.pushPermissionPrompt";
+const OPENAI_MODEL_SLUGS = new Set<PromptModelSlug>(["gpt-image-2", "gpt-5.4-mini"]);
+const RESOLUTION_OPTIONS: ResolutionOption[] = ["512", "1K", "2K", "4K"];
 
 function hasDismissedPushPermissionPrompt() {
   try {
@@ -116,7 +119,7 @@ export default function Home() {
   const [archivedModelsOpen, setArchivedModelsOpen] = useState(false);
   const [selectedReferenceImages, setSelectedReferenceImages] = useState<string[]>([]);
   const [selectedModels, setSelectedModels] = useState<PromptModelSlug[]>([]);
-  const [resolution, setResolution] = useState("1024");
+  const [resolution, setResolution] = useState<ResolutionOption>("1K");
   const [aspect, setAspect] = useState("1:1");
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
   const [promptText, setPromptText] = useState("");
@@ -433,6 +436,15 @@ export default function Home() {
   const totalGenerations = runs * selectedModels.length;
   const activeModels = models?.filter((model) => !model.isArchived) ?? [];
   const archivedModels = models?.filter((model) => model.isArchived) ?? [];
+  const hasOnlyOpenAIModelsSelected =
+    selectedModels.length > 0 &&
+    selectedModels.every((model) => OPENAI_MODEL_SLUGS.has(model));
+
+  useEffect(() => {
+    if (hasOnlyOpenAIModelsSelected && resolution === "512") {
+      setResolution("1K");
+    }
+  }, [hasOnlyOpenAIModelsSelected, resolution]);
 
   return (
     <main className="w-full grow flex flex-row text-gray-200">
@@ -634,19 +646,27 @@ export default function Home() {
             <FieldLabel className="uppercase text-xxs text-(--muted-foreground)">Resolution</FieldLabel>
             <div className="flex flex-row gap-2">
               {
-                ["512", "1024", "2048", "4096"].map((resolutionOption) => (
+                RESOLUTION_OPTIONS.map((resolutionOption) => {
+                  const isDisabled =
+                    resolutionOption === "512" && hasOnlyOpenAIModelsSelected;
+
+                  return (
                   <button key={resolutionOption}
-                    className={clsx("px-2 py-1 border border-1 text-sm rounded-md cursor-pointer grow",
-                      resolution === resolutionOption ? "bg-blue-500 text-(--foreground)" : "hover:bg-gray-900 text-(--muted-foreground) "
+                    disabled={isDisabled}
+                    aria-disabled={isDisabled}
+                    className={clsx("px-2 py-1 border border-1 text-sm rounded-md grow",
+                      resolution === resolutionOption ? "bg-blue-500 text-(--foreground)" : "text-(--muted-foreground)",
+                      isDisabled ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:bg-gray-900"
                     )}
                     onClick={(e)=>{
                       e.preventDefault();
+                      if (isDisabled) return;
                       setResolution(resolutionOption)
                     }}
                   >
                     {resolutionOption}
                   </button>
-                ))
+                )})
               }
             </div>
           </Field>

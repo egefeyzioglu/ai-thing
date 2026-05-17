@@ -188,7 +188,7 @@ function PinIcon({ size = 12, filled = false }: { size?: number; filled?: boolea
 }
 
 async function downloadImage(url: string, expectedMimeType?: string) {
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: { Accept: "image/png,*/*;q=0.8" } });
   if(!res.ok) throw new Error(`Download failed: Got ${res.status} from UploadThing`);
 
   const extension = extensionFor(

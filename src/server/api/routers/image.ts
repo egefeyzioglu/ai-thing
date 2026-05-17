@@ -53,6 +53,93 @@ type GeneratedImage = {
   mimeType: string;
 };
 
+const OPENAI_IMAGE_MAX_EDGE = 3840;
+const OPENAI_IMAGE_MIN_PIXELS = 655_360;
+const OPENAI_IMAGE_MAX_PIXELS = 8_294_400;
+
+function parseResolutionPreset(resolution?: string): number | undefined {
+  switch (resolution) {
+    case "512":
+      return 512;
+    case "1024":
+    case "1K":
+      return 1024;
+    case "2048":
+    case "2K":
+      return 2048;
+    case "4096":
+    case "4K":
+      return 4096;
+    default:
+      return undefined;
+  }
+}
+
+function resolveImageSize(
+  resolution?: string,
+  aspectRatio?: string,
+): string | undefined {
+  const parsedResolution = parseResolutionPreset(resolution);
+  if (parsedResolution === undefined) {
+    return undefined;
+  }
+
+  const [rawWidth, rawHeight] = aspectRatio?.split(":") ?? [];
+  const parsedWidthRatio = Number(rawWidth);
+  const parsedHeightRatio = Number(rawHeight);
+  const widthRatio =
+    Number.isFinite(parsedWidthRatio) && parsedWidthRatio > 0
+      ? parsedWidthRatio
+      : 1;
+  const heightRatio =
+    Number.isFinite(parsedHeightRatio) && parsedHeightRatio > 0
+      ? parsedHeightRatio
+      : 1;
+  const targetScale = parsedResolution / Math.min(widthRatio, heightRatio);
+  let width = widthRatio * targetScale;
+  let height = heightRatio * targetScale;
+
+  if (Math.max(width, height) > OPENAI_IMAGE_MAX_EDGE) {
+    const edgeScale = OPENAI_IMAGE_MAX_EDGE / Math.max(width, height);
+    width *= edgeScale;
+    height *= edgeScale;
+  }
+
+  let pixels = width * height;
+  if (pixels > OPENAI_IMAGE_MAX_PIXELS) {
+    const pixelScale = Math.sqrt(OPENAI_IMAGE_MAX_PIXELS / pixels);
+    width *= pixelScale;
+    height *= pixelScale;
+  }
+
+  width &= 0xfffffff0;
+  height &= 0xfffffff0;
+
+  if (width < 16 || height < 16) {
+    console.error("[resolveImageSize] Computed dimensions are too small", {
+      resolution,
+      aspectRatio,
+      width,
+      height,
+    });
+    return undefined;
+  }
+
+  pixels = width * height;
+  if (pixels < OPENAI_IMAGE_MIN_PIXELS || pixels > OPENAI_IMAGE_MAX_PIXELS) {
+    console.error("[resolveImageSize] Computed dimensions violate pixel constraints", {
+      resolution,
+      aspectRatio,
+      width,
+      height,
+      pixels,
+    });
+    return undefined;
+  }
+
+  return `${width}x${height}`;
+}
+
 // Gemini-allowed aspect ratios
 const GEMINI_ALLOWED_ASPECT_RATIOS = new Set([
   "1:1",
@@ -124,25 +211,7 @@ async function generateImageOpenAIResponses(
       image_url: image.url,
     })),
   ];
-
-  // OpenAI only supports 1024x1024, 1024x1536, 1536x1024, and auto.
-  // Map aspect ratio to the closest supported size; ignore raw resolution.
-  let size = "auto";
-  if (aspectRatio) {
-    const parts = aspectRatio.split(":").map(Number);
-    const w = parts[0];
-    const h = parts[1];
-    if (w && h) {
-      const ratio = w / h;
-      if (ratio >= 0.99 && ratio <= 1.01) {
-        size = "1024x1024";
-      } else if (ratio > 1) {
-        size = "1536x1024";
-      } else {
-        size = "1024x1536";
-      }
-    }
-  }
+  const size = resolveImageSize(resolution, aspectRatio) ?? "auto";
 
   const body = JSON.stringify({
     model: "gpt-5.4-mini",
@@ -152,7 +221,7 @@ async function generateImageOpenAIResponses(
         content: [...modelInputs],
       },
     ],
-    tools: [{ type: "image_generation", size }],
+    tools: [{ type: "image_generation", size, output_format: "png" }],
   });
 
   const res = await fetch("https://api.openai.com/v1/responses", {
@@ -194,25 +263,7 @@ async function generateImageGptImage2(
     userId,
     referenceImageIds,
   );
-
-  // OpenAI image generation supports 1024x1024, 1024x1536, 1536x1024, and auto.
-  // Map aspect ratio to the closest supported size; ignore raw resolution.
-  let size = "auto";
-  if (aspectRatio) {
-    const parts = aspectRatio.split(":").map(Number);
-    const w = parts[0];
-    const h = parts[1];
-    if (w && h) {
-      const ratio = w / h;
-      if (ratio >= 0.99 && ratio <= 1.01) {
-        size = "1024x1024";
-      } else if (ratio > 1) {
-        size = "1536x1024";
-      } else {
-        size = "1024x1536";
-      }
-    }
-  }
+  const size = resolveImageSize(resolution, aspectRatio) ?? "auto";
 
   const endpoint =
     ownedReferenceImages.length > 0
@@ -227,11 +278,13 @@ async function generateImageGptImage2(
             image_url: image.url,
           })),
           size,
+          output_format: "png",
         })
       : JSON.stringify({
           model: "gpt-image-2-2026-04-21",
           prompt,
           size,
+          output_format: "png",
         });
 
   const res = await fetch(endpoint, {
@@ -296,11 +349,11 @@ async function generateImageGeminiModel(
   ];
   // Map resolution to Gemini imageSize
   let imageSize: string | undefined;
-  if (resolution) {
-    const res = parseInt(resolution, 10);
-    if (res <= 512) imageSize = "512";
-    else if (res <= 1024) imageSize = "1K";
-    else if (res <= 2048) imageSize = "2K";
+  const parsedResolution = parseResolutionPreset(resolution);
+  if (parsedResolution) {
+    if (parsedResolution <= 512) imageSize = "512";
+    else if (parsedResolution <= 1024) imageSize = "1K";
+    else if (parsedResolution <= 2048) imageSize = "2K";
     else imageSize = "4K";
   }
 
