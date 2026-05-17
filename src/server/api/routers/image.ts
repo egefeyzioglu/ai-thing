@@ -53,6 +53,14 @@ type GeneratedImage = {
   mimeType: string;
 };
 
+const OPENAI_IMAGE_MAX_EDGE = 3840;
+const OPENAI_IMAGE_MIN_PIXELS = 655_360;
+const OPENAI_IMAGE_MAX_PIXELS = 8_294_400;
+
+function truncateToMultipleOf16(value: number): number {
+  return Math.floor(value / 16) * 16;
+}
+
 function resolveImageSize(
   resolution?: string,
   aspectRatio?: string,
@@ -62,26 +70,51 @@ function resolveImageSize(
     return undefined;
   }
 
-  if (!aspectRatio) {
-    return `${parsedResolution}x${parsedResolution}`;
+  const [rawWidth, rawHeight] = aspectRatio?.split(":") ?? [];
+  const parsedWidthRatio = Number(rawWidth);
+  const parsedHeightRatio = Number(rawHeight);
+  const widthRatio =
+    Number.isFinite(parsedWidthRatio) && parsedWidthRatio > 0
+      ? parsedWidthRatio
+      : 1;
+  const heightRatio =
+    Number.isFinite(parsedHeightRatio) && parsedHeightRatio > 0
+      ? parsedHeightRatio
+      : 1;
+  const targetScale = parsedResolution / Math.min(widthRatio, heightRatio);
+  let width = widthRatio * targetScale;
+  let height = heightRatio * targetScale;
+
+  if (Math.max(width, height) > OPENAI_IMAGE_MAX_EDGE) {
+    const edgeScale = OPENAI_IMAGE_MAX_EDGE / Math.max(width, height);
+    width *= edgeScale;
+    height *= edgeScale;
   }
 
-  const [rawWidth, rawHeight] = aspectRatio.split(":");
-  const widthRatio = Number(rawWidth);
-  const heightRatio = Number(rawHeight);
+  width = truncateToMultipleOf16(width);
+  height = truncateToMultipleOf16(height);
 
-  if (
-    !Number.isFinite(widthRatio) ||
-    !Number.isFinite(heightRatio) ||
-    widthRatio <= 0 ||
-    heightRatio <= 0
-  ) {
-    return `${parsedResolution}x${parsedResolution}`;
+  if (width < 16 || height < 16) {
+    console.error("[resolveImageSize] Computed dimensions are too small", {
+      resolution,
+      aspectRatio,
+      width,
+      height,
+    });
+    return undefined;
   }
 
-  const scale = parsedResolution / Math.min(widthRatio, heightRatio);
-  const width = Math.round(widthRatio * scale);
-  const height = Math.round(heightRatio * scale);
+  const pixels = width * height;
+  if (pixels < OPENAI_IMAGE_MIN_PIXELS || pixels > OPENAI_IMAGE_MAX_PIXELS) {
+    console.error("[resolveImageSize] Computed dimensions violate pixel constraints", {
+      resolution,
+      aspectRatio,
+      width,
+      height,
+      pixels,
+    });
+    return undefined;
+  }
 
   return `${width}x${height}`;
 }
