@@ -32,15 +32,8 @@ import {
 } from "src/components/ui/popover";
 import { Skeleton } from "src/components/ui/skeleton";
 import { cn } from "src/lib/utils";
+import type { Project } from "src/server/db/schema";
 import { api } from "src/trpc/react";
-
-type Project = {
-  id: string;
-  name: string;
-  isDefault: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-};
 
 type ProjectSwitcherProps = {
   projects: Project[] | undefined;

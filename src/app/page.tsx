@@ -610,7 +610,7 @@ export default function Home() {
     Boolean(selectedProjectId) &&
     !generateButtonLocked;
   const isGalleryLoading =
-    isLoadingProjects || !selectedProjectId || prompts === undefined;
+    isLoadingProjects || !selectedProjectId || promptsQuery.isLoading;
 
   useEffect(() => {
     if (hasOnlyOpenAIModelsSelected && resolution === "512") {
@@ -1054,7 +1054,14 @@ export default function Home() {
             )}
           </div>
         </div>
-        {isGalleryLoading ? (
+        {promptsQuery.error &&
+        promptsQuery.error.data?.code !== "NOT_FOUND" ? (
+          <div className="flex flex-1 items-center justify-center">
+            <p className="text-muted-foreground text-sm">
+              Failed to load generations: {promptsQuery.error.message}
+            </p>
+          </div>
+        ) : isGalleryLoading ? (
           <div className="flex flex-1 items-center justify-center">
             <p className="text-muted-foreground text-sm">Loading...</p>
           </div>
