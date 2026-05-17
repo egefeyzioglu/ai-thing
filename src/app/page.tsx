@@ -1036,14 +1036,23 @@ export default function Home() {
         </div>
       </aside>
       <div className="flex max-h-screen w-full flex-col overflow-x-hidden overflow-y-scroll">
-        <div className="border-border bg-background/95 sticky top-0 z-30 flex items-center justify-between gap-3 border-b px-9 py-4 backdrop-blur">
-          <ProjectSwitcher
-            projects={projects}
-            selectedProject={selectedProject}
-            selectedProjectId={selectedProjectId}
-            isLoading={isLoadingProjects}
-            onSelectProject={handleSelectProject}
-          />
+        <div className="bg-background/95 sticky top-0 z-30 flex items-center justify-between gap-3 px-9 py-4 backdrop-blur">
+          <div className="flex items-center gap-3">
+            <ProjectSwitcher
+              projects={projects}
+              selectedProject={selectedProject}
+              selectedProjectId={selectedProjectId}
+              isLoading={isLoadingProjects}
+              onSelectProject={handleSelectProject}
+            />
+            {(prompts?.length ?? 0) > 0 && (
+              <p className="text-muted-foreground/60 text-xs font-medium">
+                {prompts?.length ?? 0}{" "}
+                {(prompts?.length ?? 0) === 1 ? "generation" : "generations"} in
+                this project
+              </p>
+            )}
+          </div>
         </div>
         {isGalleryLoading ? (
           <div className="flex flex-1 items-center justify-center">
@@ -1100,10 +1109,6 @@ export default function Home() {
           </div>
         ) : (
           <div className="flex w-full flex-col gap-12 px-9 py-8">
-            <p className="text-muted-foreground/60 text-xs font-medium">
-              {prompts?.length ?? 0}{" "}
-              {(prompts?.length ?? 0) === 1 ? "generation" : "generations"}
-            </p>
             {(prompts ?? []).map((prompt) => (
               <PromptGroup
                 key={prompt.id}
