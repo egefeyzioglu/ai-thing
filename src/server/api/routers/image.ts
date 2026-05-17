@@ -53,6 +53,39 @@ type GeneratedImage = {
   mimeType: string;
 };
 
+function resolveImageSize(
+  resolution?: string,
+  aspectRatio?: string,
+): string | undefined {
+  const parsedResolution = resolution ? parseInt(resolution, 10) : NaN;
+  if (!Number.isFinite(parsedResolution) || parsedResolution <= 0) {
+    return undefined;
+  }
+
+  if (!aspectRatio) {
+    return `${parsedResolution}x${parsedResolution}`;
+  }
+
+  const [rawWidth, rawHeight] = aspectRatio.split(":");
+  const widthRatio = Number(rawWidth);
+  const heightRatio = Number(rawHeight);
+
+  if (
+    !Number.isFinite(widthRatio) ||
+    !Number.isFinite(heightRatio) ||
+    widthRatio <= 0 ||
+    heightRatio <= 0
+  ) {
+    return `${parsedResolution}x${parsedResolution}`;
+  }
+
+  const scale = parsedResolution / Math.min(widthRatio, heightRatio);
+  const width = Math.round(widthRatio * scale);
+  const height = Math.round(heightRatio * scale);
+
+  return `${width}x${height}`;
+}
+
 // Gemini-allowed aspect ratios
 const GEMINI_ALLOWED_ASPECT_RATIOS = new Set([
   "1:1",
@@ -124,25 +157,7 @@ async function generateImageOpenAIResponses(
       image_url: image.url,
     })),
   ];
-
-  // OpenAI only supports 1024x1024, 1024x1536, 1536x1024, and auto.
-  // Map aspect ratio to the closest supported size; ignore raw resolution.
-  let size = "auto";
-  if (aspectRatio) {
-    const parts = aspectRatio.split(":").map(Number);
-    const w = parts[0];
-    const h = parts[1];
-    if (w && h) {
-      const ratio = w / h;
-      if (ratio >= 0.99 && ratio <= 1.01) {
-        size = "1024x1024";
-      } else if (ratio > 1) {
-        size = "1536x1024";
-      } else {
-        size = "1024x1536";
-      }
-    }
-  }
+  const size = resolveImageSize(resolution, aspectRatio) ?? "auto";
 
   const body = JSON.stringify({
     model: "gpt-5.4-mini",
@@ -194,25 +209,7 @@ async function generateImageGptImage2(
     userId,
     referenceImageIds,
   );
-
-  // OpenAI image generation supports 1024x1024, 1024x1536, 1536x1024, and auto.
-  // Map aspect ratio to the closest supported size; ignore raw resolution.
-  let size = "auto";
-  if (aspectRatio) {
-    const parts = aspectRatio.split(":").map(Number);
-    const w = parts[0];
-    const h = parts[1];
-    if (w && h) {
-      const ratio = w / h;
-      if (ratio >= 0.99 && ratio <= 1.01) {
-        size = "1024x1024";
-      } else if (ratio > 1) {
-        size = "1536x1024";
-      } else {
-        size = "1024x1536";
-      }
-    }
-  }
+  const size = resolveImageSize(resolution, aspectRatio) ?? "auto";
 
   const endpoint =
     ownedReferenceImages.length > 0
