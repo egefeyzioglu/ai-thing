@@ -1145,9 +1145,9 @@ export default function Home() {
                 }
                 onReuseAsReference={handleReuseAsReference}
                 onRetryImage={(imageId) => {
-                  toast.info("Retry generation started");
                   console.log("[retry] clicked, imageId:", imageId);
                   if (!selectedProjectId) return;
+                  toast.info("Retry generation started");
                   utils.prompt.list.setData(
                     { projectId: selectedProjectId },
                     (old) =>

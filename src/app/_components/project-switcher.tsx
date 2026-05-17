@@ -141,6 +141,11 @@ export function ProjectSwitcher({
     if (!open) setRenameProjectId(null);
   };
 
+  const handleCreateOpenChange = (open: boolean) => {
+    setCreateOpen(open);
+    if (!open) setCreateName("");
+  };
+
   const openRenameFor = (
     event: MouseEvent | PointerEvent,
     project: Project,
@@ -217,7 +222,7 @@ export function ProjectSwitcher({
                         type="button"
                         variant="ghost"
                         size="icon-xs"
-                        className="cursor-pointer"
+                        className="text-muted-foreground focus-visible:text-foreground cursor-pointer opacity-60 hover:opacity-100 focus-visible:opacity-100"
                         aria-label={`Edit ${project.name}`}
                         onPointerDown={(event) => event.stopPropagation()}
                         onClick={(event) => openRenameFor(event, project)}
@@ -257,7 +262,7 @@ export function ProjectSwitcher({
         </PopoverContent>
       </Popover>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <Dialog open={createOpen} onOpenChange={handleCreateOpenChange}>
         <DialogContent>
           <form onSubmit={handleCreateSubmit} className="contents">
             <DialogHeader>
@@ -281,7 +286,7 @@ export function ProjectSwitcher({
                 type="button"
                 variant="outline"
                 className="cursor-pointer"
-                onClick={() => setCreateOpen(false)}
+                onClick={() => handleCreateOpenChange(false)}
               >
                 Cancel
               </Button>
