@@ -61,10 +61,13 @@ function parseResolutionPreset(resolution?: string): number | undefined {
   switch (resolution) {
     case "512":
       return 512;
+    case "1024":
     case "1K":
       return 1024;
+    case "2048":
     case "2K":
       return 2048;
+    case "4096":
     case "4K":
       return 4096;
     default:
@@ -102,6 +105,13 @@ function resolveImageSize(
     height *= edgeScale;
   }
 
+  let pixels = width * height;
+  if (pixels > OPENAI_IMAGE_MAX_PIXELS) {
+    const pixelScale = Math.sqrt(OPENAI_IMAGE_MAX_PIXELS / pixels);
+    width *= pixelScale;
+    height *= pixelScale;
+  }
+
   width &= 0xfffffff0;
   height &= 0xfffffff0;
 
@@ -115,7 +125,7 @@ function resolveImageSize(
     return undefined;
   }
 
-  const pixels = width * height;
+  pixels = width * height;
   if (pixels < OPENAI_IMAGE_MIN_PIXELS || pixels > OPENAI_IMAGE_MAX_PIXELS) {
     console.error("[resolveImageSize] Computed dimensions violate pixel constraints", {
       resolution,
