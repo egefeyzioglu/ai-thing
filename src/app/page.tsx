@@ -146,7 +146,7 @@ function ReferenceImage(props: ReferenceImageProps) {
             : "Select reference image"
         }
         aria-pressed={props.isSelected}
-        className="block w-full cursor-pointer bg-transparent text-left flex"
+        className="block grow-1 cursor-pointer bg-transparent text-left flex"
       >
         <div
           className={clsx(
