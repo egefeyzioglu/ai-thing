@@ -263,7 +263,7 @@ async function generateImageGptImage2Generations(
         size,
         output_format: "png",
       })
-  const res = await fetch("https://api.openai.com/v1/images/edits", {
+  const res = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -289,13 +289,13 @@ async function generateImageGptImage2Generations(
 async function generateImageGptImage2Edits(
   prompt: string,
   size: string,
-  referenceImageIds: ReferenceImage[],
+  referenceImages: ReferenceImage[],
 ) : Promise<GeneratedImage|undefined> {
   const body =
       JSON.stringify({
         model: "gpt-image-2-2026-04-21",
         prompt,
-        images: referenceImageIds.map((image) => ({
+        images: referenceImages.map((image) => ({
           image_url: image.url,
         })),
         size,
