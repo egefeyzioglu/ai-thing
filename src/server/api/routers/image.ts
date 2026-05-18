@@ -252,6 +252,78 @@ async function generateImageOpenAIResponses(
   return { base64: imageCall.result, mimeType: "image/png" };
 }
 
+async function generateImageGptImage2Generations(
+  prompt: string,
+  size: string,
+) : Promise<GeneratedImage|undefined> {
+  const body =
+      JSON.stringify({
+        model: "gpt-image-2-2026-04-21",
+        prompt,
+        size,
+        output_format: "png",
+      })
+  const res = await fetch("https://api.openai.com/v1/images/edits", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+    },
+    body,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`OpenAI Images API error (${res.status}): ${text}`);
+  }
+
+  const data = (await res.json()) as OpenAIImagesApiResponse;
+  const imageBase64 = data.data?.[0]?.b64_json;
+
+  if (!imageBase64) {
+    return undefined;
+  }
+
+  return { base64: imageBase64, mimeType: "image/png" };
+}
+
+async function generateImageGptImage2Edits(
+  prompt: string,
+  size: string,
+  referenceImageIds: ReferenceImage[],
+) : Promise<GeneratedImage|undefined> {
+  const body =
+      JSON.stringify({
+        model: "gpt-image-2-2026-04-21",
+        prompt,
+        images: referenceImageIds.map((image) => ({
+          image_url: image.url,
+        })),
+        size,
+        output_format: "png",
+      })
+  const res = await fetch("https://api.openai.com/v1/images/edits", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+    },
+    body,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`OpenAI Images API error (${res.status}): ${text}`);
+  }
+
+  const data = (await res.json()) as OpenAIImagesApiResponse;
+  const imageBase64 = data.data?.[0]?.b64_json;
+
+  if (!imageBase64) {
+    return undefined;
+  }
+
+  return { base64: imageBase64, mimeType: "image/png" };
+}
+
 async function generateImageGptImage2(
   userId: string,
   prompt: string,
@@ -265,50 +337,17 @@ async function generateImageGptImage2(
   );
   const size = resolveImageSize(resolution, aspectRatio) ?? "auto";
 
-  const endpoint =
-    ownedReferenceImages.length > 0
-      ? "https://api.openai.com/v1/images/edits"
-      : "https://api.openai.com/v1/images/generations";
-  const body =
-    ownedReferenceImages.length > 0
-      ? JSON.stringify({
-          model: "gpt-image-2-2026-04-21",
-          prompt,
-          images: ownedReferenceImages.map((image) => ({
-            image_url: image.url,
-          })),
-          size,
-          output_format: "png",
-        })
-      : JSON.stringify({
-          model: "gpt-image-2-2026-04-21",
-          prompt,
-          size,
-          output_format: "png",
-        });
+  const image = await (
+    ownedReferenceImages.length > 0 ?
+      generateImageGptImage2Edits(prompt, size, ownedReferenceImages) :
+      generateImageGptImage2Generations(prompt, size)
+  );
 
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-    },
-    body,
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenAI Images API error (${res.status}): ${text}`);
-  }
-
-  const data = (await res.json()) as OpenAIImagesApiResponse;
-  const imageBase64 = data.data?.[0]?.b64_json;
-
-  if (!imageBase64) {
+  if (!image) {
     throw new Error("OpenAI Images API response did not contain an image");
   }
 
-  return { base64: imageBase64, mimeType: "image/png" };
+  return image;
 }
 
 async function generateImageGeminiModel(
