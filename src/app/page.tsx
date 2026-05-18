@@ -1,15 +1,9 @@
 "use client";
 
-import { Label } from "src/components/ui/label";
-import { Field, FieldLabel } from "src/components/ui/field";
-import { Textarea } from "src/components/ui/textarea";
-import {
-  Collapsible,
-  CollapsibleTrigger,
-  CollapsibleContent,
-} from "src/components/ui/collapsible";
-import { Checkbox } from "src/components/ui/checkbox";
-import { Skeleton } from "src/components/ui/skeleton";
+import { useUser } from "@clerk/nextjs";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,33 +14,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "src/components/ui/alert-dialog";
-
-import { useUser, UserButton } from "@clerk/nextjs";
-
-import { useCallback, useEffect, useRef, useState } from "react";
-import Image from "next/image";
-
-import {
-  ChevronUp,
-  ChevronDown,
-  Trash2,
-  Upload,
-  AlertTriangle,
-} from "lucide-react";
-import clsx from "clsx";
-import { toast } from "sonner";
-
-import { api, type RouterInputs } from "src/trpc/react";
-import { useUploadThing } from "src/lib/uploadthing";
 import { notifyPromptDone } from "src/lib/notify";
+import { useUploadThing } from "src/lib/uploadthing";
+import { api } from "src/trpc/react";
 
-// import { SUPPORTED_MODELS } from "src/server/api/routers/prompt";
-import PromptGroup from "./_components/prompt-group";
-import { ProjectSwitcher } from "./_components/project-switcher";
-
-type PromptModelSlug =
-  RouterInputs["prompt"]["createWithGenerations"]["models"][number];
-type ResolutionOption = "512" | "1K" | "2K" | "4K";
+import { ImageGallery } from "./_components/image-gallery";
+import {
+  Sidebar,
+  type PromptModelSlug,
+  type ResolutionOption,
+} from "./_components/sidebar";
 
 type PendingDelete =
   | { type: "referenceImage"; id: string }
@@ -59,7 +36,6 @@ const OPENAI_MODEL_SLUGS = new Set<PromptModelSlug>([
   "gpt-image-2",
   "gpt-5.4-mini",
 ]);
-const RESOLUTION_OPTIONS: ResolutionOption[] = ["512", "1K", "2K", "4K"];
 
 type StoredActiveProjects = Record<string, string>;
 
@@ -121,78 +97,6 @@ function rememberPushPermissionPromptDismissal() {
   }
 }
 
-type ReferenceImageProps = {
-  src: string;
-  alt: string;
-  isSelected: boolean;
-  imageId: string;
-  onDelete: () => void;
-  setSelected: () => void;
-};
-
-function ReferenceImage(props: ReferenceImageProps) {
-  return (
-    <div className={clsx("group relative overflow-clip rounded-md border-1 flex flex-col justify-center")}>
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-10 bg-linear-to-b from-black/45 via-black/20 to-transparent"
-      />
-      <button
-        type="button"
-        onClick={props.setSelected}
-        aria-label={
-          props.isSelected
-            ? "Deselect reference image"
-            : "Select reference image"
-        }
-        aria-pressed={props.isSelected}
-        className="block grow-1 cursor-pointer bg-transparent text-left flex"
-      >
-        <div
-          className={clsx(
-            "absolute top-1.5 left-1.5 z-10 size-4 cursor-pointer rounded-full border-2 border-(--muted-foreground)",
-            props.isSelected
-              ? "border-blue-500 opacity-100"
-              : "opacity-30 transition-opacity group-hover:opacity-100",
-          )}
-        >
-          <div
-            className={clsx(
-              "absolute top-0.25 left-0.25 size-2.5 rounded-full",
-              props.isSelected
-                ? "bg-blue-500 opacity-100"
-                : "bg-(--muted-foreground) opacity-30 transition-opacity group-hover:opacity-60",
-            )}
-          />
-        </div>
-
-        <Image
-          src={props.src}
-          alt={props.alt}
-          width={100}
-          height={100}
-          className="m-auto w-full"
-        />
-      </button>
-
-      <button
-        type="button"
-        aria-label="Delete reference image"
-        onClick={(e) => {
-          e.stopPropagation();
-          props.onDelete?.();
-        }}
-        className="focus-visible:outline-ring absolute top-1.5 right-1.5 z-10 flex size-4 cursor-pointer items-center justify-center rounded-full border-2 border-(--muted-foreground) opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2"
-      >
-        <Trash2
-          className="size-2.5 text-(--muted-foreground)"
-          strokeWidth={2.2}
-        />
-      </button>
-    </div>
-  );
-}
-
 export default function Home() {
   const [referenceImagesOpen, setReferenceImagesOpen] = useState(false);
   const [archivedModelsOpen, setArchivedModelsOpen] = useState(false);
@@ -250,7 +154,6 @@ export default function Home() {
   ]);
 
   const user = useUser();
-
   const utils = api.useUtils();
 
   const { data: referenceImages, isLoading: isLoadingRefImages } =
@@ -583,6 +486,41 @@ export default function Home() {
     setReferenceImagesOpen(true);
   };
 
+  const handleRetryImage = (imageId: string) => {
+    console.log("[retry] clicked, imageId:", imageId);
+    if (!selectedProjectId) return;
+    toast.info("Retry generation started");
+    utils.prompt.list.setData({ projectId: selectedProjectId }, (old) =>
+      old?.map((p) => ({
+        ...p,
+        images: p.images.map((img) =>
+          img.id === imageId
+            ? {
+                ...img,
+                status: "pending" as const,
+                error: null,
+              }
+            : img,
+        ),
+      })),
+    );
+    console.log("[retry] optimistic update applied, calling runGeneration");
+    runGeneration.mutate(
+      { imageId, retry: true },
+      {
+        onSuccess: (data) => console.log("[retry] succeeded, result:", data),
+        onError: (err) => console.error("[retry] mutation error:", err),
+        onSettled: (data, error) => {
+          console.log("[retry] settled, invalidating list");
+          void utils.prompt.list.invalidate();
+          notifyPromptDone({
+            failureState: !!error || data?.status === "failed" ? "all" : "none",
+          });
+        },
+      },
+    );
+  };
+
   useEffect(() => {
     setIsMacOS(navigator?.userAgent.toLowerCase().includes("mac"));
   }, []);
@@ -611,6 +549,10 @@ export default function Home() {
     !generateButtonLocked;
   const isGalleryLoading =
     isLoadingProjects || !selectedProjectId || promptsQuery.isLoading;
+  const galleryErrorMessage =
+    promptsQuery.error && promptsQuery.error.data?.code !== "NOT_FOUND"
+      ? promptsQuery.error.message
+      : undefined;
 
   useEffect(() => {
     if (hasOnlyOpenAIModelsSelected && resolution === "512") {
@@ -685,520 +627,58 @@ export default function Home() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <aside className="flex h-screen w-1/5 flex-col border border-x border-(--border)">
-        <div className="flex flex-row items-center gap-4 border-y border-(--border) p-5">
-          <div className="h-8 w-8 rounded-md bg-blue-400"></div>
-          <div>
-            <h1 className="font-heading text-lg font-bold">AI Thing</h1>
-            <p className="text-xs text-(--muted-foreground)">
-              All your models, in one place
-            </p>
-          </div>
-        </div>
-        <div className="flex grow flex-col gap-3 overflow-y-scroll p-5">
-          <Field>
-            <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
-              Prompt
-            </FieldLabel>
-            <Textarea
-              id="prompt"
-              placeholder="What do you want to create?.."
-              value={promptText}
-              onChange={(e) => setPromptText(e.target.value)}
-              onKeyDown={handleKeyDown}
-            />
-            <span
-              className={clsx(
-                "mx-0 text-xs text-(--muted-foreground)",
-                isMacOS === null ? "opacity-0" : "opacity-80",
-              )}
-            >
-              Press {isMacOS ? "⌘" : "Ctrl"} + Enter to submit
-            </span>
-          </Field>
-          <Collapsible
-            open={referenceImagesOpen}
-            onOpenChange={setReferenceImagesOpen}
-          >
-            <CollapsibleTrigger className="flex w-full cursor-pointer flex-row justify-between">
-              <FieldLabel className="text-xxs cursor-pointer text-(--muted-foreground) uppercase">
-                Reference Images
-              </FieldLabel>
-              {referenceImagesOpen ? (
-                <ChevronUp color="var(--muted-foreground)" />
-              ) : (
-                <ChevronDown color="var(--muted-foreground)" />
-              )}
-            </CollapsibleTrigger>
-            {selectedReferenceImages.length > 0 ? (
-              <span className="mx-0 text-xs text-(--muted-foreground)">
-                {`(${selectedReferenceImages.length} image${selectedReferenceImages.length > 1 ? "s" : ""} selected)`}
-              </span>
-            ) : (
-              ""
-            )}
-            <CollapsibleContent className="max-h-80 overflow-scroll">
-              <div className="my-2 grid grid-cols-3 gap-2 p-2">
-                {isLoadingRefImages
-                  ? Array.from({ length: 6 }).map((_, i) => (
-                      <Skeleton key={i} className="aspect-square rounded-md" />
-                    ))
-                  : referenceImages?.map((img) => (
-                      <ReferenceImage
-                        key={img.id}
-                        src={img.url ?? ""}
-                        alt="Reference image"
-                        imageId={img.id}
-                        isSelected={selectedReferenceImages.includes(img.id)}
-                        setSelected={() => {
-                          if (selectedReferenceImages.includes(img.id))
-                            setSelectedReferenceImages(
-                              selectedReferenceImages.filter(
-                                (e) => e !== img.id,
-                              ),
-                            );
-                          else
-                            setSelectedReferenceImages([
-                              ...selectedReferenceImages,
-                              img.id,
-                            ]);
-                        }}
-                        onDelete={() => {
-                          setPendingDelete({
-                            type: "referenceImage",
-                            id: img.id,
-                          });
-                        }}
-                      />
-                    ))}
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex py-2 col-span-3 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-1 border-dashed border-(--muted-foreground) hover:bg-gray-900"
-                >
-                  <Upload size={16} className="text-(--muted-foreground)" />
-                  <span className="text-xs text-(--muted-foreground)">Add</span>
-                </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={handleFileUpload}
-                />
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
-          <Field>
-            <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
-              Models
-            </FieldLabel>
-            {isLoadingModels ? (
-              <div className="flex flex-col gap-2">
-                {Array.from({ length: 2 }).map((_, i) => (
-                  <Skeleton key={i} className="h-12 rounded-md" />
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {activeModels.map(({ slug, name }) => (
-                  <div
-                    key={slug}
-                    role="checkbox"
-                    aria-checked={selectedModels.includes(slug)}
-                    aria-labelledby={`model-select-${slug}-label`}
-                    tabIndex={0}
-                    className={clsx(
-                      "flex cursor-pointer flex-row items-center gap-4 rounded-md border border-1 px-4 py-2 text-(--foreground)",
-                      selectedModels.includes(slug)
-                        ? "border-blue-500 bg-gray-800"
-                        : "hover:bg-gray-900",
-                    )}
-                    onClick={() => toggleSelectedModel(slug)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        toggleSelectedModel(slug);
-                      }
-                    }}
-                  >
-                    <Checkbox
-                      id={`model-select-${slug}`}
-                      accentColor="blue-500"
-                      checked={selectedModels.includes(slug)}
-                      tabIndex={-1}
-                      className="pointer-events-none"
-                    />
-                    <Label
-                      id={`model-select-${slug}-label`}
-                      className="pointer-events-none cursor-pointer flex-col items-start"
-                    >
-                      <span>{name}</span>
-                      <span className="text-xs text-(--muted-foreground)">
-                        {slug}
-                      </span>
-                    </Label>
-                  </div>
-                ))}
-                {archivedModels.length > 0 && (
-                  <Collapsible
-                    open={archivedModelsOpen}
-                    onOpenChange={setArchivedModelsOpen}
-                  >
-                    <CollapsibleTrigger className="flex w-full cursor-pointer items-center justify-between rounded-md border border-1 border-dashed border-(--border) px-4 py-2 text-left">
-                      <span className="text-xs tracking-wide text-(--muted-foreground) uppercase">
-                        Archived Models
-                      </span>
-                      {archivedModelsOpen ? (
-                        <ChevronUp color="var(--muted-foreground)" size={16} />
-                      ) : (
-                        <ChevronDown
-                          color="var(--muted-foreground)"
-                          size={16}
-                        />
-                      )}
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="mt-2 flex flex-col gap-2">
-                      {archivedModels.map(({ slug, name }) => (
-                        <div
-                          key={slug}
-                          role="checkbox"
-                          aria-checked={selectedModels.includes(slug)}
-                          aria-labelledby={`model-select-${slug}-label`}
-                          tabIndex={0}
-                          className={clsx(
-                            "flex cursor-pointer flex-row items-center gap-4 rounded-md border border-1 px-4 py-2 text-(--foreground)",
-                            selectedModels.includes(slug)
-                              ? "border-blue-500 bg-gray-800"
-                              : "hover:bg-gray-900",
-                          )}
-                          onClick={() => toggleSelectedModel(slug)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              toggleSelectedModel(slug);
-                            }
-                          }}
-                        >
-                          <Checkbox
-                            id={`model-select-${slug}`}
-                            accentColor="blue-500"
-                            checked={selectedModels.includes(slug)}
-                            tabIndex={-1}
-                            className="pointer-events-none"
-                          />
-                          <Label
-                            id={`model-select-${slug}-label`}
-                            className="pointer-events-none cursor-pointer flex-col items-start"
-                          >
-                            <span>{name}</span>
-                            <span className="text-xs text-(--muted-foreground)">
-                              {slug}
-                            </span>
-                          </Label>
-                        </div>
-                      ))}
-                    </CollapsibleContent>
-                  </Collapsible>
-                )}
-              </div>
-            )}
-          </Field>
-          <Field className="w-full">
-            <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
-              Resolution
-            </FieldLabel>
-            <div className="flex flex-row gap-2">
-              {RESOLUTION_OPTIONS.map((resolutionOption) => {
-                const isDisabled =
-                  resolutionOption === "512" && hasOnlyOpenAIModelsSelected;
-
-                return (
-                  <button
-                    key={resolutionOption}
-                    disabled={isDisabled}
-                    aria-disabled={isDisabled}
-                    className={clsx(
-                      "grow rounded-md border border-1 px-2 py-1 text-sm",
-                      resolution === resolutionOption
-                        ? "bg-blue-500 text-(--foreground)"
-                        : "text-(--muted-foreground)",
-                      isDisabled
-                        ? "cursor-not-allowed opacity-40"
-                        : "cursor-pointer hover:bg-gray-900",
-                    )}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      if (isDisabled) return;
-                      setResolution(resolutionOption);
-                    }}
-                  >
-                    {resolutionOption}
-                  </button>
-                );
-              })}
-            </div>
-          </Field>
-          <Field className="w-full">
-            <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
-              Aspect Ratio
-            </FieldLabel>
-            <div className="flex flex-row gap-2">
-              {["1:1", "4:3", "3:4", "16:9", "9:16"].map((aspectOption) => (
-                <button
-                  key={aspectOption}
-                  className={clsx(
-                    "grow cursor-pointer rounded-md border border-1 px-2 py-1 text-sm",
-                    aspect === aspectOption
-                      ? "bg-blue-500 text-(--foreground)"
-                      : "text-(--muted-foreground) hover:bg-gray-900",
-                  )}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setAspect(aspectOption);
-                  }}
-                >
-                  {aspectOption}
-                </button>
-              ))}
-            </div>
-          </Field>
-          <Field className="w-full">
-            <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
-              Runs per Model
-            </FieldLabel>
-            <div className="flex flex-row gap-2">
-              <button
-                className="cursor-pointer rounded-md border border-1 px-3 py-1 text-sm hover:bg-gray-900 active:bg-blue-500"
-                onClick={() => {
-                  if (runs > 1) setRuns(runs - 1);
-                }}
-              >
-                -
-              </button>
-              <input
-                className="w-0 grow rounded-md border border-1 text-center text-sm"
-                disabled
-                value={runs}
-              />
-              <button
-                className="cursor-pointer rounded-md border border-1 px-3 py-1 text-sm hover:bg-gray-900 active:bg-blue-500"
-                onClick={() => {
-                  if (runs < 8) setRuns(runs + 1);
-                }}
-              >
-                +
-              </button>
-            </div>
-            <span className="mt-1 text-xs text-(--muted-foreground)">
-              {totalGenerations} generation{totalGenerations !== 1 ? "s" : ""}{" "}
-              will be triggered
-            </span>
-          </Field>
-          {totalGenerations > 6 && (
-            <div className="flex flex-row items-start gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 p-3">
-              <AlertTriangle
-                size={16}
-                className="mt-0.5 shrink-0 text-amber-400"
-              />
-              <div className="text-sm text-amber-300">
-                Repeating prompts many times may lead to high usage.{" "}
-                <button
-                  className="underline hover:text-amber-200"
-                  onClick={() => setRuns(3)}
-                >
-                  Reduce repeat count
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-        <div className="flex flex-col items-center-safe gap-2 border-y border-(--border) py-4">
-          <button
-            aria-busy={generateButtonLocked}
-            className={clsx(
-              "w-2/3 cursor-pointer rounded-md border border-1 px-4 py-2",
-              canGenerate
-                ? "hover:bg-gray-900 active:bg-gray-500"
-                : "cursor-not-allowed opacity-50",
-            )}
-            disabled={!canGenerate}
-            onClick={handleGenerate}
-          >
-            {generateButtonLocked ? "Generating..." : "Generate"}
-          </button>
-          <br />
-          <div className="flex w-full flex-row items-center-safe justify-start gap-4 px-4">
-            <UserButton />
-            {user.user?.fullName}
-          </div>
-        </div>
-      </aside>
-      <div className="flex max-h-screen w-full flex-col overflow-x-hidden overflow-y-scroll">
-        <div className="bg-background/95 sticky top-0 z-30 flex items-center justify-between gap-3 px-9 py-4 backdrop-blur">
-          <div className="flex items-center gap-3">
-            <ProjectSwitcher
-              projects={projects}
-              selectedProject={selectedProject}
-              selectedProjectId={selectedProjectId}
-              isLoading={isLoadingProjects}
-              onSelectProject={handleSelectProject}
-            />
-            {(prompts?.length ?? 0) > 0 && (
-              <p className="text-muted-foreground/60 text-xs font-medium">
-                {prompts?.length ?? 0}{" "}
-                {(prompts?.length ?? 0) === 1 ? "generation" : "generations"} in
-                this project
-              </p>
-            )}
-          </div>
-        </div>
-        {promptsQuery.error &&
-        promptsQuery.error.data?.code !== "NOT_FOUND" ? (
-          <div className="flex flex-1 items-center justify-center">
-            <p className="text-muted-foreground text-sm">
-              Failed to load generations: {promptsQuery.error.message}
-            </p>
-          </div>
-        ) : isGalleryLoading ? (
-          <div className="flex flex-1 items-center justify-center">
-            <p className="text-muted-foreground text-sm">Loading...</p>
-          </div>
-        ) : (prompts?.length ?? 0) === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3">
-            <div className="bg-card border-border flex size-11 items-center justify-center rounded-xl border">
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <rect
-                  x="2"
-                  y="2"
-                  width="7"
-                  height="7"
-                  rx="1.5"
-                  stroke="var(--muted-foreground)"
-                  strokeWidth="1.5"
-                />
-                <rect
-                  x="11"
-                  y="2"
-                  width="7"
-                  height="7"
-                  rx="1.5"
-                  stroke="var(--muted-foreground)"
-                  strokeWidth="1.5"
-                />
-                <rect
-                  x="2"
-                  y="11"
-                  width="7"
-                  height="7"
-                  rx="1.5"
-                  stroke="var(--muted-foreground)"
-                  strokeWidth="1.5"
-                />
-                <rect
-                  x="11"
-                  y="11"
-                  width="7"
-                  height="7"
-                  rx="1.5"
-                  stroke="var(--muted-foreground)"
-                  strokeWidth="1.5"
-                />
-              </svg>
-            </div>
-            <p className="text-muted-foreground text-sm">
-              No generations in this project yet
-            </p>
-            <p className="text-muted-foreground/60 text-xs">
-              Write a prompt and hit Generate
-            </p>
-          </div>
-        ) : (
-          <div className="flex w-full flex-col gap-12 px-9 py-8">
-            {(prompts ?? []).map((prompt) => (
-              <PromptGroup
-                key={prompt.id}
-                id={prompt.id}
-                prompt={prompt.text}
-                aspectRatio={prompt.aspectRatio ?? undefined}
-                createdAt={prompt.createdAt}
-                models={models ?? []}
-                images={prompt.images.map((image) => ({
-                  id: image.id,
-                  url: image.url ?? "",
-                  modelSlug: image.model,
-                  status: image.status,
-                  key: image.key ?? "",
-                  error: image.error ?? undefined,
-                  createdAt: image.createdAt,
-                  updatedAt: image.updatedAt,
-                }))}
-                referenceImages={
-                  (prompt.referenceImages as string[])?.length > 0
-                    ? (prompt.referenceImages as string[]).map((id) => ({
-                        id,
-                        url:
-                          referenceImages?.find((r) => r.id === id)?.url ??
-                          undefined,
-                      }))
-                    : []
-                }
-                onDeletePrompt={() =>
-                  setPendingDelete({ type: "prompt", id: prompt.id })
-                }
-                onDeleteImage={(imageId) =>
-                  setPendingDelete({ type: "image", id: imageId })
-                }
-                onReuseAsReference={handleReuseAsReference}
-                onRetryImage={(imageId) => {
-                  console.log("[retry] clicked, imageId:", imageId);
-                  if (!selectedProjectId) return;
-                  toast.info("Retry generation started");
-                  utils.prompt.list.setData(
-                    { projectId: selectedProjectId },
-                    (old) =>
-                      old?.map((p) => ({
-                        ...p,
-                        images: p.images.map((img) =>
-                          img.id === imageId
-                            ? {
-                                ...img,
-                                status: "pending" as const,
-                                error: null,
-                              }
-                            : img,
-                        ),
-                      })),
-                  );
-                  console.log(
-                    "[retry] optimistic update applied, calling runGeneration",
-                  );
-                  runGeneration.mutate(
-                    { imageId, retry: true },
-                    {
-                      onSuccess: (data) =>
-                        console.log("[retry] succeeded, result:", data),
-                      onError: (err) =>
-                        console.error("[retry] mutation error:", err),
-                      onSettled: (data, error) => {
-                        console.log("[retry] settled, invalidating list");
-                        void utils.prompt.list.invalidate();
-                        notifyPromptDone({
-                          failureState:
-                            !!error || data?.status === "failed"
-                              ? "all"
-                              : "none",
-                        });
-                      },
-                    },
-                  );
-                }}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      <Sidebar
+        referenceImagesOpen={referenceImagesOpen}
+        onReferenceImagesOpenChange={setReferenceImagesOpen}
+        archivedModelsOpen={archivedModelsOpen}
+        onArchivedModelsOpenChange={setArchivedModelsOpen}
+        selectedReferenceImages={selectedReferenceImages}
+        onSelectedReferenceImagesChange={setSelectedReferenceImages}
+        selectedModels={selectedModels}
+        onToggleSelectedModel={toggleSelectedModel}
+        resolution={resolution}
+        onResolutionChange={setResolution}
+        aspect={aspect}
+        onAspectChange={setAspect}
+        isMacOS={isMacOS}
+        promptText={promptText}
+        onPromptTextChange={setPromptText}
+        onPromptKeyDown={handleKeyDown}
+        runs={runs}
+        onRunsChange={setRuns}
+        generateButtonLocked={generateButtonLocked}
+        canGenerate={canGenerate}
+        onGenerate={handleGenerate}
+        fileInputRef={fileInputRef}
+        onFileUpload={handleFileUpload}
+        onDeleteReferenceImage={(id) =>
+          setPendingDelete({ type: "referenceImage", id })
+        }
+        referenceImages={referenceImages}
+        isLoadingRefImages={isLoadingRefImages}
+        isLoadingModels={isLoadingModels}
+        activeModels={activeModels}
+        archivedModels={archivedModels}
+        hasOnlyOpenAIModelsSelected={hasOnlyOpenAIModelsSelected}
+        totalGenerations={totalGenerations}
+        userFullName={user.user?.fullName}
+      />
+      <ImageGallery
+        projects={projects}
+        project={selectedProject}
+        selectedProjectId={selectedProjectId}
+        isLoadingProjects={isLoadingProjects}
+        onSelectProject={handleSelectProject}
+        prompts={prompts}
+        errorMessage={galleryErrorMessage}
+        isLoading={isGalleryLoading}
+        models={models}
+        referenceImages={referenceImages}
+        onDeletePrompt={(id) => setPendingDelete({ type: "prompt", id })}
+        onDeleteImage={(id) => setPendingDelete({ type: "image", id })}
+        onReuseAsReference={handleReuseAsReference}
+        onRetryImage={handleRetryImage}
+      />
     </main>
   );
 }
