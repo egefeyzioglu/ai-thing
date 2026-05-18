@@ -254,11 +254,12 @@ async function generateImageOpenAIResponses(
 
 async function generateImageGptImage2Generations(
   prompt: string,
+  model: ["gpt-image-2-2026-04-21"][number],
   size: string,
 ) : Promise<GeneratedImage | undefined> {
   const body =
       JSON.stringify({
-        model: "gpt-image-2-2026-04-21",
+        model,
         prompt,
         size,
         output_format: "png",
@@ -340,7 +341,7 @@ async function generateImageGptImage2(
   const image = await (
     ownedReferenceImages.length > 0 ?
       generateImageGptImage2Edits(prompt, size, ownedReferenceImages) :
-      generateImageGptImage2Generations(prompt, size)
+      generateImageGptImage2Generations(prompt, "gpt-image-2-2026-04-21", size)
   );
 
   if (!image) {
@@ -351,10 +352,11 @@ async function generateImageGptImage2(
 }
 
 async function generateImageGeminiModel(
-  model:
-    | "gemini-2.5-flash-image"
-    | "gemini-3.1-flash-image-preview"
-    | "gemini-3-pro-image-preview",
+  model: [
+    "gemini-2.5-flash-image",
+    "gemini-3.1-flash-image-preview",
+    "gemini-3-pro-image-preview",
+  ][number],
   userId: string,
   prompt: string,
   referenceImageIds?: string[],
