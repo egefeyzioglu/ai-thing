@@ -643,6 +643,7 @@ export const imageRouter = createTRPCRouter({
             status: "succeeded",
             url,
             key,
+            mimeType: generated.mimeType,
             error: null,
             updatedAt: new Date(),
           })

@@ -7,7 +7,7 @@
 - [X] #21 `resolution` ignored for OpenAI gen
 - [X] #52 Support multiple projects
 - [X] #49 Reference Images: Move drop target to the bottom
-- [ ] #54 Persist generated image MIME types and use them when reusing as reference images
+- [X] #54 Persist generated image MIME types and use them when reusing as reference images
 - [ ] #47 Rewrite GPT Image 2
 - [ ] #24 `generateImageOpenAI` should pass thru a model slug
 - [ ] #26 Local storage keys should be centralized
