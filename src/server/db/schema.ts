@@ -80,6 +80,7 @@ export const images = createTable(
     status: d.text("status").notNull().default("pending").$type<ImageStatus>(),
     url: d.text("url"),
     key: d.text("key"),
+    mimeType: d.text("mime_type").notNull().default("image/png"),
     error: d.text("error"),
     createdAt: d
       .timestamp("created_at", { withTimezone: true })
