@@ -132,7 +132,7 @@ type ReferenceImageProps = {
 
 function ReferenceImage(props: ReferenceImageProps) {
   return (
-    <div className={clsx("group relative overflow-clip rounded-md border-1")}>
+    <div className={clsx("group relative overflow-clip rounded-md border-1 flex flex-col justify-center")}>
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-x-0 top-0 z-0 h-10 bg-linear-to-b from-black/45 via-black/20 to-transparent"
@@ -146,7 +146,7 @@ function ReferenceImage(props: ReferenceImageProps) {
             : "Select reference image"
         }
         aria-pressed={props.isSelected}
-        className="block w-full cursor-pointer bg-transparent text-left"
+        className="block grow-1 cursor-pointer bg-transparent text-left flex"
       >
         <div
           className={clsx(
@@ -774,7 +774,7 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="flex aspect-square cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-1 border-dashed border-(--muted-foreground) hover:bg-gray-900"
+                  className="flex py-2 col-span-3 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-1 border-dashed border-(--muted-foreground) hover:bg-gray-900"
                 >
                   <Upload size={16} className="text-(--muted-foreground)" />
                   <span className="text-xs text-(--muted-foreground)">Add</span>
