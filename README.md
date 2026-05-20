@@ -10,7 +10,7 @@
 - [X] #54 Persist generated image MIME types and use them when reusing as reference images
 - [X] #47 Rewrite GPT Image 2
 - [X] #24 `generateImageOpenAI` should pass thru a model slug
-- [ ] #26 Local storage keys should be centralized
+- [X] #26 Local storage keys should be centralized
 - [ ] #55 Usage page and proper rate limiting + billing
 - [ ] #51 Recall previous prompts via up arrow (like cli)
 - [ ] #19 Light/dark mode switching isn't implemented
