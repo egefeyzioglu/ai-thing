@@ -14,7 +14,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "src/components/ui/alert-dialog";
-import { useLocalStorage } from "src/lib/localStorage";
 import { notifyPromptDone } from "src/lib/notify";
 import { useUploadThing } from "src/lib/uploadthing";
 import { api } from "src/trpc/react";
@@ -32,10 +31,53 @@ type PendingDelete =
   | { type: "image"; id: string };
 
 const PUSH_PERMISSION_PROMPT_STORAGE_KEY = "ai-thing.pushPermissionPrompt";
+const ACTIVE_PROJECT_STORAGE_KEY = "ai-thing.activeProjectByUser";
 const OPENAI_MODEL_SLUGS = new Set<PromptModelSlug>([
   "gpt-image-2",
   "gpt-5.4-mini",
 ]);
+
+type StoredActiveProjects = Record<string, string>;
+
+function isStoredActiveProjects(value: unknown): value is StoredActiveProjects {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  return Object.entries(value).every(
+    ([userId, projectId]) =>
+      userId.length > 0 &&
+      typeof projectId === "string" &&
+      projectId.length > 0,
+  );
+}
+
+function readStoredActiveProjects(): StoredActiveProjects {
+  try {
+    const raw = localStorage.getItem(ACTIVE_PROJECT_STORAGE_KEY);
+    if (!raw) return {};
+
+    const parsed: unknown = JSON.parse(raw);
+    return isStoredActiveProjects(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function readStoredActiveProjectId(userId: string) {
+  return readStoredActiveProjects()[userId] ?? null;
+}
+
+function writeStoredActiveProjectId(userId: string, projectId: string) {
+  const stored = readStoredActiveProjects();
+  stored[userId] = projectId;
+
+  try {
+    localStorage.setItem(ACTIVE_PROJECT_STORAGE_KEY, JSON.stringify(stored));
+  } catch {
+    // Ignore unavailable storage, such as private browsing quota failures.
+  }
+}
 
 function hasDismissedPushPermissionPrompt() {
   try {
@@ -76,10 +118,6 @@ export default function Home() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
     null,
   );
-  const [storedActiveProjects, setStoredActiveProjects] =
-    useLocalStorage("activeProject");
-  const [storedActiveProjectsReady, setStoredActiveProjectsReady] =
-    useState(false);
   const generateButtonLockedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generateButtonTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -115,10 +153,6 @@ export default function Home() {
     selectedProjectId,
   ]);
 
-  useEffect(() => {
-    setStoredActiveProjectsReady(true);
-  }, []);
-
   const user = useUser();
   const utils = api.useUtils();
 
@@ -139,18 +173,13 @@ export default function Home() {
   const handleSelectProject = useCallback(
     (projectId: string) => {
       setSelectedProjectId(projectId);
-      if (!userId) return;
-
-      setStoredActiveProjects((prev) => [
-        ...prev.filter((storedProject) => storedProject.userId !== userId),
-        { userId, projectId },
-      ]);
+      if (userId) writeStoredActiveProjectId(userId, projectId);
     },
-    [setStoredActiveProjects, userId],
+    [userId],
   );
 
   useEffect(() => {
-    if (!userId || !projects || !storedActiveProjectsReady) return;
+    if (!userId || !projects) return;
     if (projects.length === 0) {
       setSelectedProjectId(null);
       return;
@@ -163,9 +192,7 @@ export default function Home() {
       return;
     }
 
-    const storedProjectId =
-      storedActiveProjects.find((project) => project.userId === userId)
-        ?.projectId ?? null;
+    const storedProjectId = readStoredActiveProjectId(userId);
     const fallbackProjectId =
       storedProjectId &&
       projects.some((project) => project.id === storedProjectId)
@@ -175,21 +202,9 @@ export default function Home() {
 
     if (fallbackProjectId) {
       setSelectedProjectId(fallbackProjectId);
-      if (storedProjectId && storedProjectId !== fallbackProjectId) {
-        setStoredActiveProjects((prev) => [
-          ...prev.filter((storedProject) => storedProject.userId !== userId),
-          { userId, projectId: fallbackProjectId },
-        ]);
-      }
+      writeStoredActiveProjectId(userId, fallbackProjectId);
     }
-  }, [
-    projects,
-    selectedProjectId,
-    setStoredActiveProjects,
-    storedActiveProjects,
-    storedActiveProjectsReady,
-    userId,
-  ]);
+  }, [projects, selectedProjectId, userId]);
 
   const deleteRefImage = api.referenceImage.deleteReferenceImage.useMutation({
     onSuccess: () => {
