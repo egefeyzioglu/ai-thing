@@ -26,12 +26,6 @@ export const localStorageSchema = {
     defaultValue: [] as unknown,
     version: 1,
   },
-  pushPermissionPrompt: {
-    schema: z.nullable(z.string()),
-    key: "ai-thing.pushPermissionPrompt",
-    defaultValue: "",
-    version: 1,
-  }
 } satisfies Record<string, {
   schema: z.ZodTypeAny,
   key: string,
