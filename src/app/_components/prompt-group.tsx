@@ -28,6 +28,7 @@ type ImageShape = {
   updatedAt: Date;
 };
 
+
 export type PromptGroupProps = {
   id: string;
   prompt: string;
@@ -63,27 +64,27 @@ const FAN_PADDING = [
 // sign = depth%2===0 ? +1 : -1. tx=depth*14*sign, ty=depth*7.7, rot=depth*2.2*sign.
 const FAN_DEPTH = [
   {
-    pos: "relative",
-    xform: "",
-    z: "z-10",
+    pos:    "relative",
+    xform:  "",
+    z:      "z-10",
     shadow: "shadow-[0_6px_20px_oklch(0_0_0/0.5),0_1px_3px_oklch(0_0_0/0.4)]",
   },
   {
-    pos: "absolute inset-0",
-    xform: "-translate-x-[14px] translate-y-[7.7px] -rotate-[2.2deg]",
-    z: "z-[9]",
+    pos:    "absolute inset-0",
+    xform:  "-translate-x-[14px] translate-y-[7.7px] -rotate-[2.2deg]",
+    z:      "z-[9]",
     shadow: "shadow-[0_3px_10px_oklch(0_0_0/0.4)]",
   },
   {
-    pos: "absolute inset-0",
-    xform: "translate-x-[28px] translate-y-[15.4px] rotate-[4.4deg]",
-    z: "z-[8]",
+    pos:    "absolute inset-0",
+    xform:  "translate-x-[28px] translate-y-[15.4px] rotate-[4.4deg]",
+    z:      "z-[8]",
     shadow: "shadow-[0_3px_10px_oklch(0_0_0/0.4)]",
   },
   {
-    pos: "absolute inset-0",
-    xform: "-translate-x-[42px] translate-y-[23.1px] -rotate-[6.6deg]",
-    z: "z-[7]",
+    pos:    "absolute inset-0",
+    xform:  "-translate-x-[42px] translate-y-[23.1px] -rotate-[6.6deg]",
+    z:      "z-[7]",
     shadow: "shadow-[0_3px_10px_oklch(0_0_0/0.4)]",
   },
 ];
@@ -98,17 +99,11 @@ const fmtDate = (d: Date) =>
 
 function Spinner() {
   return (
-    <div className="border-border size-[18px] animate-spin rounded-full border-2 border-t-blue-500" />
+    <div className="size-[18px] rounded-full border-2 border-border border-t-blue-500 animate-spin" />
   );
 }
 
-function PinIcon({
-  size = 12,
-  filled = false,
-}: {
-  size?: number;
-  filled?: boolean;
-}) {
+function PinIcon({ size = 12, filled = false }: { size?: number; filled?: boolean }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
       <path
@@ -132,13 +127,11 @@ function PinIcon({
 
 async function downloadImage(url: string, expectedMimeType?: string) {
   const res = await fetch(url, { headers: { Accept: "image/png,*/*;q=0.8" } });
-  if (!res.ok)
-    throw new Error(`Download failed: Got ${res.status} from UploadThing`);
+  if(!res.ok) throw new Error(`Download failed: Got ${res.status} from UploadThing`);
 
   const extension = extensionFor(
-    res.headers.get("Content-Type")?.split(";")[0],
-    expectedMimeType ?? "dat",
-  );
+    res.headers.get("Content-Type")?.split(';')[0],
+    expectedMimeType ?? "dat");
 
   const blob = await res.blob();
   const blobUrl = URL.createObjectURL(blob);
@@ -183,7 +176,7 @@ function GeneratedImageActions({
   const [reusing, setReusing] = useState(false);
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex gap-1 items-center">
       {onTogglePin && (
         <button
           onClick={(event) => {
@@ -192,10 +185,10 @@ function GeneratedImageActions({
           }}
           title={isPinned ? "Unpin" : "Pin as cover"}
           className={cn(
-            "flex h-6 cursor-pointer items-center gap-1 rounded-full border px-2 text-[11px] font-medium transition-colors",
+            "h-6 px-2 rounded-full text-[11px] font-medium flex items-center gap-1 cursor-pointer border transition-colors",
             isPinned
-              ? "border-blue-500 bg-blue-500 text-white"
-              : "border-border text-foreground bg-[oklch(0.09_0.012_258/0.82)] backdrop-blur-sm",
+              ? "bg-blue-500 border-blue-500 text-white"
+              : "bg-[oklch(0.09_0.012_258/0.82)] border-border text-foreground backdrop-blur-sm",
           )}
         >
           <PinIcon size={11} filled={isPinned} />
@@ -213,32 +206,12 @@ function GeneratedImageActions({
           disabled={reusing}
           aria-label="Reuse as reference"
           title={reusing ? "Saving as reference…" : "Reuse as reference image"}
-          className="border-border text-foreground flex size-6 cursor-pointer items-center justify-center rounded-full border bg-[oklch(0.09_0.012_258/0.82)] backdrop-blur-sm disabled:opacity-50"
+          className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm disabled:opacity-50"
         >
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-            <rect
-              x="2"
-              y="3"
-              width="12"
-              height="10"
-              rx="1.5"
-              stroke="currentColor"
-              strokeWidth="1.3"
-            />
-            <circle
-              cx="5.5"
-              cy="6.5"
-              r="1.2"
-              stroke="currentColor"
-              strokeWidth="1"
-            />
-            <path
-              d="M2 11L5.5 8L8 10L11 7L14 10"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
+            <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+            <circle cx="5.5" cy="6.5" r="1.2" stroke="currentColor" strokeWidth="1" />
+            <path d="M2 11L5.5 8L8 10L11 7L14 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
       )}
@@ -249,7 +222,7 @@ function GeneratedImageActions({
         }}
         aria-label="Download"
         title="Download"
-        className="border-border text-foreground flex size-6 cursor-pointer items-center justify-center rounded-full border bg-[oklch(0.09_0.012_258/0.82)] backdrop-blur-sm"
+        className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm"
       >
         <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
           <path
@@ -268,7 +241,7 @@ function GeneratedImageActions({
         }}
         aria-label="Delete image"
         title="Delete image"
-        className="border-border text-muted-foreground flex size-6 cursor-pointer items-center justify-center rounded-full border bg-[oklch(0.09_0.012_258/0.82)] backdrop-blur-sm"
+        className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-muted-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm"
       >
         <Trash2 className="size-3.5" strokeWidth={2} />
       </button>
@@ -298,33 +271,20 @@ function ImageCell({
   let body: React.ReactNode;
   if (image.status === "pending" || image.status === "running") {
     body = (
-      <div
-        className="bg-muted relative w-full"
-        style={{ aspectRatio: parseAspectRatio(ar) }}
-      >
+      <div className="relative w-full bg-muted" style={{ aspectRatio: parseAspectRatio(ar) }}>
         <div className="absolute inset-0 flex items-center justify-center gap-2">
           <Spinner />
-          <span className="text-muted-foreground animate-pulse text-xs">
-            Generating…
-          </span>
+          <span className="text-xs text-muted-foreground animate-pulse">Generating…</span>
         </div>
       </div>
     );
   } else if (image.status === "failed") {
     body = (
-      <div
-        className="bg-muted relative w-full"
-        style={{ aspectRatio: parseAspectRatio(ar) }}
-      >
+      <div className="relative w-full bg-muted" style={{ aspectRatio: parseAspectRatio(ar) }}>
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5">
-          <p className="text-destructive text-xs">Generation failed</p>
+          <p className="text-xs text-destructive">Generation failed</p>
           {onRetry && (
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={onRetry}
-              className="cursor-pointer"
-            >
+            <Button variant="outline" size="xs" onClick={onRetry} className="cursor-pointer">
               Retry
             </Button>
           )}
@@ -333,10 +293,7 @@ function ImageCell({
     );
   } else {
     body = (
-      <div
-        className="relative w-full"
-        style={{ aspectRatio: parseAspectRatio(ar) }}
-      >
+      <div className="relative w-full" style={{ aspectRatio: parseAspectRatio(ar) }}>
         <Image
           src={image.url}
           alt="Generated image"
@@ -361,27 +318,27 @@ function ImageCell({
         }
       }}
       className={cn(
-        "group/cell relative w-full [animation:promptGroupFadeIn_0.25s_ease_both] overflow-hidden rounded-md",
+        "group/cell relative w-full rounded-md overflow-hidden [animation:promptGroupFadeIn_0.25s_ease_both]",
         canOpen && "cursor-pointer",
         isPinned
-          ? "outline outline-2 outline-[oklch(0.63_0.18_258)]"
-          : "outline-border outline outline-1",
+          ? "outline-2 outline-[oklch(0.63_0.18_258)] outline"
+          : "outline outline-1 outline-border",
       )}
     >
       {body}
       {isPinned && totalPinned > 1 && (
-        <div className="absolute top-1.5 left-1.5 flex items-center gap-1 rounded-full bg-blue-500 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow-md">
+        <div className="absolute top-1.5 left-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-500 text-white flex items-center gap-1 shadow-md">
           <PinIcon size={9} filled />
           {pinIndex + 1}/{totalPinned}
         </div>
       )}
       {isPinned && totalPinned === 1 && (
-        <div className="absolute top-1.5 left-1.5 flex size-5 items-center justify-center rounded-full bg-blue-500 text-white shadow-md">
+        <div className="absolute top-1.5 left-1.5 size-5 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-md">
           <PinIcon size={10} filled />
         </div>
       )}
       {image.status === "succeeded" && (
-        <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 transition-opacity group-focus-within/cell:opacity-100 group-hover/cell:opacity-100">
+        <div className="absolute top-1.5 right-1.5 flex gap-1 items-center opacity-0 transition-opacity group-hover/cell:opacity-100 group-focus-within/cell:opacity-100">
           <GeneratedImageActions
             isPinned={isPinned}
             onTogglePin={onTogglePin}
@@ -429,21 +386,10 @@ function ImageModal({
           onClose();
         }}
         aria-label="Close image preview"
-        className="absolute top-4 right-4 z-10 size-9 cursor-pointer rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm"
+        className="absolute right-4 top-4 z-10 size-9 rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm cursor-pointer"
       >
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 12 12"
-          fill="none"
-          className="mx-auto"
-        >
-          <path
-            d="M2 2L10 10M10 2L2 10"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          />
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="mx-auto">
+          <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
       </button>
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
@@ -456,10 +402,12 @@ function ImageModal({
           <img
             src={src}
             alt={alt}
-            className="block h-auto max-h-[90vh] w-auto max-w-full"
+            className="block max-h-[90vh] max-w-full h-auto w-auto"
           />
           {actions && (
-            <div className="absolute top-3 right-3 z-10">{actions}</div>
+            <div className="absolute top-3 right-3 z-10">
+              {actions}
+            </div>
           )}
         </div>
       </div>
@@ -478,15 +426,7 @@ type ModelAlbumProps = {
   onReuseAsReference?: (imageId: string) => Promise<void>;
 };
 
-function ModelAlbum({
-  modelId,
-  images,
-  ar,
-  models,
-  onDeleteImage,
-  onRetryImage,
-  onReuseAsReference,
-}: ModelAlbumProps) {
+function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, onReuseAsReference }: ModelAlbumProps) {
   const model = models.find((m) => m.slug === modelId);
   const [expanded, setExpanded] = useState(false);
   const [modalImage, setModalImage] = useState<ImageShape | null>(null);
@@ -542,8 +482,7 @@ function ModelAlbum({
 
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    if (target.closest("button, a, input, textarea, select, [role='button']"))
-      return;
+    if (target.closest("button, a, input, textarea, select, [role='button']")) return;
 
     setExpanded(true);
   };
@@ -551,29 +490,27 @@ function ModelAlbum({
   return (
     <Card
       className={cn(
-        "group/album [animation:promptGroupFadeIn_0.3s_ease_both] gap-0 rounded-lg py-0",
+        "group/album rounded-lg gap-0 py-0 [animation:promptGroupFadeIn_0.3s_ease_both]",
         canExpand && !expanded && "cursor-pointer",
       )}
       onClick={handleAlbumClick}
     >
       {/* header */}
-      <div className="border-border flex items-center justify-between gap-2 border-b px-3 py-2.5">
+      <div className="px-3 py-2.5 flex items-center justify-between gap-2 border-b border-border">
         <div className="min-w-0">
           <div className="text-xs font-semibold">{model?.name ?? modelId}</div>
-          <div className="text-muted-foreground mt-px flex items-center gap-1.5 text-[10px]">
+          <div className="flex items-center gap-1.5 mt-px text-[10px] text-muted-foreground">
             <span>{model?.provider}</span>
             {successCount > 0 && (
               <>
                 <span className="opacity-50">·</span>
-                <span>
-                  {successCount} image{successCount !== 1 ? "s" : ""}
-                </span>
+                <span>{successCount} image{successCount !== 1 ? "s" : ""}</span>
               </>
             )}
             {pinned.length > 0 && (
               <>
                 <span className="opacity-50">·</span>
-                <span className="flex items-center gap-0.5 text-blue-500">
+                <span className="text-blue-500 flex items-center gap-0.5">
                   <PinIcon size={9} filled />
                   {pinned.length} pinned
                 </span>
@@ -595,7 +532,7 @@ function ModelAlbum({
               event.stopPropagation();
               setExpanded((e) => !e);
             }}
-            className="shrink-0 cursor-pointer gap-1"
+            className="shrink-0 gap-1 cursor-pointer"
           >
             {expanded ? "Collapse" : `View all ${images.length}`}
             <svg
@@ -603,10 +540,7 @@ function ModelAlbum({
               height="9"
               viewBox="0 0 10 10"
               fill="none"
-              className={cn(
-                "transition-transform duration-200",
-                expanded && "rotate-180",
-              )}
+              className={cn("transition-transform duration-200", expanded && "rotate-180")}
             >
               <path
                 d="M2 4L5 7L8 4"
@@ -626,10 +560,7 @@ function ModelAlbum({
           <div className="relative">
             <div className={cn("relative", FAN_PADDING[visibleStack.length])}>
               {visibleStack.length === 0 ? (
-                <div
-                  className="bg-muted rounded-md"
-                  style={{ aspectRatio: parseAspectRatio(ar) }}
-                />
+                <div className="rounded-md bg-muted" style={{ aspectRatio: parseAspectRatio(ar) }} />
               ) : (
                 [...visibleStack].reverse().map((img, idx) => {
                   const depth = visibleStack.length - 1 - idx; // 0 = top
@@ -657,14 +588,8 @@ function ModelAlbum({
                         onTogglePin={() => togglePin(img.id)}
                         onDownload={() => handleDownload(img)}
                         onDelete={() => onDeleteImage?.(img.id)}
-                        onRetry={
-                          onRetryImage ? () => onRetryImage(img.id) : undefined
-                        }
-                        onReuseAsReference={
-                          onReuseAsReference
-                            ? () => onReuseAsReference(img.id)
-                            : undefined
-                        }
+                        onRetry={onRetryImage ? () => onRetryImage(img.id) : undefined}
+                        onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(img.id) : undefined}
                         onOpen={expanded ? () => setModalImage(img) : undefined}
                       />
                     </div>
@@ -672,25 +597,20 @@ function ModelAlbum({
                 })
               )}
               {hiddenStackCount > 0 && (
-                <div className="border-border text-foreground absolute right-2 bottom-2 z-20 rounded-full border bg-[oklch(0.09_0.012_258/0.85)] px-2 py-1 text-[11px] font-semibold backdrop-blur-sm">
+                <div className="absolute bottom-2 right-2 text-[11px] font-semibold px-2 py-1 rounded-full bg-[oklch(0.09_0.012_258/0.85)] border border-border text-foreground z-20 backdrop-blur-sm">
                   +{hiddenStackCount} more{pinned.length > 0 ? " pinned" : ""}
                 </div>
               )}
             </div>
             {pinned.length === 0 && images.length > 1 && (
-              <div className="border-border text-muted-foreground pointer-events-none absolute bottom-2 left-2 z-20 flex items-center gap-1 rounded-full border bg-[oklch(0.09_0.012_258/0.82)] px-2 py-1 text-[11px] opacity-0 backdrop-blur-sm transition-opacity group-focus-within/album:opacity-100 group-hover/album:opacity-100">
+              <div className="absolute bottom-2 left-2 text-[11px] px-2 py-1 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-muted-foreground flex items-center gap-1 pointer-events-none z-20 backdrop-blur-sm opacity-0 transition-opacity group-hover/album:opacity-100 group-focus-within/album:opacity-100">
                 <PinIcon size={10} />
                 Pin to set cover · expand to see all
               </div>
             )}
           </div>
         ) : (
-          <div
-            className={cn(
-              "grid gap-2.5",
-              images.length === 1 ? "grid-cols-1" : "grid-cols-2",
-            )}
-          >
+          <div className={cn("grid gap-2.5", images.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
             {allDisplay.map((img) => {
               const isPinned = pinnedMap.has(img.id);
               const pinIdx = pinned.findIndex((p) => p.id === img.id);
@@ -705,14 +625,8 @@ function ModelAlbum({
                   onTogglePin={() => togglePin(img.id)}
                   onDownload={() => handleDownload(img)}
                   onDelete={() => onDeleteImage?.(img.id)}
-                  onRetry={
-                    onRetryImage ? () => onRetryImage(img.id) : undefined
-                  }
-                  onReuseAsReference={
-                    onReuseAsReference
-                      ? () => onReuseAsReference(img.id)
-                      : undefined
-                  }
+                  onRetry={onRetryImage ? () => onRetryImage(img.id) : undefined}
+                  onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(img.id) : undefined}
                   onOpen={() => setModalImage(img)}
                 />
               );
@@ -732,11 +646,7 @@ function ModelAlbum({
                 setModalImage(null);
                 onDeleteImage?.(modalImage.id);
               }}
-              onReuseAsReference={
-                onReuseAsReference
-                  ? () => onReuseAsReference(modalImage.id)
-                  : undefined
-              }
+              onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(modalImage.id) : undefined}
             />
           }
         />
@@ -746,9 +656,7 @@ function ModelAlbum({
 }
 
 export default function PromptGroup(props: PromptGroupProps) {
-  const [referenceModalImage, setReferenceModalImage] = useState<string | null>(
-    null,
-  );
+  const [referenceModalImage, setReferenceModalImage] = useState<string | null>(null);
   const modelOrder: string[] = [];
   const byModel: Record<string, ImageShape[]> = {};
   for (const img of props.images) {
@@ -762,17 +670,15 @@ export default function PromptGroup(props: PromptGroupProps) {
   const refImages = props.referenceImages.filter((r) => r.url);
 
   return (
-    <div className="group/prompt flex [animation:promptGroupFadeIn_0.4s_ease_both] flex-col gap-3">
+    <div
+      className="group/prompt flex flex-col gap-3 [animation:promptGroupFadeIn_0.4s_ease_both]"
+    >
       {/* prompt header */}
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-foreground text-sm leading-relaxed">
-            {props.prompt}
-          </p>
-          <div className="mt-1.5 flex flex-wrap items-center gap-2.5">
-            <p className="text-muted-foreground/60 text-[11px]">
-              {fmtDate(props.createdAt)}
-            </p>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-foreground leading-relaxed">{props.prompt}</p>
+          <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
+            <p className="text-[11px] text-muted-foreground/60">{fmtDate(props.createdAt)}</p>
             {refImages.length > 0 && (
               <div className="flex items-center gap-1">
                 {refImages.map((r) => (
@@ -787,18 +693,12 @@ export default function PromptGroup(props: PromptGroupProps) {
                         setReferenceModalImage(r.url!);
                       }
                     }}
-                    className="border-border relative size-[18px] shrink-0 cursor-pointer overflow-hidden rounded border"
+                    className="relative size-[18px] rounded border border-border overflow-hidden shrink-0 cursor-pointer"
                   >
-                    <Image
-                      src={r.url!}
-                      alt="Reference"
-                      fill
-                      className="object-cover"
-                      sizes="18px"
-                    />
+                    <Image src={r.url!} alt="Reference" fill className="object-cover" sizes="18px" />
                   </div>
                 ))}
-                <span className="text-muted-foreground/60 ml-0.5 text-[10px]">
+                <span className="text-[10px] text-muted-foreground/60 ml-0.5">
                   {refImages.length} ref{refImages.length > 1 ? "s" : ""}
                 </span>
               </div>
@@ -808,7 +708,7 @@ export default function PromptGroup(props: PromptGroupProps) {
         {props.onDeletePrompt && (
           <button
             onClick={props.onDeletePrompt}
-            className="border-border text-muted-foreground hover:border-destructive hover:text-destructive shrink-0 cursor-pointer rounded-md border bg-transparent px-2.5 py-1 text-[11px] opacity-0 transition-colors group-focus-within/prompt:opacity-100 group-hover/prompt:opacity-100"
+            className="px-2.5 py-1 text-[11px] bg-transparent border border-border rounded-md text-muted-foreground cursor-pointer hover:border-destructive hover:text-destructive transition-colors shrink-0 opacity-0 group-hover/prompt:opacity-100 group-focus-within/prompt:opacity-100"
           >
             Delete
           </button>
@@ -816,7 +716,7 @@ export default function PromptGroup(props: PromptGroupProps) {
       </div>
 
       {/* model albums — 3-column grid */}
-      <div className="grid grid-cols-3 items-start gap-3.5">
+      <div className="grid grid-cols-3 gap-3.5 items-start">
         {modelOrder.map((modelId) => (
           <ModelAlbum
             key={modelId}
