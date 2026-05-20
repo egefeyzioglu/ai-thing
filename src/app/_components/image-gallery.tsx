@@ -4,6 +4,7 @@ import PromptGroup from "./prompt-group";
 import { ProjectSwitcher } from "./project-switcher";
 
 import { Skeleton } from "src/components/ui/skeleton";
+import { useLocalStorage } from "src/lib/localStorage";
 import type { RouterOutputs } from "src/trpc/react";
 
 type PromptList = RouterOutputs["prompt"]["list"];
@@ -79,6 +80,7 @@ export function ImageGallery({
   onRetryImage,
 }: ImageGalleryProps) {
   const promptCount = prompts?.length ?? 0;
+  const [pinnedImages, setPinnedImages] = useLocalStorage("pinnedImages");
 
   return (
     <div className="flex max-h-screen w-full flex-col overflow-x-hidden overflow-y-scroll">
@@ -194,6 +196,8 @@ export function ImageGallery({
               onDeleteImage={onDeleteImage}
               onReuseAsReference={onReuseAsReference}
               onRetryImage={onRetryImage}
+              pinnedImages={pinnedImages}
+              onPinnedImagesChange={setPinnedImages}
             />
           ))}
         </div>

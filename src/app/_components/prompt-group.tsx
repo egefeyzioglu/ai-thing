@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Card } from "src/components/ui/card";
@@ -11,10 +11,9 @@ import { cn } from "src/lib/utils";
 import { toast } from "sonner";
 
 import { extensionFor } from "src/lib/utils";
+import type { LocalStorageSetter, LocalStorageValue } from "src/lib/localStorage";
 
 import type { IMAGE_STATUSES } from "src/server/db/schema";
-
-const PINNED_IMAGES_STORAGE_KEY = "ai-thing.pinnedImages";
 
 export type ModelInfo = { slug: string; name: string; provider: string };
 
@@ -29,67 +28,8 @@ type ImageShape = {
   updatedAt: Date;
 };
 
-type StoredPinnedImages = Record<string, number>;
-
-function isStoredPinnedImages(value: unknown): value is StoredPinnedImages {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-
-  return Object.entries(value).every(
-    ([imageId, pinnedAt]) =>
-      imageId.length > 0 &&
-      typeof pinnedAt === "number" &&
-      Number.isFinite(pinnedAt),
-  );
-}
-
-function readStoredPinnedImages(): StoredPinnedImages {
-  try {
-    const raw = localStorage.getItem(PINNED_IMAGES_STORAGE_KEY);
-    if (!raw) return {};
-
-    const parsed: unknown = JSON.parse(raw);
-    return isStoredPinnedImages(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function readPinnedMapForImages(imageIds: string[]) {
-  const imageIdSet = new Set(imageIds);
-
-  return new Map(
-    Object.entries(readStoredPinnedImages()).filter(([imageId]) =>
-      imageIdSet.has(imageId),
-    ),
-  );
-}
-
-function imageIdsFromKey(imageIdKey: string) {
-  return imageIdKey.length > 0 ? imageIdKey.split("\n") : [];
-}
-
-function writePinnedMapForImages(imageIds: string[], pinnedMap: Map<string, number>) {
-  const imageIdSet = new Set(imageIds);
-  const stored = readStoredPinnedImages();
-
-  for (const imageId of imageIdSet) {
-    delete stored[imageId];
-  }
-
-  for (const [imageId, pinnedAt] of pinnedMap) {
-    if (imageIdSet.has(imageId)) {
-      stored[imageId] = pinnedAt;
-    }
-  }
-
-  try {
-    localStorage.setItem(PINNED_IMAGES_STORAGE_KEY, JSON.stringify(stored));
-  } catch {
-    // Ignore unavailable storage, such as private browsing quota failures.
-  }
-}
+type PinnedImages = LocalStorageValue<"pinnedImages">;
+type SetPinnedImages = LocalStorageSetter<"pinnedImages">;
 
 export type PromptGroupProps = {
   id: string;
@@ -103,6 +43,8 @@ export type PromptGroupProps = {
   onDeleteImage?: (imageId: string) => void;
   onRetryImage?: (imageId: string) => void;
   onReuseAsReference?: (imageId: string) => Promise<void>;
+  pinnedImages: PinnedImages;
+  onPinnedImagesChange: SetPinnedImages;
 };
 
 function parseAspectRatio(ar: string): string {
@@ -486,40 +428,33 @@ type ModelAlbumProps = {
   onDeleteImage?: (imageId: string) => void;
   onRetryImage?: (imageId: string) => void;
   onReuseAsReference?: (imageId: string) => Promise<void>;
+  pinnedImages: PinnedImages;
+  onPinnedImagesChange: SetPinnedImages;
 };
 
-function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, onReuseAsReference }: ModelAlbumProps) {
+function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, onReuseAsReference, pinnedImages, onPinnedImagesChange }: ModelAlbumProps) {
   const model = models.find((m) => m.slug === modelId);
   const [expanded, setExpanded] = useState(false);
   const [modalImage, setModalImage] = useState<ImageShape | null>(null);
-  const imageIdKey = images.map((image) => image.id).join("\n");
-  const skipNextPinnedSaveRef = useRef(true);
-  // map of imageId → timestamp when pinned (higher = more recently pinned = on top)
-  const [pinnedMap, setPinnedMap] = useState<Map<string, number>>(new Map());
-
-  useEffect(() => {
-    skipNextPinnedSaveRef.current = true;
-    setPinnedMap(readPinnedMapForImages(imageIdsFromKey(imageIdKey)));
-  }, [imageIdKey]);
-
-  useEffect(() => {
-    if (skipNextPinnedSaveRef.current) {
-      skipNextPinnedSaveRef.current = false;
-      return;
-    }
-
-    writePinnedMapForImages(imageIdsFromKey(imageIdKey), pinnedMap);
-  }, [imageIdKey, pinnedMap]);
+  const imageIds = useMemo(() => new Set(images.map((image) => image.id)), [images]);
+  // map of imageId to timestamp when pinned (higher = more recently pinned = on top)
+  const pinnedMap = useMemo(
+    () =>
+      new Map(
+        pinnedImages
+          .filter(({ imageId }) => imageIds.has(imageId))
+          .map(({ imageId, pinnedAt }) => [imageId, pinnedAt]),
+      ),
+    [imageIds, pinnedImages],
+  );
 
   const togglePin = (id: string) => {
-    setPinnedMap((prev) => {
-      const next = new Map(prev);
-      if(next.has(id)){
-        next.delete(id);
-      } else {
-        next.set(id, Date.now());
-      };
-      return next;
+    onPinnedImagesChange((prev) => {
+      if (prev.some(({ imageId }) => imageId === id)) {
+        return prev.filter(({ imageId }) => imageId !== id);
+      }
+
+      return [...prev, { imageId: id, pinnedAt: Date.now() }];
     });
   };
 
@@ -794,6 +729,8 @@ export default function PromptGroup(props: PromptGroupProps) {
             onDeleteImage={props.onDeleteImage}
             onRetryImage={props.onRetryImage}
             onReuseAsReference={props.onReuseAsReference}
+            pinnedImages={props.pinnedImages}
+            onPinnedImagesChange={props.onPinnedImagesChange}
           />
         ))}
       </div>
