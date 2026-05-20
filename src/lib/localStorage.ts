@@ -51,7 +51,13 @@ export function getLocalStorage<K extends LocalStorageKey>(key: K): LocalStorage
   const storageKey = localStorageSchema[key].key;
   const valueSchema = localStorageSchema[key].schema;
 
-  const rawValue = localStorage.getItem(storageKey);
+  let rawValue: string | null;
+  try {
+    rawValue = localStorage.getItem(storageKey);
+  } catch (err) {
+    console.error("Could not read from local storage", { key, err });
+    return undefined;
+  }
   if (rawValue === null) return undefined;
 
   try { // zod parse and JSON parse both throw
@@ -59,7 +65,11 @@ export function getLocalStorage<K extends LocalStorageKey>(key: K): LocalStorage
   } catch (err) {
     console.error("Invalid local storage value shape. Resetting to default value", { key, err });
     const defaultValue = localStorageSchema[key].defaultValue as LocalStorageValue<K>;
-    localStorage.setItem(storageKey, JSON.stringify(defaultValue));
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(defaultValue));
+    } catch (setErr) {
+      console.error("Could not reset local storage to default value", { key, err: setErr });
+    }
     return defaultValue;
   }
 }
