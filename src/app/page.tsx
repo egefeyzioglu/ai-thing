@@ -65,7 +65,6 @@ export default function Home() {
   const [resolution, setResolution] = useState<ResolutionOption>("1K");
   const [aspect, setAspect] = useState("1:1");
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
-  const [promptText, setPromptText] = useState("");
   const [runs, setRuns] = useState(1);
   const [pushPermissionDialogOpen, setPushPermissionDialogOpen] =
     useState(false);
@@ -82,14 +81,21 @@ export default function Home() {
     null,
   );
 
-  const unlockGenerateButton = () => {
+  const unlockGenerateButton = useCallback(() => {
+    if (
+      !generateButtonLockedRef.current &&
+      generateButtonTimeoutRef.current === null
+    ) {
+      return;
+    }
+
     generateButtonLockedRef.current = false;
     if (generateButtonTimeoutRef.current !== null) {
       clearTimeout(generateButtonTimeoutRef.current);
       generateButtonTimeoutRef.current = null;
     }
     setGenerateButtonLocked(false);
-  };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -102,7 +108,7 @@ export default function Home() {
   useEffect(() => {
     unlockGenerateButton();
   }, [
-    promptText,
+    unlockGenerateButton,
     selectedModels,
     selectedReferenceImages,
     resolution,
@@ -338,7 +344,7 @@ export default function Home() {
     }
   };
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (promptText: string) => {
     const trimmedPrompt = promptText.trim();
     if (!trimmedPrompt || selectedModels.length === 0 || !selectedProjectId)
       return;
@@ -431,16 +437,6 @@ export default function Home() {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (
-      (isMacOS && e.metaKey && e.key === "Enter") ||
-      (!isMacOS && e.ctrlKey && e.key === "Enter")
-    ) {
-      e.preventDefault();
-      void handleGenerate();
-    }
-  };
-
   const handleReuseAsReference = async (imageId: string) => {
     let result;
     try {
@@ -517,7 +513,6 @@ export default function Home() {
     selectedModels.length > 0 &&
     selectedModels.every((model) => OPENAI_MODEL_SLUGS.has(model));
   const canGenerate =
-    Boolean(promptText.trim()) &&
     selectedModels.length > 0 &&
     Boolean(selectedProjectId) &&
     !generateButtonLocked;
@@ -615,9 +610,7 @@ export default function Home() {
         aspect={aspect}
         onAspectChange={setAspect}
         isMacOS={isMacOS}
-        promptText={promptText}
-        onPromptTextChange={setPromptText}
-        onPromptKeyDown={handleKeyDown}
+        onPromptEdited={unlockGenerateButton}
         runs={runs}
         onRunsChange={setRuns}
         generateButtonLocked={generateButtonLocked}

@@ -1,6 +1,6 @@
 "use client";
 
-import type { RefObject } from "react";
+import { useState, type RefObject } from "react";
 
 import { UserButton } from "@clerk/nextjs";
 import {
@@ -120,14 +120,12 @@ type SidebarProps = {
   aspect: string;
   onAspectChange: (aspect: string) => void;
   isMacOS: boolean | null;
-  promptText: string;
-  onPromptTextChange: (text: string) => void;
-  onPromptKeyDown: (event: React.KeyboardEvent) => void;
+  onPromptEdited: () => void;
   runs: number;
   onRunsChange: (runs: number) => void;
   generateButtonLocked: boolean;
   canGenerate: boolean;
-  onGenerate: () => void;
+  onGenerate: (promptText: string) => void;
   fileInputRef: RefObject<HTMLInputElement | null>;
   onFileUpload: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onDeleteReferenceImage: (id: string) => void;
@@ -157,9 +155,7 @@ export function Sidebar({
   aspect,
   onAspectChange,
   isMacOS,
-  promptText,
-  onPromptTextChange,
-  onPromptKeyDown,
+  onPromptEdited,
   runs,
   onRunsChange,
   generateButtonLocked,
@@ -177,6 +173,24 @@ export function Sidebar({
   totalGenerations,
   userFullName,
 }: SidebarProps) {
+  const [promptText, setPromptText] = useState("");
+  const canSubmitPrompt = canGenerate && promptText.trim().length > 0;
+
+  const handlePromptChange = (text: string) => {
+    setPromptText(text);
+    onPromptEdited();
+  };
+
+  const handlePromptKeyDown = (event: React.KeyboardEvent) => {
+    if (
+      (isMacOS && event.metaKey && event.key === "Enter") ||
+      (!isMacOS && event.ctrlKey && event.key === "Enter")
+    ) {
+      event.preventDefault();
+      if (canSubmitPrompt) onGenerate(promptText);
+    }
+  };
+
   return (
     <aside className="flex h-screen w-1/5 flex-col border border-x border-(--border)">
       <div className="flex flex-row items-center gap-4 border-y border-(--border) p-5">
@@ -197,8 +211,8 @@ export function Sidebar({
             id="prompt"
             placeholder="What do you want to create?.."
             value={promptText}
-            onChange={(e) => onPromptTextChange(e.target.value)}
-            onKeyDown={onPromptKeyDown}
+            onChange={(e) => handlePromptChange(e.target.value)}
+            onKeyDown={handlePromptKeyDown}
           />
           <span
             className={clsx(
@@ -502,12 +516,12 @@ export function Sidebar({
           aria-busy={generateButtonLocked}
           className={clsx(
             "w-2/3 cursor-pointer rounded-md border border-1 px-4 py-2",
-            canGenerate
+            canSubmitPrompt
               ? "hover:bg-gray-900 active:bg-gray-500"
               : "cursor-not-allowed opacity-50",
           )}
-          disabled={!canGenerate}
-          onClick={onGenerate}
+          disabled={!canSubmitPrompt}
+          onClick={() => onGenerate(promptText)}
         >
           {generateButtonLocked ? "Generating..." : "Generate"}
         </button>
