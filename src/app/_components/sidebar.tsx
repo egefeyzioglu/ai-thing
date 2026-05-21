@@ -1,11 +1,12 @@
 "use client";
 
-import type { RefObject } from "react";
+import { useState, type RefObject } from "react";
 
 import { UserButton } from "@clerk/nextjs";
 import {
   ChevronDown,
   ChevronUp,
+  Gauge,
   Trash2,
   Upload,
   AlertTriangle,
@@ -24,6 +25,7 @@ import { Label } from "src/components/ui/label";
 import { Skeleton } from "src/components/ui/skeleton";
 import { Textarea } from "src/components/ui/textarea";
 import type { RouterInputs, RouterOutputs } from "src/trpc/react";
+import { UsageModal } from "./usage-modal";
 
 export type PromptModelSlug =
   RouterInputs["prompt"]["createWithGenerations"]["models"][number];
@@ -141,6 +143,9 @@ type SidebarProps = {
   hasOnlyOpenAIModelsSelected: boolean;
   totalGenerations: number;
   userFullName: string | null | undefined;
+  usage: RouterOutputs["usage"]["getCurrent"] | undefined;
+  isLoadingUsage: boolean;
+  currentRequestCost: number;
 };
 
 export function Sidebar({
@@ -176,7 +181,12 @@ export function Sidebar({
   hasOnlyOpenAIModelsSelected,
   totalGenerations,
   userFullName,
+  usage,
+  isLoadingUsage,
+  currentRequestCost,
 }: SidebarProps) {
+  const [usageOpen, setUsageOpen] = useState(false);
+
   return (
     <aside className="flex h-screen w-1/5 flex-col border border-x border-(--border)">
       <div className="flex flex-row items-center gap-4 border-y border-(--border) p-5">
@@ -513,9 +523,24 @@ export function Sidebar({
         </button>
         <br />
         <div className="flex w-full flex-row items-center-safe justify-start gap-4 px-4">
-          <UserButton />
+          <UserButton>
+            <UserButton.MenuItems>
+              <UserButton.Action
+                label="Usage"
+                labelIcon={<Gauge className="size-4" />}
+                onClick={() => setUsageOpen(true)}
+              />
+            </UserButton.MenuItems>
+          </UserButton>
           {userFullName}
         </div>
+        <UsageModal
+          open={usageOpen}
+          onOpenChange={setUsageOpen}
+          usage={usage}
+          isLoading={isLoadingUsage}
+          currentRequestCost={currentRequestCost}
+        />
       </div>
     </aside>
   );

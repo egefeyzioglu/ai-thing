@@ -1,13 +1,15 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
+import { MONTHLY_CREDIT_LIMIT } from "src/lib/credits";
 import { extensionFor } from "src/lib/utils";
 
 import { env } from "src/env";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import {
+  generationUsage,
   images,
   prompts,
   referenceImages,
@@ -15,6 +17,12 @@ import {
   type ReferenceImage,
 } from "src/server/db/schema";
 import { utapi, UTFile } from "src/server/uploadthing";
+import {
+  createReservedUsage,
+  getUsedCredits,
+  lockUserUsage,
+  markUsageStatus,
+} from "src/server/usage";
 
 type ResponsesApiOutputItem = {
   type: string;
@@ -608,31 +616,6 @@ export const imageRouter = createTRPCRouter({
         return imageRow;
       }
 
-      // Atomic claim: only proceed if we can transition from the expected
-      // status to "running". This prevents duplicate generation if the same
-      // image is requested concurrently.
-      const claimableStatus = imageRow.status === "failed" ? "failed" : "pending";
-      const [claimed] = await db
-        .update(images)
-        .set({ status: "running", error: null, updatedAt: new Date() })
-        .where(
-          and(
-            eq(images.id, imageRow.id),
-            eq(images.userId, ctx.user),
-            eq(images.status, claimableStatus),
-          ),
-        )
-        .returning();
-      if (!claimed) {
-        console.log("[runGeneration] claim failed, another worker claimed it");
-        const [current] = await db
-          .select()
-          .from(images)
-          .where(and(eq(images.id, imageRow.id), eq(images.userId, ctx.user)))
-          .limit(1);
-        return current ?? imageRow;
-      }
-
       const [promptRow] = await db
         .select({
           text: prompts.text,
@@ -655,6 +638,103 @@ export const imageRouter = createTRPCRouter({
           code: "NOT_FOUND",
           message: "Prompt not found",
         });
+      }
+
+      const claimResult = await db.transaction(async (tx) => {
+        if (input.retry) {
+          await lockUserUsage(tx, ctx.user);
+          const usedCredits = await getUsedCredits(tx, ctx.user);
+          if (usedCredits >= MONTHLY_CREDIT_LIMIT) {
+            throw new TRPCError({
+              code: "TOO_MANY_REQUESTS",
+              message: "Monthly credit limit reached",
+            });
+          }
+
+          const [claimed] = await tx
+            .update(images)
+            .set({ status: "running", error: null, updatedAt: new Date() })
+            .where(
+              and(
+                eq(images.id, imageRow.id),
+                eq(images.userId, ctx.user),
+                eq(images.status, "failed"),
+              ),
+            )
+            .returning();
+          if (!claimed) return { claimed: null, usageId: undefined };
+
+          const usageRow = await createReservedUsage(tx, {
+            userId: ctx.user,
+            imageId: imageRow.id,
+            model: imageRow.model,
+            resolution: promptRow.resolution,
+            aspectRatio: promptRow.aspectRatio,
+          });
+
+          return { claimed, usageId: usageRow.id };
+        }
+
+        const [existingUsage] = await tx
+          .select({ id: generationUsage.id })
+          .from(generationUsage)
+          .where(
+            and(
+              eq(generationUsage.userId, ctx.user),
+              eq(generationUsage.imageId, imageRow.id),
+              eq(generationUsage.status, "reserved"),
+            ),
+          )
+          .orderBy(desc(generationUsage.createdAt))
+          .limit(1);
+
+        if (!existingUsage) {
+          await lockUserUsage(tx, ctx.user);
+          const usedCredits = await getUsedCredits(tx, ctx.user);
+          if (usedCredits >= MONTHLY_CREDIT_LIMIT) {
+            throw new TRPCError({
+              code: "TOO_MANY_REQUESTS",
+              message: "Monthly credit limit reached",
+            });
+          }
+        }
+
+        const [claimed] = await tx
+          .update(images)
+          .set({ status: "running", error: null, updatedAt: new Date() })
+          .where(
+            and(
+              eq(images.id, imageRow.id),
+              eq(images.userId, ctx.user),
+              eq(images.status, "pending"),
+            ),
+          )
+          .returning();
+        if (!claimed) return { claimed: null, usageId: undefined };
+
+        if (existingUsage) {
+          return { claimed, usageId: existingUsage.id };
+        }
+
+        const usageRow = await createReservedUsage(tx, {
+          userId: ctx.user,
+          imageId: imageRow.id,
+          model: imageRow.model,
+          resolution: promptRow.resolution,
+          aspectRatio: promptRow.aspectRatio,
+        });
+
+        return { claimed, usageId: usageRow.id };
+      });
+
+      if (!claimResult.claimed) {
+        console.log("[runGeneration] claim failed, another worker claimed it");
+        const [current] = await db
+          .select()
+          .from(images)
+          .where(and(eq(images.id, imageRow.id), eq(images.userId, ctx.user)))
+          .limit(1);
+        return current ?? imageRow;
       }
 
       console.log("[runGeneration] starting generation for model:", imageRow.model);
@@ -696,6 +776,9 @@ export const imageRouter = createTRPCRouter({
             message: "Failed to update image row",
           });
         }
+        await markUsageStatus(claimResult.usageId, "consumed").catch((err) => {
+          console.error("[runGeneration] failed to consume usage row:", err);
+        });
         console.log("[runGeneration] done, status: succeeded");
         return updated;
       } catch (err) {
@@ -716,6 +799,9 @@ export const imageRouter = createTRPCRouter({
             message: "Failed to record image failure",
           });
         }
+        await markUsageStatus(claimResult.usageId, "refunded").catch((err) => {
+          console.error("[runGeneration] failed to refund usage row:", err);
+        });
         console.log("[runGeneration] done, status: failed, error:", message);
         return updated;
       }

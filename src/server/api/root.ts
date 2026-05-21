@@ -1,6 +1,7 @@
 import { imageRouter } from "src/server/api/routers/image";
 import { promptRouter } from "src/server/api/routers/prompt";
 import { projectRouter } from "src/server/api/routers/project";
+import { usageRouter } from "src/server/api/routers/usage";
 import { createCallerFactory, createTRPCRouter } from "src/server/api/trpc";
 import { referenceImageRouter } from "./routers/referenceImage";
 
@@ -14,6 +15,7 @@ export const appRouter = createTRPCRouter({
   prompt: promptRouter,
   project: projectRouter,
   referenceImage: referenceImageRouter,
+  usage: usageRouter,
 });
 
 // export type definition of API

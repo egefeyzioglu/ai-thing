@@ -24,6 +24,15 @@ const getQueryClient = () => {
 
 export const api = createTRPCReact<AppRouter>();
 
+function isExpectedTRPCError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "data" in error &&
+    (error as { data?: { code?: string } }).data?.code === "TOO_MANY_REQUESTS"
+  );
+}
+
 /**
  * Inference helper for inputs.
  *
@@ -45,9 +54,20 @@ export function TRPCReactProvider(props: { children: React.ReactNode }) {
     api.createClient({
       links: [
         loggerLink({
-          enabled: (op) =>
-            process.env.NODE_ENV === "development" ||
-            (op.direction === "down" && op.result instanceof Error),
+          enabled: (op) => {
+            if (
+              op.direction === "down" &&
+              op.result instanceof Error &&
+              isExpectedTRPCError(op.result)
+            ) {
+              return false;
+            }
+
+            return (
+              process.env.NODE_ENV === "development" ||
+              (op.direction === "down" && op.result instanceof Error)
+            );
+          },
         }),
         httpBatchStreamLink({
           transformer: SuperJSON,
