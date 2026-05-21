@@ -41,12 +41,17 @@ export function UsageModal({
   currentRequestCost,
   isLoading,
 }: UsageModalProps) {
-  const used = usage?.used ?? 0;
-  const limit = usage?.limit ?? 0;
-  const remaining = usage?.remaining ?? 0;
-  const percentUsed = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
+  const used = usage?.used;
+  const limit = usage?.limit;
+  const remaining = usage?.remaining;
+  const percentUsed =
+    usage && usage.limit > 0
+      ? Math.min((usage.used / usage.limit) * 100, 100)
+      : undefined;
   const usageBarColor =
-    percentUsed >= 100
+    percentUsed === undefined
+      ? "bg-blue-500"
+      : percentUsed >= 100
       ? "bg-red-500"
       : percentUsed > 70
         ? "bg-amber-500"
@@ -66,16 +71,16 @@ export function UsageModal({
           <div>
             <div className="mb-2 flex items-baseline justify-between">
               <span className="text-sm text-(--muted-foreground)">
-                {isLoading ? "Loading usage" : `${used} of ${limit} credits used`}
+                {usage ? `${used} of ${limit} credits used` : "Loading usage"}
               </span>
               <span className="text-sm text-(--muted-foreground)">
-                {remaining} remaining
+                {usage ? `${remaining} remaining` : "Loading..."}
               </span>
             </div>
             <div className="h-2 overflow-hidden rounded bg-(--muted)">
               <div
                 className={`h-full ${usageBarColor}`}
-                style={{ width: `${percentUsed}%` }}
+                style={{ width: `${percentUsed ?? 0}%` }}
               />
             </div>
           </div>
@@ -85,13 +90,15 @@ export function UsageModal({
               <div className="text-xs text-(--muted-foreground) uppercase">
                 Used
               </div>
-              <div className="mt-1 text-lg font-medium">{used}</div>
+              <div className="mt-1 text-lg font-medium">{used ?? "-"}</div>
             </div>
             <div className="rounded-md border border-(--border) p-3">
               <div className="text-xs text-(--muted-foreground) uppercase">
                 Remaining
               </div>
-              <div className="mt-1 text-lg font-medium">{remaining}</div>
+              <div className="mt-1 text-lg font-medium">
+                {remaining ?? "-"}
+              </div>
             </div>
             <div className="rounded-md border border-(--border) p-3">
               <div className="text-xs text-(--muted-foreground) uppercase">

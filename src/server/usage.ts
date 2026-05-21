@@ -123,11 +123,19 @@ export async function createReservedUsage(tx: UsageDb, args: {
 export async function markUsageStatus(
   usageId: string | undefined,
   status: "consumed" | "refunded",
-) {
-  if (!usageId) return;
+): Promise<boolean> {
+  if (!usageId) return false;
 
-  await db
+  const [updated] = await db
     .update(generationUsage)
     .set({ status, updatedAt: new Date() })
-    .where(eq(generationUsage.id, usageId));
+    .where(
+      and(
+        eq(generationUsage.id, usageId),
+        eq(generationUsage.status, "reserved"),
+      ),
+    )
+    .returning({ id: generationUsage.id });
+
+  return !!updated;
 }

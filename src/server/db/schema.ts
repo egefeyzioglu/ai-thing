@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { index, integer, pgTableCreator, uniqueIndex } from "drizzle-orm/pg-core";
+import { index, pgTableCreator, uniqueIndex } from "drizzle-orm/pg-core";
 
 /**
  * This is an example of how to use the multi-project schema feature of Drizzle ORM. Use the same
@@ -138,7 +138,7 @@ export const generationUsage = createTable(
     model: d.text("model").notNull(),
     resolution: d.text("resolution"),
     aspectRatio: d.text("aspect_ratio"),
-    credits: integer("credits").notNull(),
+    credits: d.integer("credits").notNull(),
     status: d
       .text("status")
       .notNull()

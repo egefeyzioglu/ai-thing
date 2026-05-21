@@ -16,6 +16,7 @@ import {
 } from "src/components/ui/alert-dialog";
 import { calculateGenerationCredits } from "src/lib/credits";
 import { notifyPromptDone } from "src/lib/notify";
+import { isExpectedTRPCError } from "src/lib/trpc-errors";
 import { useUploadThing } from "src/lib/uploadthing";
 import { api } from "src/trpc/react";
 
@@ -54,15 +55,6 @@ function rememberPushPermissionPromptDismissal() {
   } catch {
     /* ignore unavailable storage */
   }
-}
-
-function isTooManyRequestsError(error: unknown) {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "data" in error &&
-    (error as { data?: { code?: string } }).data?.code === "TOO_MANY_REQUESTS"
-  );
 }
 
 function formatResetDate(date: Date | string | undefined) {
@@ -392,7 +384,7 @@ export default function Home() {
         aspectRatio: aspect,
       });
     } catch (reason) {
-      if (isTooManyRequestsError(reason)) {
+      if (isExpectedTRPCError(reason)) {
         toast.error(
           `Monthly credit limit reached. Credits reset on ${formatResetDate(usage?.periodEnd)}.`,
         );
@@ -410,9 +402,6 @@ export default function Home() {
           "Failed to invalidate prompt.list, user will have to refresh.",
           reason,
         );
-      });
-      utils.usage.getCurrent.invalidate().catch((reason) => {
-        console.error("Failed to invalidate usage query.", reason);
       });
       usageQuery.refetch().catch((reason) => {
         console.error("Failed to refetch usage query.", reason);
@@ -439,9 +428,6 @@ export default function Home() {
                     "Failed to invalidate images query, user will have to refresh.",
                     reason,
                   );
-                });
-                utils.usage.getCurrent.invalidate().catch((reason) => {
-                  console.error("Failed to invalidate usage query.", reason);
                 });
                 usageQuery.refetch().catch((reason) => {
                   console.error("Failed to refetch usage query.", reason);
@@ -475,9 +461,6 @@ export default function Home() {
           "Failed to invalidate images query. Some images may be stuck generating until a refresh",
           reason,
         );
-      });
-      utils.usage.getCurrent.invalidate().catch((reason) => {
-        console.error("Failed to invalidate usage query.", reason);
       });
       usageQuery.refetch().catch((reason) => {
         console.error("Failed to refetch usage query.", reason);
@@ -545,7 +528,7 @@ export default function Home() {
       {
         onSuccess: (data) => console.log("[retry] succeeded, result:", data),
         onError: (err) => {
-          if (isTooManyRequestsError(err)) {
+          if (isExpectedTRPCError(err)) {
             toast.error(
               `Monthly credit limit reached. Credits reset on ${formatResetDate(usage?.periodEnd)}.`,
             );
@@ -556,7 +539,6 @@ export default function Home() {
         onSettled: (data, error) => {
           console.log("[retry] settled, invalidating list");
           void utils.prompt.list.invalidate();
-          void utils.usage.getCurrent.invalidate();
           void usageQuery.refetch();
           notifyPromptDone({
             failureState: !!error || data?.status === "failed" ? "all" : "none",

@@ -776,9 +776,16 @@ export const imageRouter = createTRPCRouter({
             message: "Failed to update image row",
           });
         }
-        await markUsageStatus(claimResult.usageId, "consumed").catch((err) => {
+        const didConsume = await markUsageStatus(
+          claimResult.usageId,
+          "consumed",
+        ).catch((err) => {
           console.error("[runGeneration] failed to consume usage row:", err);
+          return false;
         });
+        if (!didConsume) {
+          console.warn("[runGeneration] usage row was not consumed");
+        }
         console.log("[runGeneration] done, status: succeeded");
         return updated;
       } catch (err) {
@@ -799,9 +806,16 @@ export const imageRouter = createTRPCRouter({
             message: "Failed to record image failure",
           });
         }
-        await markUsageStatus(claimResult.usageId, "refunded").catch((err) => {
+        const didRefund = await markUsageStatus(
+          claimResult.usageId,
+          "refunded",
+        ).catch((err) => {
           console.error("[runGeneration] failed to refund usage row:", err);
+          return false;
         });
+        if (!didRefund) {
+          console.warn("[runGeneration] usage row was not refunded");
+        }
         console.log("[runGeneration] done, status: failed, error:", message);
         return updated;
       }

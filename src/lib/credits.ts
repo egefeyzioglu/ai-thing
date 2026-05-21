@@ -34,14 +34,23 @@ export function calculateGenerationCredits(args: {
     throw new Error(`Unknown model credit cost: ${args.model}`);
   }
 
+  const resolution = args.resolution ?? "1K";
+  if (!(resolution in RESOLUTION_CREDIT_MULTIPLIER)) {
+    throw new Error(`Unknown resolution credit multiplier: ${resolution}`);
+  }
   const resolutionMultiplier =
     RESOLUTION_CREDIT_MULTIPLIER[
-      (args.resolution ?? "1K") as keyof typeof RESOLUTION_CREDIT_MULTIPLIER
-    ] ?? RESOLUTION_CREDIT_MULTIPLIER["1K"];
+      resolution as keyof typeof RESOLUTION_CREDIT_MULTIPLIER
+    ];
+
+  const aspectRatio = args.aspectRatio ?? "1:1";
+  if (!(aspectRatio in ASPECT_RATIO_CREDIT_MULTIPLIER)) {
+    throw new Error(`Unknown aspect ratio credit multiplier: ${aspectRatio}`);
+  }
   const aspectRatioMultiplier =
     ASPECT_RATIO_CREDIT_MULTIPLIER[
-      (args.aspectRatio ?? "1:1") as keyof typeof ASPECT_RATIO_CREDIT_MULTIPLIER
-    ] ?? ASPECT_RATIO_CREDIT_MULTIPLIER["1:1"];
+      aspectRatio as keyof typeof ASPECT_RATIO_CREDIT_MULTIPLIER
+    ];
 
   return Math.ceil(base * resolutionMultiplier * aspectRatioMultiplier);
 }

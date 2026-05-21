@@ -7,6 +7,7 @@ import { type inferRouterInputs, type inferRouterOutputs } from "@trpc/server";
 import { useState } from "react";
 import SuperJSON from "superjson";
 
+import { isExpectedTRPCError } from "src/lib/trpc-errors";
 import { type AppRouter } from "src/server/api/root";
 import { createQueryClient } from "./query-client";
 
@@ -23,15 +24,6 @@ const getQueryClient = () => {
 };
 
 export const api = createTRPCReact<AppRouter>();
-
-function isExpectedTRPCError(error: unknown) {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "data" in error &&
-    (error as { data?: { code?: string } }).data?.code === "TOO_MANY_REQUESTS"
-  );
-}
 
 /**
  * Inference helper for inputs.
