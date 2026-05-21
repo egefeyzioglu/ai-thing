@@ -508,6 +508,29 @@ export function Sidebar({
         )}
       </div>
       <div className="flex flex-col items-center-safe gap-2 border-y border-(--border) py-4">
+        {usage?.isOverQuota && (
+          <div className="mx-4 mb-1 flex w-[calc(100%-2rem)] items-start gap-3 rounded-md border border-red-500/40 bg-red-500/10 p-3">
+            <AlertTriangle
+              size={16}
+              className="mt-0.5 shrink-0 text-red-400"
+            />
+            <div className="text-sm text-red-300">
+              Out of monthly credits. Resets on{" "}
+              {new Intl.DateTimeFormat(undefined, {
+                dateStyle: "medium",
+                timeZone: "UTC",
+              }).format(new Date(usage.periodEnd))}
+              .{" "}
+              <button
+                type="button"
+                className="cursor-pointer underline hover:text-red-200"
+                onClick={() => setUsageOpen(true)}
+              >
+                View usage
+              </button>
+            </div>
+          </div>
+        )}
         <button
           aria-busy={generateButtonLocked}
           className={clsx(
@@ -519,7 +542,11 @@ export function Sidebar({
           disabled={!canGenerate}
           onClick={onGenerate}
         >
-          {generateButtonLocked ? "Generating..." : "Generate"}
+          {generateButtonLocked
+            ? "Generating..."
+            : usage?.isOverQuota
+              ? "Out of credits"
+              : "Generate"}
         </button>
         <br />
         <div className="flex w-full flex-row items-center-safe justify-start gap-4 px-4">
