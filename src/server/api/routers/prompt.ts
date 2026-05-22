@@ -73,7 +73,7 @@ export const promptRouter = createTRPCRouter({
     .input(
       z.object({
         projectId: z.string().min(1),
-        text: z.string().min(1).max(1000),
+        text: z.string().min(1).max(10_1000),
         models: z.array(z.enum(supportedModelSlugs)).min(1),
         repeatCount: z.number().int().min(1).max(8),
         referenceImages: z.array(z.string()).optional(),
