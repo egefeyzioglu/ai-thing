@@ -1,11 +1,12 @@
 "use client";
 
-import type { RefObject } from "react";
+import { useState, type RefObject } from "react";
 
 import { UserButton } from "@clerk/nextjs";
 import {
   ChevronDown,
   ChevronUp,
+  Gauge,
   Trash2,
   Upload,
   AlertTriangle,
@@ -24,6 +25,7 @@ import { Label } from "src/components/ui/label";
 import { Skeleton } from "src/components/ui/skeleton";
 import { Textarea } from "src/components/ui/textarea";
 import type { RouterInputs, RouterOutputs } from "src/trpc/react";
+import { UsageModal } from "./usage-modal";
 
 export type PromptModelSlug =
   RouterInputs["prompt"]["createWithGenerations"]["models"][number];
@@ -141,6 +143,12 @@ type SidebarProps = {
   hasOnlyOpenAIModelsSelected: boolean;
   totalGenerations: number;
   userFullName: string | null | undefined;
+  usage: RouterOutputs["usage"]["getCurrent"] | undefined;
+  isLoadingUsage: boolean;
+  currentRequestCost: number;
+  canBypassLimits: boolean;
+  bypassMonthlyQuota: boolean;
+  onBypassMonthlyQuotaChange: (value: boolean) => void;
 };
 
 export function Sidebar({
@@ -176,7 +184,15 @@ export function Sidebar({
   hasOnlyOpenAIModelsSelected,
   totalGenerations,
   userFullName,
+  usage,
+  isLoadingUsage,
+  currentRequestCost,
+  canBypassLimits,
+  bypassMonthlyQuota,
+  onBypassMonthlyQuotaChange,
 }: SidebarProps) {
+  const [usageOpen, setUsageOpen] = useState(false);
+
   return (
     <aside className="flex h-screen w-1/5 flex-col border border-x border-(--border)">
       <div className="flex flex-row items-center gap-4 border-y border-(--border) p-5">
@@ -498,6 +514,29 @@ export function Sidebar({
         )}
       </div>
       <div className="flex flex-col items-center-safe gap-2 border-y border-(--border) py-4">
+        {usage?.isOverQuota && !bypassMonthlyQuota && (
+          <div className="mx-4 mb-1 flex w-[calc(100%-2rem)] items-start gap-3 rounded-md border border-red-500/40 bg-red-500/10 p-3">
+            <AlertTriangle
+              size={16}
+              className="mt-0.5 shrink-0 text-red-400"
+            />
+            <div className="text-sm text-red-300">
+              Out of monthly credits. Resets on{" "}
+              {new Intl.DateTimeFormat(undefined, {
+                dateStyle: "medium",
+                timeZone: "UTC",
+              }).format(new Date(usage.periodEnd))}
+              .{" "}
+              <button
+                type="button"
+                className="cursor-pointer underline hover:text-red-200"
+                onClick={() => setUsageOpen(true)}
+              >
+                View usage
+              </button>
+            </div>
+          </div>
+        )}
         <button
           aria-busy={generateButtonLocked}
           className={clsx(
@@ -509,13 +548,35 @@ export function Sidebar({
           disabled={!canGenerate}
           onClick={onGenerate}
         >
-          {generateButtonLocked ? "Generating..." : "Generate"}
+          {generateButtonLocked
+            ? "Generating..."
+            : usage?.isOverQuota && !bypassMonthlyQuota
+              ? "Out of credits"
+              : "Generate"}
         </button>
         <br />
         <div className="flex w-full flex-row items-center-safe justify-start gap-4 px-4">
-          <UserButton />
+          <UserButton>
+            <UserButton.MenuItems>
+              <UserButton.Action
+                label="Usage"
+                labelIcon={<Gauge className="size-4" />}
+                onClick={() => setUsageOpen(true)}
+              />
+            </UserButton.MenuItems>
+          </UserButton>
           {userFullName}
         </div>
+        <UsageModal
+          open={usageOpen}
+          onOpenChange={setUsageOpen}
+          usage={usage}
+          isLoading={isLoadingUsage}
+          currentRequestCost={currentRequestCost}
+          canBypassLimits={canBypassLimits}
+          bypassMonthlyQuota={bypassMonthlyQuota}
+          onBypassMonthlyQuotaChange={onBypassMonthlyQuotaChange}
+        />
       </div>
     </aside>
   );

@@ -14,7 +14,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "src/components/ui/alert-dialog";
+import { calculateGenerationCredits } from "src/lib/credits";
 import { notifyPromptDone } from "src/lib/notify";
+import { isExpectedTRPCError } from "src/lib/trpc-errors";
 import { useUploadThing } from "src/lib/uploadthing";
 import { api } from "src/trpc/react";
 
@@ -55,6 +57,14 @@ function rememberPushPermissionPromptDismissal() {
   }
 }
 
+function formatResetDate(date: Date | string | undefined) {
+  if (!date) return "the next reset";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeZone: "UTC",
+  }).format(new Date(date));
+}
+
 export default function Home() {
   const [referenceImagesOpen, setReferenceImagesOpen] = useState(false);
   const [archivedModelsOpen, setArchivedModelsOpen] = useState(false);
@@ -75,6 +85,9 @@ export default function Home() {
   );
   const [selectedProjectIds, setSelectedProjectIds] =
     useLocalStorage("activeProject");
+  const [bypassMonthlyQuota, setBypassMonthlyQuota] = useLocalStorage(
+    "bypassMonthlyQuota",
+  );
 
   const generateButtonLockedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -112,6 +125,8 @@ export default function Home() {
   ]);
 
   const user = useUser();
+  const canBypassLimits = user.user?.publicMetadata.canBypassLimits === true;
+  const effectiveBypassMonthlyQuota = canBypassLimits && bypassMonthlyQuota;
   const utils = api.useUtils();
 
   const { data: referenceImages, isLoading: isLoadingRefImages } =
@@ -122,6 +137,11 @@ export default function Home() {
 
   const { data: projects, isLoading: isLoadingProjects } =
     api.project.list.useQuery();
+  const usageQuery = api.usage.getCurrent.useQuery(undefined, {
+    staleTime: 0,
+  });
+  const usage = usageQuery.data;
+  const isLoadingUsage = usageQuery.isLoading;
 
   const userId = user.user?.id;
   const selectedProjectId =
@@ -130,6 +150,17 @@ export default function Home() {
   const selectedProject = projects?.find(
     (project) => project.id === selectedProjectId,
   );
+
+  useEffect(() => {
+    if (user.isLoaded && !canBypassLimits && bypassMonthlyQuota) {
+      setBypassMonthlyQuota(false);
+    }
+  }, [
+    bypassMonthlyQuota,
+    canBypassLimits,
+    setBypassMonthlyQuota,
+    user.isLoaded,
+  ]);
 
   const handleSelectProject = useCallback(
     (projectId: string) => {
@@ -343,6 +374,12 @@ export default function Home() {
     if (!trimmedPrompt || selectedModels.length === 0 || !selectedProjectId)
       return;
     if (generateButtonLockedRef.current) return;
+    if (!effectiveBypassMonthlyQuota && usage?.isOverQuota) {
+      toast.error(
+        `Monthly credit limit reached. Credits reset on ${formatResetDate(usage.periodEnd)}.`,
+      );
+      return;
+    }
 
     maybeShowPushPermissionDialog();
     generateButtonLockedRef.current = true;
@@ -361,12 +398,20 @@ export default function Home() {
             : undefined,
         resolution,
         aspectRatio: aspect,
+        requestQuotaBypass: effectiveBypassMonthlyQuota,
       });
     } catch (reason) {
-      console.error(
-        `Error when generating prompt with text "${trimmedPrompt}"`,
-        reason,
-      );
+      if (isExpectedTRPCError(reason)) {
+        toast.error(
+          `Monthly credit limit reached. Credits reset on ${formatResetDate(usage?.periodEnd)}.`,
+        );
+      } else {
+        toast.error("Failed to start generation");
+        console.error(
+          `Error when generating prompt with text "${trimmedPrompt}"`,
+          reason,
+        );
+      }
       return;
     } finally {
       utils.prompt.list.invalidate().catch((reason) => {
@@ -374,6 +419,9 @@ export default function Home() {
           "Failed to invalidate prompt.list, user will have to refresh.",
           reason,
         );
+      });
+      usageQuery.refetch().catch((reason) => {
+        console.error("Failed to refetch usage query.", reason);
       });
       generateButtonTimeoutRef.current = setTimeout(() => {
         generateButtonLockedRef.current = false;
@@ -389,6 +437,7 @@ export default function Home() {
           runGeneration.mutateAsync(
             {
               imageId: img.id,
+              requestQuotaBypass: effectiveBypassMonthlyQuota,
             },
             {
               onSuccess: () => {
@@ -397,6 +446,9 @@ export default function Home() {
                     "Failed to invalidate images query, user will have to refresh.",
                     reason,
                   );
+                });
+                usageQuery.refetch().catch((reason) => {
+                  console.error("Failed to refetch usage query.", reason);
                 });
               },
             },
@@ -427,6 +479,9 @@ export default function Home() {
           "Failed to invalidate images query. Some images may be stuck generating until a refresh",
           reason,
         );
+      });
+      usageQuery.refetch().catch((reason) => {
+        console.error("Failed to refetch usage query.", reason);
       });
     }
   };
@@ -463,6 +518,13 @@ export default function Home() {
   const handleRetryImage = (imageId: string) => {
     console.log("[retry] clicked, imageId:", imageId);
     if (!selectedProjectId) return;
+    if (!effectiveBypassMonthlyQuota && usage?.isOverQuota) {
+      toast.error(
+        `Monthly credit limit reached. Credits reset on ${formatResetDate(usage.periodEnd)}.`,
+      );
+      return;
+    }
+
     toast.info("Retry generation started");
     utils.prompt.list.setData({ projectId: selectedProjectId }, (old) =>
       old?.map((p) => ({
@@ -480,13 +542,22 @@ export default function Home() {
     );
     console.log("[retry] optimistic update applied, calling runGeneration");
     runGeneration.mutate(
-      { imageId, retry: true },
+      { imageId, retry: true, requestQuotaBypass: effectiveBypassMonthlyQuota },
       {
         onSuccess: (data) => console.log("[retry] succeeded, result:", data),
-        onError: (err) => console.error("[retry] mutation error:", err),
+        onError: (err) => {
+          if (isExpectedTRPCError(err)) {
+            toast.error(
+              `Monthly credit limit reached. Credits reset on ${formatResetDate(usage?.periodEnd)}.`,
+            );
+          } else {
+            console.error("[retry] mutation error:", err);
+          }
+        },
         onSettled: (data, error) => {
           console.log("[retry] settled, invalidating list");
           void utils.prompt.list.invalidate();
+          void usageQuery.refetch();
           notifyPromptDone({
             failureState: !!error || data?.status === "failed" ? "all" : "none",
           });
@@ -511,6 +582,17 @@ export default function Home() {
   }, [models, hasInitializedModels]);
 
   const totalGenerations = runs * selectedModels.length;
+  const currentRequestCost = selectedModels.reduce(
+    (total, model) =>
+      total +
+      runs *
+        calculateGenerationCredits({
+          model,
+          resolution,
+          aspectRatio: aspect,
+        }),
+    0,
+  );
   const activeModels = models?.filter((model) => !model.isArchived) ?? [];
   const archivedModels = models?.filter((model) => model.isArchived) ?? [];
   const hasOnlyOpenAIModelsSelected =
@@ -520,6 +602,7 @@ export default function Home() {
     Boolean(promptText.trim()) &&
     selectedModels.length > 0 &&
     Boolean(selectedProjectId) &&
+    (effectiveBypassMonthlyQuota || !usage?.isOverQuota) &&
     !generateButtonLocked;
   const isGalleryLoading =
     isLoadingProjects || !selectedProjectId || promptsQuery.isLoading;
@@ -636,6 +719,12 @@ export default function Home() {
         hasOnlyOpenAIModelsSelected={hasOnlyOpenAIModelsSelected}
         totalGenerations={totalGenerations}
         userFullName={user.user?.fullName}
+        usage={usage}
+        isLoadingUsage={isLoadingUsage}
+        currentRequestCost={currentRequestCost}
+        canBypassLimits={canBypassLimits}
+        bypassMonthlyQuota={effectiveBypassMonthlyQuota}
+        onBypassMonthlyQuotaChange={setBypassMonthlyQuota}
       />
       <ImageGallery
         projects={projects}

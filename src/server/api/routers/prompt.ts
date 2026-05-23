@@ -2,15 +2,23 @@ import { TRPCError } from "@trpc/server";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
+import { MONTHLY_CREDIT_LIMIT } from "src/lib/credits";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import {
   images,
+  generationUsage,
   projects,
   prompts,
   referenceImages,
 } from "src/server/db/schema";
 import { utapi } from "src/server/uploadthing";
+import {
+  calculateUsageRowCredits,
+  getUsedCredits,
+  lockUserUsage,
+} from "src/server/usage";
+import { currentUserCanBypassLimits } from "src/server/limits";
 
 export type SupportedModel = {
   slug: string;
@@ -79,6 +87,7 @@ export const promptRouter = createTRPCRouter({
         referenceImages: z.array(z.string()).optional(),
         resolution: z.string().optional(),
         aspectRatio: z.string().optional(),
+        requestQuotaBypass: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -123,7 +132,20 @@ export const promptRouter = createTRPCRouter({
         }
       }
 
+      const shouldBypassMonthlyQuota = input.requestQuotaBypass
+        ? await currentUserCanBypassLimits()
+        : false;
+
       return db.transaction(async (tx) => {
+        await lockUserUsage(tx, ctx.user);
+        const usedCredits = await getUsedCredits(tx, ctx.user);
+        if (!shouldBypassMonthlyQuota && usedCredits >= MONTHLY_CREDIT_LIMIT) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Monthly credit limit reached",
+          });
+        }
+
         const promptId = crypto.randomUUID();
         const [promptRow] = await tx
           .insert(prompts)
@@ -139,20 +161,36 @@ export const promptRouter = createTRPCRouter({
           .returning();
         if (!promptRow) throw new Error("Failed to insert prompt");
 
+        const imageValues = Array.from({ length: input.repeatCount }, () =>
+          models.map((model) => ({
+            id: crypto.randomUUID(),
+            userId: ctx.user,
+            promptId,
+            model,
+            status: "pending" as const,
+          })),
+        ).flat();
         const imageRows = await tx
           .insert(images)
-          .values(
-            Array.from({ length: input.repeatCount }, () =>
-              models.map((model) => ({
-                id: crypto.randomUUID(),
-                userId: ctx.user,
-                promptId,
-                model,
-                status: "pending" as const,
-              })),
-            ).flat(),
-          )
+          .values(imageValues)
           .returning();
+
+        await tx.insert(generationUsage).values(
+          imageRows.map((image) => ({
+            id: crypto.randomUUID(),
+            userId: ctx.user,
+            imageId: image.id,
+            model: image.model,
+            resolution: input.resolution,
+            aspectRatio: input.aspectRatio,
+            credits: calculateUsageRowCredits({
+              model: image.model,
+              resolution: input.resolution,
+              aspectRatio: input.aspectRatio,
+            }),
+            status: "reserved" as const,
+          })),
+        );
 
         return { ...promptRow, images: imageRows };
       });

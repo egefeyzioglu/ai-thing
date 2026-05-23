@@ -7,6 +7,7 @@ import { type inferRouterInputs, type inferRouterOutputs } from "@trpc/server";
 import { useState } from "react";
 import SuperJSON from "superjson";
 
+import { isExpectedTRPCError } from "src/lib/trpc-errors";
 import { type AppRouter } from "src/server/api/root";
 import { createQueryClient } from "./query-client";
 
@@ -45,9 +46,20 @@ export function TRPCReactProvider(props: { children: React.ReactNode }) {
     api.createClient({
       links: [
         loggerLink({
-          enabled: (op) =>
-            process.env.NODE_ENV === "development" ||
-            (op.direction === "down" && op.result instanceof Error),
+          enabled: (op) => {
+            if (
+              op.direction === "down" &&
+              op.result instanceof Error &&
+              isExpectedTRPCError(op.result)
+            ) {
+              return false;
+            }
+
+            return (
+              process.env.NODE_ENV === "development" ||
+              (op.direction === "down" && op.result instanceof Error)
+            );
+          },
         }),
         httpBatchStreamLink({
           transformer: SuperJSON,

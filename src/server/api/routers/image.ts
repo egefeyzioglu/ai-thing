@@ -1,33 +1,72 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
+import { MONTHLY_CREDIT_LIMIT } from "src/lib/credits";
 import { extensionFor } from "src/lib/utils";
 
 import { env } from "src/env";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import {
+  generationUsage,
   images,
   prompts,
   referenceImages,
+  type GenerationCostEventOperation,
   type Image,
   type ReferenceImage,
 } from "src/server/db/schema";
+import { recordGenerationCostEvent } from "src/server/generation-costs";
+import { currentUserCanBypassLimits } from "src/server/limits";
 import { utapi, UTFile } from "src/server/uploadthing";
+import {
+  createReservedUsage,
+  getUsedCredits,
+  lockUserUsage,
+  markUsageStatus,
+} from "src/server/usage";
 
 type ResponsesApiOutputItem = {
+  id?: string;
   type: string;
   result?: string;
   status?: string;
+  usage?: unknown;
+  [key: string]: unknown;
 };
 
 type ResponsesApiResponse = {
+  id?: string;
+  model?: string;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+    input_tokens_details?: {
+      cached_tokens?: number;
+    };
+    output_tokens_details?: {
+      reasoning_tokens?: number;
+    };
+  };
   output?: ResponsesApiOutputItem[];
   error?: { message?: string };
 };
 
 type OpenAIImagesApiResponse = {
+  id?: string;
+  created?: number;
+  model?: string;
+  usage?: {
+    input_tokens?: number;
+    input_tokens_details?: {
+      image_tokens?: number;
+      text_tokens?: number;
+    };
+    output_tokens?: number;
+    total_tokens?: number;
+  };
   data?: { b64_json?: string }[];
   error?: { message?: string };
 };
@@ -43,14 +82,43 @@ type GeminiPart = {
   inline_data?: GeminiInlineData;
 };
 
+type GeminiModalityTokenCount = {
+  modality?: string;
+  tokenCount?: number;
+};
+
+type GeminiUsageMetadata = {
+  promptTokenCount?: number;
+  cachedContentTokenCount?: number;
+  candidatesTokenCount?: number;
+  toolUsePromptTokenCount?: number;
+  thoughtsTokenCount?: number;
+  totalTokenCount?: number;
+  promptTokensDetails?: GeminiModalityTokenCount[];
+  cacheTokensDetails?: GeminiModalityTokenCount[];
+  candidatesTokensDetails?: GeminiModalityTokenCount[];
+  toolUsePromptTokensDetails?: GeminiModalityTokenCount[];
+  serviceTier?: string;
+};
+
 type GeminiResponse = {
+  responseId?: string;
+  modelVersion?: string;
   candidates?: { content?: { parts?: GeminiPart[] } }[];
+  usageMetadata?: GeminiUsageMetadata;
   error?: { message?: string };
 };
 
 type GeneratedImage = {
   base64: string;
   mimeType: string;
+  cost: {
+    provider: "openai" | "gemini";
+    providerRequestId?: string | null;
+    providerModel?: string | null;
+    operation: GenerationCostEventOperation;
+    usageRaw: unknown;
+  };
 };
 
 const OPENAI_IMAGE_MAX_EDGE = 3840;
@@ -249,7 +317,20 @@ async function generateImageOpenAIResponses(
     throw new Error("OpenAI response did not contain an image");
   }
 
-  return { base64: imageCall.result, mimeType: "image/png" };
+  return {
+    base64: imageCall.result,
+    mimeType: "image/png",
+    cost: {
+      provider: "openai",
+      providerRequestId: data.id ?? imageCall.id ?? null,
+      providerModel: data.model ?? "gpt-5.4-mini",
+      operation: "responses_image_generation",
+      usageRaw: {
+        responseUsage: data.usage ?? null,
+        imageGenerationCallUsage: imageCall.usage ?? null,
+      },
+    },
+  };
 }
 
 async function generateImageGptImage2Generations(
@@ -284,7 +365,17 @@ async function generateImageGptImage2Generations(
     return undefined;
   }
 
-  return { base64: imageBase64, mimeType: "image/png" };
+  return {
+    base64: imageBase64,
+    mimeType: "image/png",
+    cost: {
+      provider: "openai",
+      providerRequestId: data.id ?? null,
+      providerModel: data.model ?? model,
+      operation: "image_generation",
+      usageRaw: data.usage ?? null,
+    },
+  };
 }
 
 async function generateImageGptImage2Edits(
@@ -322,7 +413,17 @@ async function generateImageGptImage2Edits(
     return undefined;
   }
 
-  return { base64: imageBase64, mimeType: "image/png" };
+  return {
+    base64: imageBase64,
+    mimeType: "image/png",
+    cost: {
+      provider: "openai",
+      providerRequestId: data.id ?? null,
+      providerModel: data.model ?? "gpt-image-2-2026-04-21",
+      operation: "image_edit",
+      usageRaw: data.usage ?? null,
+    },
+  };
 }
 
 async function generateImageGptImage2(
@@ -445,7 +546,17 @@ async function generateImageGeminiModel(
     throw new Error("Gemini response did not contain an image");
   }
 
-  return { base64: inline.data, mimeType: inline.mimeType ?? "image/png" };
+  return {
+    base64: inline.data,
+    mimeType: inline.mimeType ?? "image/png",
+    cost: {
+      provider: "gemini",
+      providerRequestId: data.responseId ?? null,
+      providerModel: data.modelVersion ?? model,
+      operation: "image_generation",
+      usageRaw: data.usageMetadata ?? null,
+    },
+  };
 }
 
 function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
@@ -579,6 +690,7 @@ export const imageRouter = createTRPCRouter({
       z.object({
         imageId: z.string().min(1),
         retry: z.boolean().optional(),
+        requestQuotaBypass: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }): Promise<Image> => {
@@ -608,31 +720,6 @@ export const imageRouter = createTRPCRouter({
         return imageRow;
       }
 
-      // Atomic claim: only proceed if we can transition from the expected
-      // status to "running". This prevents duplicate generation if the same
-      // image is requested concurrently.
-      const claimableStatus = imageRow.status === "failed" ? "failed" : "pending";
-      const [claimed] = await db
-        .update(images)
-        .set({ status: "running", error: null, updatedAt: new Date() })
-        .where(
-          and(
-            eq(images.id, imageRow.id),
-            eq(images.userId, ctx.user),
-            eq(images.status, claimableStatus),
-          ),
-        )
-        .returning();
-      if (!claimed) {
-        console.log("[runGeneration] claim failed, another worker claimed it");
-        const [current] = await db
-          .select()
-          .from(images)
-          .where(and(eq(images.id, imageRow.id), eq(images.userId, ctx.user)))
-          .limit(1);
-        return current ?? imageRow;
-      }
-
       const [promptRow] = await db
         .select({
           text: prompts.text,
@@ -657,6 +744,107 @@ export const imageRouter = createTRPCRouter({
         });
       }
 
+      const canBypassMonthlyQuota = input.requestQuotaBypass
+        ? await currentUserCanBypassLimits()
+        : false;
+
+      const claimResult = await db.transaction(async (tx) => {
+        if (input.retry) {
+          await lockUserUsage(tx, ctx.user);
+          const usedCredits = await getUsedCredits(tx, ctx.user);
+          if (!canBypassMonthlyQuota && usedCredits >= MONTHLY_CREDIT_LIMIT) {
+            throw new TRPCError({
+              code: "TOO_MANY_REQUESTS",
+              message: "Monthly credit limit reached",
+            });
+          }
+
+          const [claimed] = await tx
+            .update(images)
+            .set({ status: "running", error: null, updatedAt: new Date() })
+            .where(
+              and(
+                eq(images.id, imageRow.id),
+                eq(images.userId, ctx.user),
+                eq(images.status, "failed"),
+              ),
+            )
+            .returning();
+          if (!claimed) return { claimed: null, usageId: undefined };
+
+          const usageRow = await createReservedUsage(tx, {
+            userId: ctx.user,
+            imageId: imageRow.id,
+            model: imageRow.model,
+            resolution: promptRow.resolution,
+            aspectRatio: promptRow.aspectRatio,
+          });
+
+          return { claimed, usageId: usageRow.id };
+        }
+
+        const [existingUsage] = await tx
+          .select({ id: generationUsage.id })
+          .from(generationUsage)
+          .where(
+            and(
+              eq(generationUsage.userId, ctx.user),
+              eq(generationUsage.imageId, imageRow.id),
+              eq(generationUsage.status, "reserved"),
+            ),
+          )
+          .orderBy(desc(generationUsage.createdAt))
+          .limit(1);
+
+        if (!existingUsage) {
+          await lockUserUsage(tx, ctx.user);
+          const usedCredits = await getUsedCredits(tx, ctx.user);
+          if (!canBypassMonthlyQuota && usedCredits >= MONTHLY_CREDIT_LIMIT) {
+            throw new TRPCError({
+              code: "TOO_MANY_REQUESTS",
+              message: "Monthly credit limit reached",
+            });
+          }
+        }
+
+        const [claimed] = await tx
+          .update(images)
+          .set({ status: "running", error: null, updatedAt: new Date() })
+          .where(
+            and(
+              eq(images.id, imageRow.id),
+              eq(images.userId, ctx.user),
+              eq(images.status, "pending"),
+            ),
+          )
+          .returning();
+        if (!claimed) return { claimed: null, usageId: undefined };
+
+        if (existingUsage) {
+          return { claimed, usageId: existingUsage.id };
+        }
+
+        const usageRow = await createReservedUsage(tx, {
+          userId: ctx.user,
+          imageId: imageRow.id,
+          model: imageRow.model,
+          resolution: promptRow.resolution,
+          aspectRatio: promptRow.aspectRatio,
+        });
+
+        return { claimed, usageId: usageRow.id };
+      });
+
+      if (!claimResult.claimed) {
+        console.log("[runGeneration] claim failed, another worker claimed it");
+        const [current] = await db
+          .select()
+          .from(images)
+          .where(and(eq(images.id, imageRow.id), eq(images.userId, ctx.user)))
+          .limit(1);
+        return current ?? imageRow;
+      }
+
       console.log("[runGeneration] starting generation for model:", imageRow.model);
 
       const referenceImageIds = parseReferenceImageIds(
@@ -672,6 +860,23 @@ export const imageRouter = createTRPCRouter({
           promptRow.resolution ?? undefined,
           promptRow.aspectRatio ?? undefined,
         );
+        await recordGenerationCostEvent({
+          userId: ctx.user,
+          imageId: imageRow.id,
+          provider: generated.cost.provider,
+          providerRequestId: generated.cost.providerRequestId,
+          model: imageRow.model,
+          providerModel: generated.cost.providerModel,
+          operation: generated.cost.operation,
+          usageRaw: generated.cost.usageRaw,
+          fallbackContext: {
+            resolution: promptRow.resolution,
+            aspectRatio: promptRow.aspectRatio,
+            outputImageCount: 1,
+          },
+        }).catch((err) => {
+          console.error("[runGeneration] failed to record generation cost:", err);
+        });
         console.log("[runGeneration] generation succeeded, uploading");
         const { url, key } = await uploadGeneratedImage({
           imageId: imageRow.id,
@@ -696,6 +901,16 @@ export const imageRouter = createTRPCRouter({
             message: "Failed to update image row",
           });
         }
+        const didConsume = await markUsageStatus(
+          claimResult.usageId,
+          "consumed",
+        ).catch((err) => {
+          console.error("[runGeneration] failed to consume usage row:", err);
+          return false;
+        });
+        if (!didConsume) {
+          console.warn("[runGeneration] usage row was not consumed");
+        }
         console.log("[runGeneration] done, status: succeeded");
         return updated;
       } catch (err) {
@@ -715,6 +930,16 @@ export const imageRouter = createTRPCRouter({
             code: "INTERNAL_SERVER_ERROR",
             message: "Failed to record image failure",
           });
+        }
+        const didRefund = await markUsageStatus(
+          claimResult.usageId,
+          "refunded",
+        ).catch((err) => {
+          console.error("[runGeneration] failed to refund usage row:", err);
+          return false;
+        });
+        if (!didRefund) {
+          console.warn("[runGeneration] usage row was not refunded");
         }
         console.log("[runGeneration] done, status: failed, error:", message);
         return updated;
