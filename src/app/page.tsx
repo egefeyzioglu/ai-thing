@@ -398,7 +398,7 @@ export default function Home() {
             : undefined,
         resolution,
         aspectRatio: aspect,
-        bypassMonthlyQuota: effectiveBypassMonthlyQuota,
+        requestQuotaBypass: effectiveBypassMonthlyQuota,
       });
     } catch (reason) {
       if (isExpectedTRPCError(reason)) {
@@ -437,7 +437,7 @@ export default function Home() {
           runGeneration.mutateAsync(
             {
               imageId: img.id,
-              bypassMonthlyQuota: effectiveBypassMonthlyQuota,
+              requestQuotaBypass: effectiveBypassMonthlyQuota,
             },
             {
               onSuccess: () => {
@@ -542,7 +542,7 @@ export default function Home() {
     );
     console.log("[retry] optimistic update applied, calling runGeneration");
     runGeneration.mutate(
-      { imageId, retry: true, bypassMonthlyQuota: effectiveBypassMonthlyQuota },
+      { imageId, retry: true, requestQuotaBypass: effectiveBypassMonthlyQuota },
       {
         onSuccess: (data) => console.log("[retry] succeeded, result:", data),
         onError: (err) => {

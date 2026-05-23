@@ -87,7 +87,7 @@ export const promptRouter = createTRPCRouter({
         referenceImages: z.array(z.string()).optional(),
         resolution: z.string().optional(),
         aspectRatio: z.string().optional(),
-        bypassMonthlyQuota: z.boolean().optional(),
+        requestQuotaBypass: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -132,7 +132,7 @@ export const promptRouter = createTRPCRouter({
         }
       }
 
-      const shouldBypassMonthlyQuota = input.bypassMonthlyQuota
+      const shouldBypassMonthlyQuota = input.requestQuotaBypass
         ? await currentUserCanBypassLimits()
         : false;
 

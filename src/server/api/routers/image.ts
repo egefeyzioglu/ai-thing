@@ -690,7 +690,7 @@ export const imageRouter = createTRPCRouter({
       z.object({
         imageId: z.string().min(1),
         retry: z.boolean().optional(),
-        bypassMonthlyQuota: z.boolean().optional(),
+        requestQuotaBypass: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }): Promise<Image> => {
@@ -744,7 +744,7 @@ export const imageRouter = createTRPCRouter({
         });
       }
 
-      const canBypassMonthlyQuota = input.bypassMonthlyQuota
+      const canBypassMonthlyQuota = input.requestQuotaBypass
         ? await currentUserCanBypassLimits()
         : false;
 
