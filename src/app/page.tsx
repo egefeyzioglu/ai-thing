@@ -85,6 +85,9 @@ export default function Home() {
   );
   const [selectedProjectIds, setSelectedProjectIds] =
     useLocalStorage("activeProject");
+  const [bypassMonthlyQuota, setBypassMonthlyQuota] = useLocalStorage(
+    "bypassMonthlyQuota",
+  );
 
   const generateButtonLockedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -358,7 +361,7 @@ export default function Home() {
     if (!trimmedPrompt || selectedModels.length === 0 || !selectedProjectId)
       return;
     if (generateButtonLockedRef.current) return;
-    if (usage?.isOverQuota) {
+    if (!bypassMonthlyQuota && usage?.isOverQuota) {
       toast.error(
         `Monthly credit limit reached. Credits reset on ${formatResetDate(usage.periodEnd)}.`,
       );
@@ -382,6 +385,7 @@ export default function Home() {
             : undefined,
         resolution,
         aspectRatio: aspect,
+        bypassMonthlyQuota,
       });
     } catch (reason) {
       if (isExpectedTRPCError(reason)) {
@@ -420,6 +424,7 @@ export default function Home() {
           runGeneration.mutateAsync(
             {
               imageId: img.id,
+              bypassMonthlyQuota,
             },
             {
               onSuccess: () => {
@@ -500,7 +505,7 @@ export default function Home() {
   const handleRetryImage = (imageId: string) => {
     console.log("[retry] clicked, imageId:", imageId);
     if (!selectedProjectId) return;
-    if (usage?.isOverQuota) {
+    if (!bypassMonthlyQuota && usage?.isOverQuota) {
       toast.error(
         `Monthly credit limit reached. Credits reset on ${formatResetDate(usage.periodEnd)}.`,
       );
@@ -524,7 +529,7 @@ export default function Home() {
     );
     console.log("[retry] optimistic update applied, calling runGeneration");
     runGeneration.mutate(
-      { imageId, retry: true },
+      { imageId, retry: true, bypassMonthlyQuota },
       {
         onSuccess: (data) => console.log("[retry] succeeded, result:", data),
         onError: (err) => {
@@ -584,7 +589,7 @@ export default function Home() {
     Boolean(promptText.trim()) &&
     selectedModels.length > 0 &&
     Boolean(selectedProjectId) &&
-    !usage?.isOverQuota &&
+    (bypassMonthlyQuota || !usage?.isOverQuota) &&
     !generateButtonLocked;
   const isGalleryLoading =
     isLoadingProjects || !selectedProjectId || promptsQuery.isLoading;
@@ -704,6 +709,8 @@ export default function Home() {
         usage={usage}
         isLoadingUsage={isLoadingUsage}
         currentRequestCost={currentRequestCost}
+        bypassMonthlyQuota={bypassMonthlyQuota}
+        onBypassMonthlyQuotaChange={setBypassMonthlyQuota}
       />
       <ImageGallery
         projects={projects}

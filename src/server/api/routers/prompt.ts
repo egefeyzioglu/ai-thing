@@ -86,6 +86,7 @@ export const promptRouter = createTRPCRouter({
         referenceImages: z.array(z.string()).optional(),
         resolution: z.string().optional(),
         aspectRatio: z.string().optional(),
+        bypassMonthlyQuota: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -133,7 +134,7 @@ export const promptRouter = createTRPCRouter({
       return db.transaction(async (tx) => {
         await lockUserUsage(tx, ctx.user);
         const usedCredits = await getUsedCredits(tx, ctx.user);
-        if (usedCredits >= MONTHLY_CREDIT_LIMIT) {
+        if (!input.bypassMonthlyQuota && usedCredits >= MONTHLY_CREDIT_LIMIT) {
           throw new TRPCError({
             code: "TOO_MANY_REQUESTS",
             message: "Monthly credit limit reached",

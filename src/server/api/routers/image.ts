@@ -689,6 +689,7 @@ export const imageRouter = createTRPCRouter({
       z.object({
         imageId: z.string().min(1),
         retry: z.boolean().optional(),
+        bypassMonthlyQuota: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }): Promise<Image> => {
@@ -746,7 +747,7 @@ export const imageRouter = createTRPCRouter({
         if (input.retry) {
           await lockUserUsage(tx, ctx.user);
           const usedCredits = await getUsedCredits(tx, ctx.user);
-          if (usedCredits >= MONTHLY_CREDIT_LIMIT) {
+          if (!input.bypassMonthlyQuota && usedCredits >= MONTHLY_CREDIT_LIMIT) {
             throw new TRPCError({
               code: "TOO_MANY_REQUESTS",
               message: "Monthly credit limit reached",
@@ -793,7 +794,7 @@ export const imageRouter = createTRPCRouter({
         if (!existingUsage) {
           await lockUserUsage(tx, ctx.user);
           const usedCredits = await getUsedCredits(tx, ctx.user);
-          if (usedCredits >= MONTHLY_CREDIT_LIMIT) {
+          if (!input.bypassMonthlyQuota && usedCredits >= MONTHLY_CREDIT_LIMIT) {
             throw new TRPCError({
               code: "TOO_MANY_REQUESTS",
               message: "Monthly credit limit reached",

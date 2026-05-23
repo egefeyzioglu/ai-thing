@@ -146,6 +146,8 @@ type SidebarProps = {
   usage: RouterOutputs["usage"]["getCurrent"] | undefined;
   isLoadingUsage: boolean;
   currentRequestCost: number;
+  bypassMonthlyQuota: boolean;
+  onBypassMonthlyQuotaChange: (value: boolean) => void;
 };
 
 export function Sidebar({
@@ -184,6 +186,8 @@ export function Sidebar({
   usage,
   isLoadingUsage,
   currentRequestCost,
+  bypassMonthlyQuota,
+  onBypassMonthlyQuotaChange,
 }: SidebarProps) {
   const [usageOpen, setUsageOpen] = useState(false);
 
@@ -508,7 +512,7 @@ export function Sidebar({
         )}
       </div>
       <div className="flex flex-col items-center-safe gap-2 border-y border-(--border) py-4">
-        {usage?.isOverQuota && (
+        {usage?.isOverQuota && !bypassMonthlyQuota && (
           <div className="mx-4 mb-1 flex w-[calc(100%-2rem)] items-start gap-3 rounded-md border border-red-500/40 bg-red-500/10 p-3">
             <AlertTriangle
               size={16}
@@ -544,7 +548,7 @@ export function Sidebar({
         >
           {generateButtonLocked
             ? "Generating..."
-            : usage?.isOverQuota
+            : usage?.isOverQuota && !bypassMonthlyQuota
               ? "Out of credits"
               : "Generate"}
         </button>
@@ -567,6 +571,8 @@ export function Sidebar({
           usage={usage}
           isLoading={isLoadingUsage}
           currentRequestCost={currentRequestCost}
+          bypassMonthlyQuota={bypassMonthlyQuota}
+          onBypassMonthlyQuotaChange={onBypassMonthlyQuotaChange}
         />
       </div>
     </aside>

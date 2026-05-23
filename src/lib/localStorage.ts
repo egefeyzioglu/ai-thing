@@ -39,6 +39,12 @@ export const localStorageSchema = {
     defaultValue: [],
     version: 1,
   }),
+  bypassMonthlyQuota: defineLocalStorageItem({
+    schema: z.boolean(),
+    key: "ai-thing.bypassMonthlyQuota",
+    defaultValue: false,
+    version: 1,
+  }),
 };
 
 export type LocalStorageKey = keyof typeof localStorageSchema;

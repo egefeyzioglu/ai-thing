@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "src/components/ui/dialog";
+import { Switch } from "src/components/ui/switch";
 import { cn } from "src/lib/utils";
 import type { RouterOutputs } from "src/trpc/react";
 
@@ -21,6 +22,8 @@ type UsageModalProps = {
   usage: UsageSummary | undefined;
   currentRequestCost: number;
   isLoading: boolean;
+  bypassMonthlyQuota: boolean;
+  onBypassMonthlyQuotaChange: (value: boolean) => void;
 };
 
 function getPercent(used?: number, limit?: number) {
@@ -94,6 +97,8 @@ export function UsageModal({
   usage,
   currentRequestCost,
   isLoading,
+  bypassMonthlyQuota,
+  onBypassMonthlyQuotaChange,
 }: UsageModalProps) {
   const used = usage?.used ?? 0;
   const limit = usage?.limit ?? 0;
@@ -111,7 +116,7 @@ export function UsageModal({
         </DialogHeader>
 
         <div className="flex flex-col gap-5">
-          {percent >= 100 && (
+          {percent >= 100 && !bypassMonthlyQuota && (
             <div className="flex items-start gap-3 rounded-md border border-red-500/40 bg-red-500/10 p-3">
               <AlertTriangle
                 size={16}
@@ -143,14 +148,33 @@ export function UsageModal({
                 {percent.toFixed(0)}%
               </span>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-(--muted)">
+            <div
+              className={cn(
+                "relative h-2 overflow-visible rounded-full bg-(--muted)",
+              )}
+            >
               <div
                 className={cn(
                   "h-full rounded-full transition-[width] duration-500",
-                  thresholdBg(percent),
+                  bypassMonthlyQuota ? "border-r border-black/60" : thresholdBg(percent),
                 )}
-                style={{ width: `${Math.min(percent, 100)}%` }}
+                style={{
+                  width: `${Math.min(percent, 100)}%`,
+                  ...(bypassMonthlyQuota
+                    ? {
+                        backgroundImage:
+                          "repeating-linear-gradient(135deg, #facc15 0 10px, #111827 10px 20px)",
+                      }
+                    : {}),
+                }}
               />
+              {bypassMonthlyQuota && (
+                <div className="pointer-events-none absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center">
+                  <span className="rounded-sm border border-black bg-yellow-400 px-2 py-0.5 text-[10px] font-bold tracking-wide text-black uppercase shadow-sm">
+                    Bypassing Limits
+                  </span>
+                </div>
+              )}
             </div>
             <div className="mt-2 flex items-baseline justify-between gap-3 text-xs text-(--muted-foreground)">
               <span className="tabular-nums">{remaining} remaining</span>
@@ -167,18 +191,55 @@ export function UsageModal({
                 credits
               </span>
             </div>
-            <div className="mt-3 flex items-baseline justify-between gap-3 rounded-md border border-(--border) bg-(--muted)/30 px-3 py-2">
-              <span className="text-xs text-(--muted-foreground)">
-                Estimated provider cost
-              </span>
-              <span className="text-sm font-medium tabular-nums">
-                {usage?.cost.formattedTotal ?? "$0.00"}
-                {usage?.cost.hasEstimated && (
-                  <span className="ml-2 text-xs font-normal text-(--muted-foreground)">
-                    includes estimates
+            <div className="mt-3 divide-y divide-(--border) rounded-md border border-(--border) bg-(--muted)/30">
+              <div className="flex items-center justify-between gap-4 px-3 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    Estimated provider cost
+                  </div>
+                  <div className="text-xs text-(--muted-foreground)">
+                    {usage?.cost.hasEstimated
+                      ? "Includes estimated provider costs."
+                      : "Recorded for this monthly usage period."}
+                  </div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="text-sm font-medium tabular-nums">
+                    {usage?.cost.formattedTotal ?? "$0.00"}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-4 px-3 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    Bypass monthly quota
+                  </div>
+                  <div className="text-xs text-(--muted-foreground)">
+                    Generations can continue after the monthly credit limit.
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Switch
+                    checked={bypassMonthlyQuota}
+                    onCheckedChange={onBypassMonthlyQuotaChange}
+                    aria-label="Bypass monthly quota"
+                    className={cn(
+                      bypassMonthlyQuota &&
+                        "data-checked:bg-blue-500 dark:data-checked:bg-blue-500",
+                    )}
+                  />
+                  <span
+                    className={cn(
+                      "w-6 text-xs font-medium tabular-nums",
+                      bypassMonthlyQuota
+                        ? "text-blue-400"
+                        : "text-(--muted-foreground)",
+                    )}
+                  >
+                    {bypassMonthlyQuota ? "On" : "Off"}
                   </span>
-                )}
-              </span>
+                </div>
+              </div>
             </div>
           </div>
 
