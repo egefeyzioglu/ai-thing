@@ -90,6 +90,9 @@ export const GENERATION_COST_EVENT_OPERATIONS = [
 export type GenerationCostEventOperation =
   (typeof GENERATION_COST_EVENT_OPERATIONS)[number];
 
+export const WORKSHOP_MESSAGE_ROLES = ["user", "assistant"] as const;
+export type WorkshopMessageRole = (typeof WORKSHOP_MESSAGE_ROLES)[number];
+
 export const images = createTable(
   "image",
   (d) => ({
@@ -232,8 +235,36 @@ export const generationCostEvents = createTable(
   ],
 );
 
+export const workshopMessages = createTable(
+  "workshop_message",
+  (d) => ({
+    id: d.text("id").primaryKey(),
+    userId: d.text("user_id").notNull(),
+    projectId: d
+      .text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "restrict" }),
+    role: d.text("role").notNull().$type<WorkshopMessageRole>(),
+    model: d.text("model"),
+    content: d.text("content").notNull(),
+    createdAt: d
+      .timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  }),
+  (t) => [
+    index("workshop_message_user_project_created_idx").on(
+      t.userId,
+      t.projectId,
+      t.createdAt,
+    ),
+    index("workshop_message_project_created_idx").on(t.projectId, t.createdAt),
+  ],
+);
+
 export const projectsRelations = relations(projects, ({ many }) => ({
   prompts: many(prompts),
+  workshopMessages: many(workshopMessages),
 }));
 
 export const promptsRelations = relations(prompts, ({ many, one }) => ({
@@ -252,18 +283,30 @@ export const imagesRelations = relations(images, ({ one }) => ({
 }));
 
 export const referenceImageRelations = relations(referenceImages, () => ({}));
-export const generationUsageRelations = relations(generationUsage, ({ one }) => ({
-  image: one(images, {
-    fields: [generationUsage.imageId],
-    references: [images.id],
+export const generationUsageRelations = relations(
+  generationUsage,
+  ({ one }) => ({
+    image: one(images, {
+      fields: [generationUsage.imageId],
+      references: [images.id],
+    }),
   }),
-}));
+);
 export const generationCostEventsRelations = relations(
   generationCostEvents,
   ({ one }) => ({
     image: one(images, {
       fields: [generationCostEvents.imageId],
       references: [images.id],
+    }),
+  }),
+);
+export const workshopMessagesRelations = relations(
+  workshopMessages,
+  ({ one }) => ({
+    project: one(projects, {
+      fields: [workshopMessages.projectId],
+      references: [projects.id],
     }),
   }),
 );
@@ -274,3 +317,4 @@ export type ReferenceImage = typeof referenceImages.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type GenerationUsage = typeof generationUsage.$inferSelect;
 export type GenerationCostEvent = typeof generationCostEvents.$inferSelect;
+export type WorkshopMessage = typeof workshopMessages.$inferSelect;

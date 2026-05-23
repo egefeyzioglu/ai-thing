@@ -1,7 +1,7 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -26,7 +26,8 @@ import {
   type PromptModelSlug,
   type ResolutionOption,
 } from "./_components/sidebar";
-import { useLocalStorage, type LocalStorageValue } from "src/lib/localStorage";
+import { useActiveProject } from "./_hooks/use-active-project";
+import { useLocalStorage } from "src/lib/localStorage";
 
 type PendingDelete =
   | { type: "referenceImage"; id: string }
@@ -83,11 +84,8 @@ export default function Home() {
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(
     null,
   );
-  const [selectedProjectIds, setSelectedProjectIds] =
-    useLocalStorage("activeProject");
-  const [bypassMonthlyQuota, setBypassMonthlyQuota] = useLocalStorage(
-    "bypassMonthlyQuota",
-  );
+  const [bypassMonthlyQuota, setBypassMonthlyQuota] =
+    useLocalStorage("bypassMonthlyQuota");
 
   const generateButtonLockedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -112,18 +110,6 @@ export default function Home() {
     };
   }, []);
 
-  useEffect(() => {
-    unlockGenerateButton();
-  }, [
-    promptText,
-    selectedModels,
-    selectedReferenceImages,
-    resolution,
-    aspect,
-    runs,
-    selectedProjectIds,
-  ]);
-
   const user = useUser();
   const canBypassLimits = user.user?.publicMetadata.canBypassLimits === true;
   const effectiveBypassMonthlyQuota = canBypassLimits && bypassMonthlyQuota;
@@ -143,13 +129,23 @@ export default function Home() {
   const usage = usageQuery.data;
   const isLoadingUsage = usageQuery.isLoading;
 
-  const userId = user.user?.id;
-  const selectedProjectId =
-    selectedProjectIds.find(({ userId: thisUserId }) => thisUserId === userId)
-      ?.projectId ?? null;
-  const selectedProject = projects?.find(
-    (project) => project.id === selectedProjectId,
-  );
+  const {
+    selectedProjectId,
+    selectedProject,
+    onSelectProject: handleSelectProject,
+  } = useActiveProject(projects);
+
+  useEffect(() => {
+    unlockGenerateButton();
+  }, [
+    promptText,
+    selectedModels,
+    selectedReferenceImages,
+    resolution,
+    aspect,
+    runs,
+    selectedProjectId,
+  ]);
 
   useEffect(() => {
     if (user.isLoaded && !canBypassLimits && bypassMonthlyQuota) {
@@ -160,55 +156,6 @@ export default function Home() {
     canBypassLimits,
     setBypassMonthlyQuota,
     user.isLoaded,
-  ]);
-
-  const handleSelectProject = useCallback(
-    (projectId: string) => {
-      if (!userId) return;
-
-      setSelectedProjectIds((prev: LocalStorageValue<"activeProject">) => {
-        if (prev.some(({ userId: thisUserId }) => thisUserId === userId)) {
-          return prev.map((activeProject) =>
-            activeProject.userId === userId
-              ? { ...activeProject, projectId }
-              : activeProject,
-          );
-        }
-
-        return [...prev, { userId, projectId }];
-      });
-    },
-    [setSelectedProjectIds, userId],
-  );
-
-  useEffect(() => {
-    if (!userId || !projects) return;
-    if (projects.length === 0) {
-      setSelectedProjectIds((prev) =>
-        prev.filter(({ userId: thisUserId }) => thisUserId !== userId),
-      );
-      return;
-    }
-
-    if (
-      selectedProjectId &&
-      projects.some((project) => project.id === selectedProjectId)
-    ) {
-      return;
-    }
-
-    const fallbackProjectId =
-      projects.find((project) => project.isDefault)?.id ?? projects[0]?.id;
-
-    if (fallbackProjectId) {
-      handleSelectProject(fallbackProjectId);
-    }
-  }, [
-    handleSelectProject,
-    projects,
-    selectedProjectId,
-    setSelectedProjectIds,
-    userId,
   ]);
 
   const deleteRefImage = api.referenceImage.deleteReferenceImage.useMutation({
