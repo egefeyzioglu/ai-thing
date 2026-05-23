@@ -21,6 +21,8 @@ import { cn } from "src/lib/utils";
 import { WORKSHOP_DRAFT_STORAGE_KEY } from "src/lib/workshop";
 import { api, type RouterOutputs } from "src/trpc/react";
 
+import Markdown from "react-markdown";
+
 const WORKSHOP_MODELS = [
   { slug: "gpt-5.4-mini", name: "GPT 5.4 Mini" },
   { slug: "gemini-3-flash-preview", name: "Gemini 3 Flash" },
@@ -28,6 +30,79 @@ const WORKSHOP_MODELS = [
 
 type WorkshopModel = (typeof WORKSHOP_MODELS)[number]["slug"];
 type WorkshopMessage = RouterOutputs["workshop"]["list"][number];
+
+type WorkshopComposerProps = {
+  selectedProjectId: string|null,
+  sendIsPending: boolean,
+  sendPrompt: (prompt: string)=>void,
+};
+
+function WorkshopComposer(props: WorkshopComposerProps) {
+  const {selectedProjectId,sendIsPending, sendPrompt} = props;
+
+  const [composer, setComposer] = useState("");
+
+  const handleSend = () => {
+    sendPrompt(composer);
+    setComposer("");
+  }
+
+  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    handleSend();
+  };
+
+  const trimmedComposer = composer.trim();
+  const canSend =
+    trimmedComposer.length > 0 &&
+    selectedProjectId !== null;
+
+  const textareaShouldBeDisabled = selectedProjectId === null && sendIsPending;
+
+  useEffect(() => {
+    try {
+      const draft = sessionStorage.getItem(WORKSHOP_DRAFT_STORAGE_KEY);
+      if (draft) {
+        setComposer(draft);
+        sessionStorage.removeItem(WORKSHOP_DRAFT_STORAGE_KEY);
+      }
+    } catch (error) {
+      console.error("Failed to read workshop draft", error);
+    }
+  }, []);
+
+  return (
+    <div className="flex items-end gap-2">
+      <Textarea
+        value={composer}
+        onChange={(event) => setComposer(event.target.value)}
+        onKeyDown={handleComposerKeyDown}
+        placeholder={
+          selectedProjectId
+            ? "Ask for prompt feedback or revisions..."
+            : "Select a project to start..."
+        }
+        disabled={textareaShouldBeDisabled}
+        className="max-h-48 min-h-20 resize-none"
+      />
+      <Button
+        type="button"
+        size="icon-lg"
+        className="cursor-pointer"
+        disabled={!canSend}
+        onClick={handleSend}
+        aria-label="Send message"
+      >
+        {sendIsPending ? (
+          <Loader2 className="animate-spin" />
+        ) : (
+          <Send />
+        )}
+      </Button>
+    </div>
+  );
+}
 
 function WorkshopMessageBubble({ message }: { message: WorkshopMessage }) {
   const isUser = message.role === "user";
@@ -38,9 +113,9 @@ function WorkshopMessageBubble({ message }: { message: WorkshopMessage }) {
     >
       <div
         className={cn(
-          "max-w-[min(780px,85%)] rounded-lg border px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap",
+          "max-w-[min(780px,85%)] rounded-lg border px-4 py-3 text-sm leading-relaxed",
           isUser
-            ? "text-foreground border-blue-500/30 bg-blue-500/15"
+            ? "text-foreground border-blue-500/30 bg-blue-500/15 whitepsace-pre-wrap"
             : "border-border bg-card text-card-foreground",
         )}
       >
@@ -50,7 +125,66 @@ function WorkshopMessageBubble({ message }: { message: WorkshopMessage }) {
               ?.name ?? message.model}
           </div>
         )}
-        {message.content}
+        <Markdown
+          components={{
+            blockquote(props) {
+              const {node, ...rest} = props;
+              return (
+                <blockquote className="border-l border-l-5 ps-4 h-min">
+                    {rest.children}
+                </blockquote>
+              );
+            },
+            h1(props) {
+              const {node, ...rest} = props;
+              return <h1 className="text-xl font-bold pbe-2 pbs-2">{rest.children}</h1>;
+            },
+            h2(props) {
+              const {node, ...rest} = props;
+              return <h2 className="text-l font-bold pbe-2 pbs-2">{rest.children}</h2>;
+            },
+            h3(props) {
+              const {node, ...rest} = props;
+              return <h3 className="text-md font-bold pbe-2 pbs-2">{rest.children}</h3>;
+            },
+            h4(props) {
+              const {node, ...rest} = props;
+              return <h3 className="text-md font-bold pbe-2 pbs-2">{rest.children}</h3>;
+            },
+            h5(props) {
+              const {node, ...rest} = props;
+              return <h3 className="text-md font-bold pbe-2 pbs-2">{rest.children}</h3>;
+            },
+            h6(props) {
+              const {node, ...rest} = props;
+              return <h3 className="text-md font-bold pbe-2 pbs-2">{rest.children}</h3>;
+            },
+            ol(props) {
+              const {node, ...rest} = props;
+              return (
+                <ol className="list-decimal ms-4 pbe-1">{rest.children}</ol>
+              )
+            },
+            pre(props) {
+              const {node, ...rest} = props;
+              return (
+                <pre className="pbe-1">{rest.children}</pre>
+              );
+            },
+            p(props) {
+              const {node, ...rest} = props;
+              return (
+                <p className="pbe-1">{rest.children}</p>
+              );
+            },
+            ul(props) {
+              const {node, ...rest} = props;
+              return (
+                <ul className="list-disc ms-4 pbe-1">{rest.children}</ul>
+              )
+            },
+          }}
+        >{message.content}</Markdown>
       </div>
     </div>
   );
@@ -67,7 +201,6 @@ function MessageSkeleton() {
 }
 
 export default function WorkshopPage() {
-  const [composer, setComposer] = useState("");
   const [selectedModel, setSelectedModel] =
     useState<WorkshopModel>("gpt-5.4-mini");
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
@@ -99,7 +232,6 @@ export default function WorkshopPage() {
         userMessage,
         assistantMessage,
       ]);
-      setComposer("");
       void utils.workshop.list.invalidate({ projectId: selectedProjectId });
     },
     onError: (error) => {
@@ -124,40 +256,16 @@ export default function WorkshopPage() {
   });
 
   useEffect(() => {
-    try {
-      const draft = sessionStorage.getItem(WORKSHOP_DRAFT_STORAGE_KEY);
-      if (draft) {
-        setComposer(draft);
-        sessionStorage.removeItem(WORKSHOP_DRAFT_STORAGE_KEY);
-      }
-    } catch (error) {
-      console.error("Failed to read workshop draft", error);
-    }
-  }, []);
-
-  useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length, sendMessage.isPending]);
 
-  const trimmedComposer = composer.trim();
-  const canSend =
-    Boolean(selectedProjectId) &&
-    trimmedComposer.length > 0 &&
-    !sendMessage.isPending;
-
-  const handleSend = () => {
-    if (!canSend || !selectedProjectId) return;
+  const sendPrompt = (prompt: string) => {
+    if(!selectedProjectId) return;
     sendMessage.mutate({
       projectId: selectedProjectId,
-      content: trimmedComposer,
+      content: prompt,
       model: selectedModel,
     });
-  };
-
-  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== "Enter" || event.shiftKey) return;
-    event.preventDefault();
-    handleSend();
   };
 
   const handleClear = () => {
@@ -262,34 +370,11 @@ export default function WorkshopPage() {
                 </Button>
               ))}
             </div>
-            <div className="flex items-end gap-2">
-              <Textarea
-                value={composer}
-                onChange={(event) => setComposer(event.target.value)}
-                onKeyDown={handleComposerKeyDown}
-                placeholder={
-                  selectedProjectId
-                    ? "Ask for prompt feedback or revisions..."
-                    : "Select a project to start..."
-                }
-                disabled={!selectedProjectId || sendMessage.isPending}
-                className="max-h-48 min-h-20 resize-none"
-              />
-              <Button
-                type="button"
-                size="icon-lg"
-                className="cursor-pointer"
-                disabled={!canSend}
-                onClick={handleSend}
-                aria-label="Send message"
-              >
-                {sendMessage.isPending ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <Send />
-                )}
-              </Button>
-            </div>
+              <WorkshopComposer
+                selectedProjectId={selectedProjectId}
+                sendIsPending={sendMessage.isPending}
+                sendPrompt={sendPrompt}
+              ></WorkshopComposer>
           </div>
         </div>
       </section>
