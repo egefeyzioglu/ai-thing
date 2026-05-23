@@ -18,6 +18,7 @@ import {
   type ReferenceImage,
 } from "src/server/db/schema";
 import { recordGenerationCostEvent } from "src/server/generation-costs";
+import { currentUserCanBypassLimits } from "src/server/limits";
 import { utapi, UTFile } from "src/server/uploadthing";
 import {
   createReservedUsage,
@@ -743,11 +744,15 @@ export const imageRouter = createTRPCRouter({
         });
       }
 
+      const canBypassMonthlyQuota = input.bypassMonthlyQuota
+        ? await currentUserCanBypassLimits()
+        : false;
+
       const claimResult = await db.transaction(async (tx) => {
         if (input.retry) {
           await lockUserUsage(tx, ctx.user);
           const usedCredits = await getUsedCredits(tx, ctx.user);
-          if (!input.bypassMonthlyQuota && usedCredits >= MONTHLY_CREDIT_LIMIT) {
+          if (!canBypassMonthlyQuota && usedCredits >= MONTHLY_CREDIT_LIMIT) {
             throw new TRPCError({
               code: "TOO_MANY_REQUESTS",
               message: "Monthly credit limit reached",
@@ -794,7 +799,7 @@ export const imageRouter = createTRPCRouter({
         if (!existingUsage) {
           await lockUserUsage(tx, ctx.user);
           const usedCredits = await getUsedCredits(tx, ctx.user);
-          if (!input.bypassMonthlyQuota && usedCredits >= MONTHLY_CREDIT_LIMIT) {
+          if (!canBypassMonthlyQuota && usedCredits >= MONTHLY_CREDIT_LIMIT) {
             throw new TRPCError({
               code: "TOO_MANY_REQUESTS",
               message: "Monthly credit limit reached",

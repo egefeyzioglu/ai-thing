@@ -18,6 +18,7 @@ import {
   getUsedCredits,
   lockUserUsage,
 } from "src/server/usage";
+import { currentUserCanBypassLimits } from "src/server/limits";
 
 export type SupportedModel = {
   slug: string;
@@ -131,10 +132,14 @@ export const promptRouter = createTRPCRouter({
         }
       }
 
+      const shouldBypassMonthlyQuota = input.bypassMonthlyQuota
+        ? await currentUserCanBypassLimits()
+        : false;
+
       return db.transaction(async (tx) => {
         await lockUserUsage(tx, ctx.user);
         const usedCredits = await getUsedCredits(tx, ctx.user);
-        if (!input.bypassMonthlyQuota && usedCredits >= MONTHLY_CREDIT_LIMIT) {
+        if (!shouldBypassMonthlyQuota && usedCredits >= MONTHLY_CREDIT_LIMIT) {
           throw new TRPCError({
             code: "TOO_MANY_REQUESTS",
             message: "Monthly credit limit reached",

@@ -125,6 +125,8 @@ export default function Home() {
   ]);
 
   const user = useUser();
+  const canBypassLimits = user.user?.publicMetadata.canBypassLimits === true;
+  const effectiveBypassMonthlyQuota = canBypassLimits && bypassMonthlyQuota;
   const utils = api.useUtils();
 
   const { data: referenceImages, isLoading: isLoadingRefImages } =
@@ -148,6 +150,17 @@ export default function Home() {
   const selectedProject = projects?.find(
     (project) => project.id === selectedProjectId,
   );
+
+  useEffect(() => {
+    if (user.isLoaded && !canBypassLimits && bypassMonthlyQuota) {
+      setBypassMonthlyQuota(false);
+    }
+  }, [
+    bypassMonthlyQuota,
+    canBypassLimits,
+    setBypassMonthlyQuota,
+    user.isLoaded,
+  ]);
 
   const handleSelectProject = useCallback(
     (projectId: string) => {
@@ -361,7 +374,7 @@ export default function Home() {
     if (!trimmedPrompt || selectedModels.length === 0 || !selectedProjectId)
       return;
     if (generateButtonLockedRef.current) return;
-    if (!bypassMonthlyQuota && usage?.isOverQuota) {
+    if (!effectiveBypassMonthlyQuota && usage?.isOverQuota) {
       toast.error(
         `Monthly credit limit reached. Credits reset on ${formatResetDate(usage.periodEnd)}.`,
       );
@@ -385,7 +398,7 @@ export default function Home() {
             : undefined,
         resolution,
         aspectRatio: aspect,
-        bypassMonthlyQuota,
+        bypassMonthlyQuota: effectiveBypassMonthlyQuota,
       });
     } catch (reason) {
       if (isExpectedTRPCError(reason)) {
@@ -424,7 +437,7 @@ export default function Home() {
           runGeneration.mutateAsync(
             {
               imageId: img.id,
-              bypassMonthlyQuota,
+              bypassMonthlyQuota: effectiveBypassMonthlyQuota,
             },
             {
               onSuccess: () => {
@@ -505,7 +518,7 @@ export default function Home() {
   const handleRetryImage = (imageId: string) => {
     console.log("[retry] clicked, imageId:", imageId);
     if (!selectedProjectId) return;
-    if (!bypassMonthlyQuota && usage?.isOverQuota) {
+    if (!effectiveBypassMonthlyQuota && usage?.isOverQuota) {
       toast.error(
         `Monthly credit limit reached. Credits reset on ${formatResetDate(usage.periodEnd)}.`,
       );
@@ -529,7 +542,7 @@ export default function Home() {
     );
     console.log("[retry] optimistic update applied, calling runGeneration");
     runGeneration.mutate(
-      { imageId, retry: true, bypassMonthlyQuota },
+      { imageId, retry: true, bypassMonthlyQuota: effectiveBypassMonthlyQuota },
       {
         onSuccess: (data) => console.log("[retry] succeeded, result:", data),
         onError: (err) => {
@@ -589,7 +602,7 @@ export default function Home() {
     Boolean(promptText.trim()) &&
     selectedModels.length > 0 &&
     Boolean(selectedProjectId) &&
-    (bypassMonthlyQuota || !usage?.isOverQuota) &&
+    (effectiveBypassMonthlyQuota || !usage?.isOverQuota) &&
     !generateButtonLocked;
   const isGalleryLoading =
     isLoadingProjects || !selectedProjectId || promptsQuery.isLoading;
@@ -709,7 +722,8 @@ export default function Home() {
         usage={usage}
         isLoadingUsage={isLoadingUsage}
         currentRequestCost={currentRequestCost}
-        bypassMonthlyQuota={bypassMonthlyQuota}
+        canBypassLimits={canBypassLimits}
+        bypassMonthlyQuota={effectiveBypassMonthlyQuota}
         onBypassMonthlyQuotaChange={setBypassMonthlyQuota}
       />
       <ImageGallery

@@ -22,6 +22,7 @@ type UsageModalProps = {
   usage: UsageSummary | undefined;
   currentRequestCost: number;
   isLoading: boolean;
+  canBypassLimits: boolean;
   bypassMonthlyQuota: boolean;
   onBypassMonthlyQuotaChange: (value: boolean) => void;
 };
@@ -97,6 +98,7 @@ export function UsageModal({
   usage,
   currentRequestCost,
   isLoading,
+  canBypassLimits,
   bypassMonthlyQuota,
   onBypassMonthlyQuotaChange,
 }: UsageModalProps) {
@@ -209,37 +211,39 @@ export function UsageModal({
                   </div>
                 </div>
               </div>
-              <div className="flex items-center justify-between gap-4 px-3 py-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">
-                    Bypass monthly quota
+              {canBypassLimits && (
+                <div className="flex items-center justify-between gap-4 px-3 py-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">
+                      Bypass monthly quota
+                    </div>
+                    <div className="text-xs text-(--muted-foreground)">
+                      Generations can continue after the monthly credit limit.
+                    </div>
                   </div>
-                  <div className="text-xs text-(--muted-foreground)">
-                    Generations can continue after the monthly credit limit.
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Switch
+                      checked={bypassMonthlyQuota}
+                      onCheckedChange={onBypassMonthlyQuotaChange}
+                      aria-label="Bypass monthly quota"
+                      className={cn(
+                        bypassMonthlyQuota &&
+                          "data-checked:bg-blue-500 dark:data-checked:bg-blue-500",
+                      )}
+                    />
+                    <span
+                      className={cn(
+                        "w-6 text-xs font-medium tabular-nums",
+                        bypassMonthlyQuota
+                          ? "text-blue-400"
+                          : "text-(--muted-foreground)",
+                      )}
+                    >
+                      {bypassMonthlyQuota ? "On" : "Off"}
+                    </span>
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Switch
-                    checked={bypassMonthlyQuota}
-                    onCheckedChange={onBypassMonthlyQuotaChange}
-                    aria-label="Bypass monthly quota"
-                    className={cn(
-                      bypassMonthlyQuota &&
-                        "data-checked:bg-blue-500 dark:data-checked:bg-blue-500",
-                    )}
-                  />
-                  <span
-                    className={cn(
-                      "w-6 text-xs font-medium tabular-nums",
-                      bypassMonthlyQuota
-                        ? "text-blue-400"
-                        : "text-(--muted-foreground)",
-                    )}
-                  >
-                    {bypassMonthlyQuota ? "On" : "Off"}
-                  </span>
-                </div>
-              </div>
+              )}
             </div>
           </div>
 

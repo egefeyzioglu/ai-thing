@@ -146,6 +146,7 @@ type SidebarProps = {
   usage: RouterOutputs["usage"]["getCurrent"] | undefined;
   isLoadingUsage: boolean;
   currentRequestCost: number;
+  canBypassLimits: boolean;
   bypassMonthlyQuota: boolean;
   onBypassMonthlyQuotaChange: (value: boolean) => void;
 };
@@ -186,6 +187,7 @@ export function Sidebar({
   usage,
   isLoadingUsage,
   currentRequestCost,
+  canBypassLimits,
   bypassMonthlyQuota,
   onBypassMonthlyQuotaChange,
 }: SidebarProps) {
@@ -571,6 +573,7 @@ export function Sidebar({
           usage={usage}
           isLoading={isLoadingUsage}
           currentRequestCost={currentRequestCost}
+          canBypassLimits={canBypassLimits}
           bypassMonthlyQuota={bypassMonthlyQuota}
           onBypassMonthlyQuotaChange={onBypassMonthlyQuotaChange}
         />
