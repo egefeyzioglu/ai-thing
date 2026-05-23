@@ -56,6 +56,23 @@ function formatRelative(date: Date | string) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+function formatUsdMicros(value: number) {
+  if (value > 0 && value < 10_000) return "<$0.01";
+
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value / 1_000_000);
+}
+
+function formatRowCost(row: UsageRow) {
+  if (row.costUsdMicros === null) return "cost pending";
+  const prefix = row.costStatus === "estimated" ? "~" : "";
+  return `${prefix}${formatUsdMicros(row.costUsdMicros)}`;
+}
+
 function StatusDot({ status }: { status: UsageRow["status"] }) {
   const cls =
     status === "consumed"
@@ -150,6 +167,19 @@ export function UsageModal({
                 credits
               </span>
             </div>
+            <div className="mt-3 flex items-baseline justify-between gap-3 rounded-md border border-(--border) bg-(--muted)/30 px-3 py-2">
+              <span className="text-xs text-(--muted-foreground)">
+                Estimated provider cost
+              </span>
+              <span className="text-sm font-medium tabular-nums">
+                {usage?.cost.formattedTotal ?? "$0.00"}
+                {usage?.cost.hasEstimated && (
+                  <span className="ml-2 text-xs font-normal text-(--muted-foreground)">
+                    includes estimates
+                  </span>
+                )}
+              </span>
+            </div>
           </div>
 
           <div>
@@ -179,18 +209,28 @@ export function UsageModal({
                           {row.status} · {formatRelative(row.createdAt)}
                         </div>
                       </div>
-                      <span
-                        className={cn(
-                          "shrink-0 tabular-nums",
-                          row.status === "refunded" &&
-                            "text-(--muted-foreground) line-through",
-                        )}
-                      >
-                        {row.credits}
-                        <span className="ml-0.5 text-xs text-(--muted-foreground)">
-                          cr
-                        </span>
-                      </span>
+                      <div className="shrink-0 text-right">
+                        <div
+                          className={cn(
+                            "tabular-nums",
+                            row.status === "refunded" &&
+                              "text-(--muted-foreground) line-through",
+                          )}
+                        >
+                          {row.credits}
+                          <span className="ml-0.5 text-xs text-(--muted-foreground)">
+                            cr
+                          </span>
+                        </div>
+                        <div
+                          className={cn(
+                            "mt-0.5 text-xs tabular-nums text-(--muted-foreground)",
+                            row.costStatus === "estimated" && "text-amber-400",
+                          )}
+                        >
+                          {formatRowCost(row)}
+                        </div>
+                      </div>
                     </li>
                   ))}
                 </ul>

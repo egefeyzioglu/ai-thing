@@ -7,9 +7,11 @@ import {
 } from "src/lib/credits";
 import { db } from "src/server/db";
 import {
+  generationCostEvents,
   generationUsage,
   type GenerationUsage,
 } from "src/server/db/schema";
+import { formatUsdMicros } from "src/server/generation-costs";
 
 type UsageDb = Pick<typeof db, "execute" | "insert" | "select" | "update">;
 
@@ -45,10 +47,40 @@ export async function getUsedCredits(
   return Number(row?.used ?? 0);
 }
 
+export async function getMonthlyCostUsdMicros(
+  tx: UsageDb,
+  userId: string,
+  now = new Date(),
+): Promise<{
+  totalUsdMicros: number;
+  estimatedUsdMicros: number;
+}> {
+  const { periodStart, periodEnd } = getMonthlyUsageWindow(now);
+  const [row] = await tx
+    .select({
+      totalUsdMicros: sql<number>`coalesce(sum(${generationCostEvents.costUsdMicros}), 0)::bigint`,
+      estimatedUsdMicros: sql<number>`coalesce(sum(case when ${generationCostEvents.status} = 'estimated' then ${generationCostEvents.costUsdMicros} else 0 end), 0)::bigint`,
+    })
+    .from(generationCostEvents)
+    .where(
+      and(
+        eq(generationCostEvents.userId, userId),
+        gte(generationCostEvents.createdAt, periodStart),
+        lt(generationCostEvents.createdAt, periodEnd),
+      ),
+    );
+
+  return {
+    totalUsdMicros: Number(row?.totalUsdMicros ?? 0),
+    estimatedUsdMicros: Number(row?.estimatedUsdMicros ?? 0),
+  };
+}
+
 export async function getCurrentUsage(userId: string) {
   const now = new Date();
   const { periodStart, periodEnd } = getMonthlyUsageWindow(now);
   const used = await getUsedCredits(db, userId, now);
+  const monthlyCost = await getMonthlyCostUsdMicros(db, userId, now);
   const recent = await db
     .select({
       id: generationUsage.id,
@@ -71,6 +103,53 @@ export async function getCurrentUsage(userId: string) {
     )
     .orderBy(desc(generationUsage.createdAt))
     .limit(20);
+  const recentImageIds = recent
+    .map((row) => row.imageId)
+    .filter((imageId): imageId is string => !!imageId);
+  const costRows = recentImageIds.length
+    ? await db
+        .select({
+          imageId: generationCostEvents.imageId,
+          costUsdMicros: generationCostEvents.costUsdMicros,
+          costStatus: generationCostEvents.status,
+          costPricingVersion: generationCostEvents.pricingVersion,
+          createdAt: generationCostEvents.createdAt,
+        })
+        .from(generationCostEvents)
+        .where(
+          and(
+            eq(generationCostEvents.userId, userId),
+            inArray(generationCostEvents.imageId, recentImageIds),
+          ),
+        )
+        .orderBy(desc(generationCostEvents.createdAt))
+    : [];
+  const latestCostByImageId = new Map<
+    string,
+    {
+      costUsdMicros: number;
+      costStatus: "recorded" | "estimated" | "missing_usage";
+      costPricingVersion: string;
+    }
+  >();
+
+  for (const row of costRows) {
+    if (!row.imageId || latestCostByImageId.has(row.imageId)) continue;
+    latestCostByImageId.set(row.imageId, {
+      costUsdMicros: row.costUsdMicros,
+      costStatus: row.costStatus,
+      costPricingVersion: row.costPricingVersion,
+    });
+  }
+  const recentWithCosts = recent.map((row) => {
+    const cost = row.imageId ? latestCostByImageId.get(row.imageId) : undefined;
+    return {
+      ...row,
+      costUsdMicros: cost?.costUsdMicros ?? null,
+      costStatus: cost?.costStatus ?? null,
+      costPricingVersion: cost?.costPricingVersion ?? null,
+    };
+  });
 
   return {
     periodStart,
@@ -79,7 +158,13 @@ export async function getCurrentUsage(userId: string) {
     used,
     remaining: Math.max(MONTHLY_CREDIT_LIMIT - used, 0),
     isOverQuota: used >= MONTHLY_CREDIT_LIMIT,
-    recent,
+    cost: {
+      totalUsdMicros: monthlyCost.totalUsdMicros,
+      estimatedUsdMicros: monthlyCost.estimatedUsdMicros,
+      formattedTotal: formatUsdMicros(monthlyCost.totalUsdMicros),
+      hasEstimated: monthlyCost.estimatedUsdMicros > 0,
+    },
+    recent: recentWithCosts,
   };
 }
 

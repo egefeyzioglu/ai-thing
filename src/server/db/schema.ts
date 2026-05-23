@@ -74,6 +74,22 @@ export const GENERATION_USAGE_STATUSES = [
 ] as const;
 export type GenerationUsageStatus = (typeof GENERATION_USAGE_STATUSES)[number];
 
+export const GENERATION_COST_EVENT_STATUSES = [
+  "recorded",
+  "estimated",
+  "missing_usage",
+] as const;
+export type GenerationCostEventStatus =
+  (typeof GENERATION_COST_EVENT_STATUSES)[number];
+
+export const GENERATION_COST_EVENT_OPERATIONS = [
+  "image_generation",
+  "image_edit",
+  "responses_image_generation",
+] as const;
+export type GenerationCostEventOperation =
+  (typeof GENERATION_COST_EVENT_OPERATIONS)[number];
+
 export const images = createTable(
   "image",
   (d) => ({
@@ -164,6 +180,58 @@ export const generationUsage = createTable(
   ],
 );
 
+export const generationCostEvents = createTable(
+  "generation_cost_event",
+  (d) => ({
+    id: d.text("id").primaryKey(),
+    userId: d.text("user_id").notNull(),
+    imageId: d
+      .text("image_id")
+      .references(() => images.id, { onDelete: "set null" }),
+    provider: d.text("provider").notNull(),
+    providerRequestId: d.text("provider_request_id"),
+    model: d.text("model").notNull(),
+    providerModel: d.text("provider_model"),
+    operation: d
+      .text("operation")
+      .notNull()
+      .$type<GenerationCostEventOperation>(),
+    status: d
+      .text("status")
+      .notNull()
+      .default("recorded")
+      .$type<GenerationCostEventStatus>(),
+    pricingVersion: d.text("pricing_version").notNull(),
+    costUsdMicros: d.bigint("cost_usd_micros", { mode: "number" }).notNull(),
+    currency: d.text("currency").notNull().default("USD"),
+    inputTextTokens: d.integer("input_text_tokens"),
+    inputImageTokens: d.integer("input_image_tokens"),
+    inputTokens: d.integer("input_tokens"),
+    cachedInputTokens: d.integer("cached_input_tokens"),
+    outputTextTokens: d.integer("output_text_tokens"),
+    outputImageTokens: d.integer("output_image_tokens"),
+    outputTokens: d.integer("output_tokens"),
+    reasoningTokens: d.integer("reasoning_tokens"),
+    totalTokens: d.integer("total_tokens"),
+    outputImageCount: d.integer("output_image_count"),
+    fallbackReason: d.text("fallback_reason"),
+    usageRaw: d.json("usage_raw"),
+    costCalculationRaw: d.json("cost_calculation_raw"),
+    createdAt: d
+      .timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  }),
+  (t) => [
+    index("generation_cost_event_user_created_idx").on(t.userId, t.createdAt),
+    index("generation_cost_event_image_idx").on(t.imageId),
+    index("generation_cost_event_provider_created_idx").on(
+      t.provider,
+      t.createdAt,
+    ),
+  ],
+);
+
 export const projectsRelations = relations(projects, ({ many }) => ({
   prompts: many(prompts),
 }));
@@ -190,9 +258,19 @@ export const generationUsageRelations = relations(generationUsage, ({ one }) => 
     references: [images.id],
   }),
 }));
+export const generationCostEventsRelations = relations(
+  generationCostEvents,
+  ({ one }) => ({
+    image: one(images, {
+      fields: [generationCostEvents.imageId],
+      references: [images.id],
+    }),
+  }),
+);
 
 export type Prompt = typeof prompts.$inferSelect;
 export type Image = typeof images.$inferSelect;
 export type ReferenceImage = typeof referenceImages.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type GenerationUsage = typeof generationUsage.$inferSelect;
+export type GenerationCostEvent = typeof generationCostEvents.$inferSelect;
