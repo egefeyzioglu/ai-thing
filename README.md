@@ -11,6 +11,6 @@
 - [X] #47 Rewrite GPT Image 2
 - [X] #24 `generateImageOpenAI` should pass thru a model slug
 - [X] #26 Local storage keys should be centralized
-- [ ] #55 Usage page and proper rate limiting + billing
+- [X] #55 Usage page and proper rate limiting
 - [ ] #51 Recall previous prompts via up arrow (like cli)
 - [ ] #19 Light/dark mode switching isn't implemented
