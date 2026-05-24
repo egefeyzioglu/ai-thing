@@ -99,7 +99,6 @@ async function generateOpenAIText(messages: ChatMessage[]) {
         role: message.role,
         content: message.content,
       })),
-      stream: true,
     }),
   });
 
