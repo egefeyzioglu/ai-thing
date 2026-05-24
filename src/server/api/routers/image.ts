@@ -1,3 +1,5 @@
+import OpenAI, { toFile, type Uploadable } from "openai";
+import type { ResponseInputContent } from "openai/resources/responses/responses";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -27,48 +29,18 @@ import {
   markUsageStatus,
 } from "src/server/usage";
 
-type ResponsesApiOutputItem = {
+type OpenAIImageGenerationCallWithUsage = {
   id?: string;
-  type: string;
-  result?: string;
-  status?: string;
+  result?: string | null;
+  type: "image_generation_call";
   usage?: unknown;
-  [key: string]: unknown;
 };
 
-type ResponsesApiResponse = {
+type OpenAIResponseWithUsage = {
   id?: string;
   model?: string;
-  usage?: {
-    input_tokens?: number;
-    output_tokens?: number;
-    total_tokens?: number;
-    input_tokens_details?: {
-      cached_tokens?: number;
-    };
-    output_tokens_details?: {
-      reasoning_tokens?: number;
-    };
-  };
-  output?: ResponsesApiOutputItem[];
-  error?: { message?: string };
-};
-
-type OpenAIImagesApiResponse = {
-  id?: string;
-  created?: number;
-  model?: string;
-  usage?: {
-    input_tokens?: number;
-    input_tokens_details?: {
-      image_tokens?: number;
-      text_tokens?: number;
-    };
-    output_tokens?: number;
-    total_tokens?: number;
-  };
-  data?: { b64_json?: string }[];
-  error?: { message?: string };
+  usage?: unknown;
+  output?: unknown[];
 };
 
 type GeminiInlineData = {
@@ -124,6 +96,7 @@ type GeneratedImage = {
 const OPENAI_IMAGE_MAX_EDGE = 3840;
 const OPENAI_IMAGE_MIN_PIXELS = 655_360;
 const OPENAI_IMAGE_MAX_PIXELS = 8_294_400;
+const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
 function parseResolutionPreset(resolution?: string): number | undefined {
   switch (resolution) {
@@ -258,6 +231,14 @@ async function loadOwnedReferenceImages(
   return ownedReferenceImages;
 }
 
+function getReferenceImageUrl(image: ReferenceImage): string {
+  if (!image.url) {
+    throw new Error(`Reference image ${image.id} does not have a URL`);
+  }
+
+  return image.url;
+}
+
 async function generateImageOpenAIResponses(
   userId: string,
   prompt: string,
@@ -269,19 +250,20 @@ async function generateImageOpenAIResponses(
     userId,
     referenceImageIds,
   );
-  const modelInputs = [
+  const modelInputs: ResponseInputContent[] = [
     {
       type: "input_text",
       text: `Generate an image for the following user prompt: ${prompt}`,
     },
     ...ownedReferenceImages.map((image) => ({
-      type: "input_image",
-      image_url: image.url,
+      type: "input_image" as const,
+      image_url: getReferenceImageUrl(image),
+      detail: "auto" as const,
     })),
   ];
   const size = resolveImageSize(resolution, aspectRatio) ?? "auto";
 
-  const body = JSON.stringify({
+  const data = (await openai.responses.create({
     model: "gpt-5.4-mini",
     input: [
       {
@@ -290,27 +272,16 @@ async function generateImageOpenAIResponses(
       },
     ],
     tools: [{ type: "image_generation", size, output_format: "png" }],
-  });
-
-  const res = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-    },
-    // TODO: Make this typesafe
-    body: body,
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenAI API error (${res.status}): ${text}`);
-  }
-
-  const data = (await res.json()) as ResponsesApiResponse;
+  })) as OpenAIResponseWithUsage;
 
   const imageCall = data.output?.find(
-    (item) => item.type === "image_generation_call" && item.result,
+    (item): item is OpenAIImageGenerationCallWithUsage =>
+      typeof item === "object" &&
+      item !== null &&
+      "type" in item &&
+      item.type === "image_generation_call" &&
+      "result" in item &&
+      typeof item.result === "string",
   );
 
   if (!imageCall?.result) {
@@ -337,28 +308,15 @@ async function generateImageGptImage2Generations(
   prompt: string,
   model: ["gpt-image-2-2026-04-21"][number],
   size: string,
-) : Promise<GeneratedImage | undefined> {
-  const body =
-      JSON.stringify({
-        model,
-        prompt,
-        size,
-        output_format: "png",
-      });
-  const res = await fetch("https://api.openai.com/v1/images/generations", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-    },
-    body,
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenAI Images API error (${res.status}): ${text}`);
-  }
-
-  const data = (await res.json()) as OpenAIImagesApiResponse;
+): Promise<GeneratedImage | undefined> {
+  const { data, request_id } = await openai.images
+    .generate({
+      model,
+      prompt,
+      size,
+      output_format: "png",
+    })
+    .withResponse();
   const imageBase64 = data.data?.[0]?.b64_json;
 
   if (!imageBase64) {
@@ -370,43 +328,45 @@ async function generateImageGptImage2Generations(
     mimeType: "image/png",
     cost: {
       provider: "openai",
-      providerRequestId: data.id ?? null,
-      providerModel: data.model ?? model,
+      providerRequestId: request_id ?? null,
+      providerModel: model,
       operation: "image_generation",
       usageRaw: data.usage ?? null,
     },
   };
 }
 
+async function referenceImageToUploadable(
+  image: ReferenceImage,
+): Promise<Uploadable> {
+  const url = getReferenceImageUrl(image);
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to download reference image (${response.status}): ${url}`,
+    );
+  }
+
+  return toFile(response, `${image.id}.${extensionFor(image.mimeType)}`, {
+    type: image.mimeType,
+  });
+}
+
 async function generateImageGptImage2Edits(
   prompt: string,
   size: string,
   referenceImages: ReferenceImage[],
-) : Promise<GeneratedImage | undefined> {
-  const body =
-      JSON.stringify({
-        model: "gpt-image-2-2026-04-21",
-        prompt,
-        images: referenceImages.map((image) => ({
-          image_url: image.url,
-        })),
-        size,
-        output_format: "png",
-      })
-  const res = await fetch("https://api.openai.com/v1/images/edits", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-    },
-    body,
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenAI Images API error (${res.status}): ${text}`);
-  }
-
-  const data = (await res.json()) as OpenAIImagesApiResponse;
+): Promise<GeneratedImage | undefined> {
+  const { data, request_id } = await openai.images
+    .edit({
+      model: "gpt-image-2-2026-04-21",
+      prompt,
+      image: await Promise.all(referenceImages.map(referenceImageToUploadable)),
+      size,
+      output_format: "png",
+    })
+    .withResponse();
   const imageBase64 = data.data?.[0]?.b64_json;
 
   if (!imageBase64) {
@@ -418,8 +378,8 @@ async function generateImageGptImage2Edits(
     mimeType: "image/png",
     cost: {
       provider: "openai",
-      providerRequestId: data.id ?? null,
-      providerModel: data.model ?? "gpt-image-2-2026-04-21",
+      providerRequestId: request_id ?? null,
+      providerModel: "gpt-image-2-2026-04-21",
       operation: "image_edit",
       usageRaw: data.usage ?? null,
     },
