@@ -15,6 +15,12 @@ import { ProjectSwitcher } from "src/app/_components/project-switcher";
 import { useActiveProject } from "src/app/_hooks/use-active-project";
 import { Button, buttonVariants } from "src/components/ui/button";
 import { ConfirmDialog } from "src/components/ui/confirm-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "src/components/ui/select";
 import { Skeleton } from "src/components/ui/skeleton";
 import { Textarea } from "src/components/ui/textarea";
 import { cn } from "src/lib/utils";
@@ -23,10 +29,40 @@ import { api, type RouterOutputs } from "src/trpc/react";
 
 import Markdown from "react-markdown";
 
+function OpenAIIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zm-9.023 12.608a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zm-9.661-4.125a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zm-1.26-10.383a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.338 7.921zm16.597 3.855l-5.843-3.371 2.019-1.168a.076.076 0 0 1 .071 0l4.83 2.786a4.5 4.5 0 0 1-.677 8.098v-5.683a.795.795 0 0 0-.4-.662zm2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681v6.728zm1.097-2.365l2.679-1.547 2.679 1.546v3.093l-2.679 1.546-2.679-1.546V13.5z" />
+    </svg>
+  );
+}
+
+function GeminiIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 24A14.304 14.304 0 0 0 0 12 14.304 14.304 0 0 0 12 0a14.304 14.304 0 0 0 12 12 14.304 14.304 0 0 0-12 12" />
+    </svg>
+  );
+}
+
 const WORKSHOP_MODELS = [
-  { slug: "gpt-5.4-mini", name: "GPT 5.4 Mini" },
-  { slug: "gemini-3-flash-preview", name: "Gemini 3 Flash" },
-] as const;
+  {
+    slug: "gpt-5.4-mini" as const,
+    name: "GPT 5.4 Mini",
+    provider: "OpenAI",
+    description: "Fast · concise",
+    iconBg: "bg-black dark:bg-neutral-800",
+    LogoIcon: OpenAIIcon,
+  },
+  {
+    slug: "gemini-3-flash-preview" as const,
+    name: "Gemini 3 Flash",
+    provider: "Google",
+    description: "Fast · multimodal",
+    iconBg: "bg-blue-500",
+    LogoIcon: GeminiIcon,
+  },
+];
 
 type WorkshopModel = (typeof WORKSHOP_MODELS)[number]["slug"];
 type WorkshopMessage = RouterOutputs["workshop"]["list"][number];
@@ -35,10 +71,12 @@ type WorkshopComposerProps = {
   selectedProjectId: string|null,
   sendIsPending: boolean,
   sendPrompt: (prompt: string)=>void,
+  selectedModel: WorkshopModel,
+  setSelectedModel: (model: WorkshopModel) => void,
 };
 
 function WorkshopComposer(props: WorkshopComposerProps) {
-  const {selectedProjectId,sendIsPending, sendPrompt} = props;
+  const {selectedProjectId, sendIsPending, sendPrompt, selectedModel, setSelectedModel} = props;
 
   const [composer, setComposer] = useState("");
 
@@ -59,6 +97,7 @@ function WorkshopComposer(props: WorkshopComposerProps) {
     selectedProjectId !== null;
 
   const textareaShouldBeDisabled = selectedProjectId === null && sendIsPending;
+  const currentModel = WORKSHOP_MODELS.find((m) => m.slug === selectedModel);
 
   useEffect(() => {
     try {
@@ -73,7 +112,7 @@ function WorkshopComposer(props: WorkshopComposerProps) {
   }, []);
 
   return (
-    <div className="flex items-end gap-2">
+    <div className="relative">
       <Textarea
         value={composer}
         onChange={(event) => setComposer(event.target.value)}
@@ -84,22 +123,68 @@ function WorkshopComposer(props: WorkshopComposerProps) {
             : "Select a project to start..."
         }
         disabled={textareaShouldBeDisabled}
-        className="max-h-48 min-h-20 resize-none"
+        className="max-h-48 min-h-24 resize-none pb-10"
       />
-      <Button
-        type="button"
-        size="icon-lg"
-        className="cursor-pointer"
-        disabled={!canSend}
-        onClick={handleSend}
-        aria-label="Send message"
-      >
-        {sendIsPending ? (
-          <Loader2 className="animate-spin" />
-        ) : (
-          <Send />
-        )}
-      </Button>
+      <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
+        <Select
+          value={selectedModel}
+          onValueChange={(value) => setSelectedModel(value as WorkshopModel)}
+          disabled={textareaShouldBeDisabled}
+        >
+          <SelectTrigger
+            size="sm"
+            className="text-muted-foreground hover:text-foreground h-6 gap-1.5 border-none bg-transparent px-0 text-xs shadow-none transition-colors focus-visible:ring-0 disabled:opacity-50 [&>svg]:size-3"
+          >
+            {currentModel && (
+              <div
+                className={cn(
+                  "flex size-4 shrink-0 items-center justify-center rounded-sm",
+                  currentModel.iconBg,
+                )}
+              >
+                <currentModel.LogoIcon className="size-2.5 text-white" />
+              </div>
+            )}
+            <span>{currentModel?.name}</span>
+          </SelectTrigger>
+          <SelectContent align="start" alignItemWithTrigger={false} className="min-w-64">
+            {WORKSHOP_MODELS.map((model) => (
+              <SelectItem key={model.slug} value={model.slug} className="py-2 pl-2 pr-10">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={cn(
+                      "flex size-8 shrink-0 items-center justify-center rounded-lg",
+                      model.iconBg,
+                    )}
+                  >
+                    <model.LogoIcon className="size-4 text-white" />
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="text-sm font-medium leading-none">{model.name}</span>
+                    <span className="text-muted-foreground text-xs">
+                      {model.provider} · {model.description}
+                    </span>
+                  </div>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          type="button"
+          size="icon"
+          className="h-7 w-7 cursor-pointer"
+          disabled={!canSend}
+          onClick={handleSend}
+          aria-label="Send message"
+        >
+          {sendIsPending ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <Send className="size-3.5" />
+          )}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -355,26 +440,14 @@ export default function WorkshopPage() {
         </div>
 
         <div className="border-border border-t px-6 py-4">
-          <div className="mx-auto flex w-full max-w-5xl flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              {WORKSHOP_MODELS.map((model) => (
-                <Button
-                  key={model.slug}
-                  type="button"
-                  variant={selectedModel === model.slug ? "default" : "outline"}
-                  size="sm"
-                  className="cursor-pointer"
-                  onClick={() => setSelectedModel(model.slug)}
-                >
-                  {model.name}
-                </Button>
-              ))}
-            </div>
-              <WorkshopComposer
-                selectedProjectId={selectedProjectId}
-                sendIsPending={sendMessage.isPending}
-                sendPrompt={sendPrompt}
-              ></WorkshopComposer>
+          <div className="mx-auto w-full max-w-5xl">
+            <WorkshopComposer
+              selectedProjectId={selectedProjectId}
+              sendIsPending={sendMessage.isPending}
+              sendPrompt={sendPrompt}
+              selectedModel={selectedModel}
+              setSelectedModel={setSelectedModel}
+            />
           </div>
         </div>
       </section>
