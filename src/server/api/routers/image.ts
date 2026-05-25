@@ -37,6 +37,7 @@ type OpenAIImageGenerationCallWithUsage = {
 };
 
 type OpenAIResponseWithUsage = {
+  _request_id?: string | null;
   id?: string;
   model?: string;
   usage?: unknown;
@@ -96,6 +97,7 @@ type GeneratedImage = {
 const OPENAI_IMAGE_MAX_EDGE = 3840;
 const OPENAI_IMAGE_MIN_PIXELS = 655_360;
 const OPENAI_IMAGE_MAX_PIXELS = 8_294_400;
+const REFERENCE_IMAGE_FETCH_TIMEOUT_MS = 20_000;
 const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
 function parseResolutionPreset(resolution?: string): number | undefined {
@@ -293,7 +295,7 @@ async function generateImageOpenAIResponses(
     mimeType: "image/png",
     cost: {
       provider: "openai",
-      providerRequestId: data.id ?? imageCall.id ?? null,
+      providerRequestId: data._request_id ?? data.id ?? imageCall.id ?? null,
       providerModel: data.model ?? "gpt-5.4-mini",
       operation: "responses_image_generation",
       usageRaw: {
@@ -340,7 +342,26 @@ async function referenceImageToUploadable(
   image: ReferenceImage,
 ): Promise<Uploadable> {
   const url = getReferenceImageUrl(image);
-  const response = await fetch(url);
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    REFERENCE_IMAGE_FETCH_TIMEOUT_MS,
+  );
+
+  let response: Response;
+  try {
+    response = await fetch(url, { signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(
+        `Timed out downloading reference image after ${REFERENCE_IMAGE_FETCH_TIMEOUT_MS / 1000}s: ${url}`,
+      );
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     throw new Error(
