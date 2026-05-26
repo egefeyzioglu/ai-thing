@@ -10,7 +10,10 @@ import {
 import {
   ArrowLeft,
   Check,
+  ChevronDown,
+  ChevronUp,
   Loader2,
+  MessagesSquare,
   Send,
   Sparkles,
   Trash2,
@@ -22,6 +25,11 @@ import { toast } from "sonner";
 import { ProjectSwitcher } from "src/app/_components/project-switcher";
 import { useActiveProject } from "src/app/_hooks/use-active-project";
 import { Button, buttonVariants } from "src/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "src/components/ui/collapsible";
 import { ConfirmDialog } from "src/components/ui/confirm-dialog";
 import {
   Select,
@@ -94,6 +102,7 @@ type WorkshopComposerProps = {
   sendPrompt: (prompt: string) => void;
   selectedModel: WorkshopModel;
   setSelectedModel: (model: WorkshopModel) => void;
+  isMacOS: boolean | null;
 };
 
 function WorkshopComposer(props: WorkshopComposerProps) {
@@ -103,6 +112,7 @@ function WorkshopComposer(props: WorkshopComposerProps) {
     sendPrompt,
     selectedModel,
     setSelectedModel,
+    isMacOS,
   } = props;
 
   const [composer, setComposer] = useState("");
@@ -139,90 +149,123 @@ function WorkshopComposer(props: WorkshopComposerProps) {
   }, []);
 
   return (
-    <div className="relative">
-      <Textarea
-        value={composer}
-        onChange={(event) => setComposer(event.target.value)}
-        onKeyDown={handleComposerKeyDown}
-        placeholder={
-          selectedProjectId
-            ? "Ask for prompt feedback or revisions..."
-            : "Select a project to start..."
-        }
-        disabled={textareaShouldBeDisabled}
-        className="max-h-48 min-h-24 resize-none pb-10"
-      />
-      <div className="absolute right-2 bottom-2 left-2 flex items-center justify-between">
-        <Select
-          value={selectedModel}
-          onValueChange={(value) => setSelectedModel(value!)}
+    <div className="flex flex-col gap-2">
+      <div className="relative">
+        <Textarea
+          value={composer}
+          onChange={(event) => setComposer(event.target.value)}
+          onKeyDown={handleComposerKeyDown}
+          placeholder={
+            selectedProjectId
+              ? "Ask for prompt feedback or revisions..."
+              : "Select a project to start..."
+          }
           disabled={textareaShouldBeDisabled}
-        >
-          <SelectTrigger
-            size="sm"
-            className="text-muted-foreground hover:text-foreground h-6 gap-1.5 border-none bg-transparent px-0 text-xs shadow-none transition-colors focus-visible:ring-0 disabled:opacity-50 [&>svg]:size-3"
+          className="max-h-48 min-h-24 resize-none pb-10"
+        />
+        <div className="absolute right-2 bottom-2 left-2 flex items-center justify-between">
+          <Select
+            value={selectedModel}
+            onValueChange={(value) => setSelectedModel(value!)}
+            disabled={textareaShouldBeDisabled}
           >
-            {currentModel && (
-              <div
-                className={cn(
-                  "flex size-4 shrink-0 items-center justify-center rounded-sm",
-                  currentModel.iconBg,
-                )}
-              >
-                <currentModel.LogoIcon className="size-2.5 text-white" />
-              </div>
-            )}
-            <span>{currentModel?.name}</span>
-          </SelectTrigger>
-          <SelectContent
-            align="start"
-            alignItemWithTrigger={false}
-            className="min-w-64"
-          >
-            {WORKSHOP_MODELS.map((model) => (
-              <SelectItem
-                key={model.slug}
-                value={model.slug}
-                className="py-2 pr-10 pl-2"
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={cn(
-                      "flex size-8 shrink-0 items-center justify-center rounded-lg",
-                      model.iconBg,
-                    )}
-                  >
-                    <model.LogoIcon className="size-4 text-white" />
-                  </div>
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <span className="text-sm leading-none font-medium">
-                      {model.name}
-                    </span>
-                    <span className="text-muted-foreground text-xs">
-                      {model.provider} · {model.description}
-                    </span>
-                  </div>
+            <SelectTrigger
+              size="sm"
+              className="text-muted-foreground hover:text-foreground h-6 cursor-pointer gap-1.5 border-none bg-transparent px-0 text-xs shadow-none transition-colors focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50 [&>svg]:size-3"
+            >
+              {currentModel && (
+                <div
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded-sm",
+                    currentModel.iconBg,
+                  )}
+                >
+                  <currentModel.LogoIcon className="size-2.5 text-white" />
                 </div>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button
-          type="button"
-          size="icon"
-          className="h-7 w-7 cursor-pointer"
-          disabled={!canSend}
-          onClick={handleSend}
-          aria-label="Send message"
-        >
-          {sendIsPending ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Send className="size-3.5" />
-          )}
-        </Button>
+              )}
+              <span>{currentModel?.name}</span>
+            </SelectTrigger>
+            <SelectContent
+              align="start"
+              alignItemWithTrigger={false}
+              className="min-w-64"
+            >
+              {WORKSHOP_MODELS.map((model) => (
+                <SelectItem
+                  key={model.slug}
+                  value={model.slug}
+                  className="cursor-pointer py-2 pr-10 pl-2"
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={cn(
+                        "flex size-8 shrink-0 items-center justify-center rounded-lg",
+                        model.iconBg,
+                      )}
+                    >
+                      <model.LogoIcon className="size-4 text-white" />
+                    </div>
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-sm leading-none font-medium">
+                        {model.name}
+                      </span>
+                      <span className="text-muted-foreground text-xs">
+                        {model.provider} · {model.description}
+                      </span>
+                    </div>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            size="icon"
+            className="h-7 w-7 cursor-pointer"
+            disabled={!canSend}
+            onClick={handleSend}
+            aria-label="Send message"
+          >
+            {sendIsPending ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Send className="size-3.5" />
+            )}
+          </Button>
+        </div>
       </div>
+      <span
+        className={cn(
+          "mx-0 text-xs text-(--muted-foreground)",
+          isMacOS === null ? "opacity-0" : "opacity-80",
+        )}
+      >
+        Press Enter to send · Shift + Enter for a new line
+      </span>
     </div>
+  );
+}
+
+function ModelBadge({ slug }: { slug: string | null }) {
+  const model = WORKSHOP_MODELS.find((m) => m.slug === slug);
+  if (!model) {
+    return (
+      <span className="text-muted-foreground text-xs">{slug ?? "Agent"}</span>
+    );
+  }
+
+  return (
+    <span className="text-muted-foreground inline-flex items-center gap-1.5 text-xs">
+      <span
+        className={cn(
+          "flex size-4 shrink-0 items-center justify-center rounded-sm",
+          model.iconBg,
+        )}
+      >
+        <model.LogoIcon className="size-2.5 text-white" />
+      </span>
+      <span className="font-medium">{model.name}</span>
+    </span>
   );
 }
 
@@ -231,72 +274,97 @@ function WorkshopMessageBubble({ message }: { message: WorkshopMessage }) {
 
   return (
     <div
-      className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}
+      className={cn(
+        "flex w-full [animation:promptGroupFadeIn_0.25s_ease_both]",
+        isUser ? "justify-end" : "justify-start",
+      )}
     >
       <div
         className={cn(
-          "max-w-[min(780px,85%)] rounded-lg border px-4 py-3 text-sm leading-relaxed",
+          "max-w-[min(780px,85%)] rounded-lg border px-4 py-3 text-sm leading-relaxed shadow-sm",
           isUser
-            ? "text-foreground border-blue-500/30 bg-blue-500/15 whitespace-pre-wrap"
+            ? "border-blue-500/30 bg-blue-500/15 text-foreground whitespace-pre-wrap"
             : "border-border bg-card text-card-foreground",
         )}
       >
-        {!isUser && message.model && (
-          <div className="text-muted-foreground mb-2 text-xs">
-            {WORKSHOP_MODELS.find((model) => model.slug === message.model)
-              ?.name ?? message.model}
+        {!isUser && (
+          <div className="mb-2 flex items-center">
+            <ModelBadge slug={message.model} />
           </div>
         )}
         <Markdown
           components={{
             blockquote({ children }) {
               return (
-                <blockquote className="h-min border-l border-l-5 ps-4">
+                <blockquote className="border-border/60 text-muted-foreground my-1 border-l-2 pl-3 italic">
                   {children}
                 </blockquote>
               );
             },
             h1({ children }) {
               return (
-                <h1 className="pbs-2 pbe-2 text-xl font-bold">{children}</h1>
+                <h1 className="mt-2 mb-1 text-lg font-bold">{children}</h1>
               );
             },
             h2({ children }) {
               return (
-                <h2 className="text-l pbs-2 pbe-2 font-bold">{children}</h2>
+                <h2 className="mt-2 mb-1 text-base font-bold">{children}</h2>
               );
             },
             h3({ children }) {
               return (
-                <h3 className="text-md pbs-2 pbe-2 font-bold">{children}</h3>
+                <h3 className="mt-2 mb-1 text-sm font-semibold">{children}</h3>
               );
             },
             h4({ children }) {
               return (
+<<<<<<< HEAD
                 <h4 className="text-md pbs-2 pbe-2 font-bold">{children}</h4>
+=======
+                <h4 className="mt-2 mb-1 text-sm font-semibold">{children}</h4>
+>>>>>>> ff8819a (Refresh workshop prompt UI)
               );
             },
             h5({ children }) {
               return (
+<<<<<<< HEAD
                 <h5 className="text-md pbs-2 pbe-2 font-bold">{children}</h5>
+=======
+                <h5 className="mt-2 mb-1 text-sm font-semibold">{children}</h5>
+>>>>>>> ff8819a (Refresh workshop prompt UI)
               );
             },
             h6({ children }) {
               return (
+<<<<<<< HEAD
                 <h6 className="text-md pbs-2 pbe-2 font-bold">{children}</h6>
+=======
+                <h6 className="mt-2 mb-1 text-sm font-semibold">{children}</h6>
+>>>>>>> ff8819a (Refresh workshop prompt UI)
               );
             },
             ol({ children }) {
-              return <ol className="ms-4 list-decimal pbe-1">{children}</ol>;
-            },
-            pre({ children }) {
-              return <pre className="pbe-1">{children}</pre>;
-            },
-            p({ children }) {
-              return <p className="pbe-1">{children}</p>;
+              return <ol className="my-1 ml-5 list-decimal">{children}</ol>;
             },
             ul({ children }) {
-              return <ul className="ms-4 list-disc pbe-1">{children}</ul>;
+              return <ul className="my-1 ml-5 list-disc">{children}</ul>;
+            },
+            pre({ children }) {
+              return (
+                <pre className="bg-background/60 border-border/60 my-1 overflow-x-auto rounded-md border p-2 text-xs">
+                  {children}
+                </pre>
+              );
+            },
+            code({ children }) {
+              return (
+                <code className="bg-background/60 border-border/60 rounded border px-1 py-0.5 font-mono text-xs">
+                  {children}
+                </code>
+              );
+            },
+            p({ children }) {
+              return <p className="mb-1 last:mb-0">{children}</p>;
             },
           }}
         >
@@ -313,10 +381,12 @@ function WorkshopToolCallLine({ message }: { message: WorkshopMessage }) {
     "Agent";
 
   return (
-    <div className="text-muted-foreground flex justify-center text-xs">
-      <div className="border-border bg-card/70 flex max-w-[min(520px,90%)] items-center gap-2 rounded-md border px-3 py-2">
-        <Sparkles className="size-3.5 shrink-0" />
-        <span className="truncate">[{agentName}] suggested a prompt</span>
+    <div className="flex justify-center [animation:promptGroupFadeIn_0.25s_ease_both]">
+      <div className="text-muted-foreground border-border bg-card/60 flex max-w-[min(520px,90%)] items-center gap-2 rounded-full border px-3 py-1.5 text-xs backdrop-blur-sm">
+        <Sparkles className="size-3 shrink-0 text-blue-400" />
+        <span className="truncate">
+          <span className="font-medium">{agentName}</span> suggested a prompt
+        </span>
       </div>
     </div>
   );
@@ -332,14 +402,102 @@ function MessageSkeleton() {
   );
 }
 
+function SuggestedPromptCard({
+  prompt,
+  expanded,
+  onExpandedChange,
+  onUse,
+}: {
+  prompt: string;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
+  onUse: () => void;
+}) {
+  return (
+    <Collapsible
+      open={expanded}
+      onOpenChange={onExpandedChange}
+      className="overflow-hidden rounded-lg border border-blue-500/30 bg-blue-500/10 [animation:promptGroupFadeIn_0.3s_ease_both]"
+    >
+      <div className="flex items-center justify-between gap-2 px-4 py-2.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Sparkles className="size-3.5 shrink-0 text-blue-400" />
+          <h2 className="text-[10px] font-semibold tracking-wide text-blue-300 uppercase">
+            Suggested prompt
+          </h2>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button
+            type="button"
+            size="sm"
+            className="cursor-pointer bg-blue-500 text-white hover:bg-blue-500/90"
+            onClick={onUse}
+          >
+            <Check />
+            Use prompt
+          </Button>
+          <CollapsibleTrigger
+            aria-label={expanded ? "Collapse suggested prompt" : "Expand suggested prompt"}
+            className="flex size-7 cursor-pointer items-center justify-center rounded-md text-(--muted-foreground) hover:bg-blue-500/15 hover:text-foreground transition-colors"
+          >
+            {expanded ? (
+              <ChevronUp className="size-4" />
+            ) : (
+              <ChevronDown className="size-4" />
+            )}
+          </CollapsibleTrigger>
+        </div>
+      </div>
+      <CollapsibleContent>
+        <div className="border-t border-blue-500/20 px-4 py-3">
+          <p className="text-foreground/90 line-clamp-6 text-sm leading-relaxed whitespace-pre-wrap">
+            {prompt}
+          </p>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function WorkshopEmptyState({
+  selectedProjectId,
+}: {
+  selectedProjectId: string | null;
+}) {
+  return (
+    <div className="flex min-h-[40vh] flex-1 flex-col items-center justify-center gap-3 text-center">
+      <div className="bg-card border-border flex size-11 items-center justify-center rounded-xl border">
+        <MessagesSquare className="text-muted-foreground size-5" />
+      </div>
+      <p className="text-foreground text-sm font-medium">
+        {selectedProjectId
+          ? "Start a conversation with the workshop"
+          : "Select a project to start"}
+      </p>
+      <p className="text-muted-foreground/60 max-w-sm text-xs">
+        {selectedProjectId
+          ? "Describe what you want to create and the assistant will help you craft a prompt"
+          : "Workshop history is scoped to each project"}
+      </p>
+    </div>
+  );
+}
+
 export default function WorkshopPage() {
   const [selectedModel, setSelectedModel] =
     useState<WorkshopModel>("gpt-5.4-mini");
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
+  const [suggestedPromptExpanded, setSuggestedPromptExpanded] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const suggestedPromptRef = useRef<HTMLDivElement>(null);
   const optimisticUserMessageIdRef = useRef<string | null>(null);
   const utils = api.useUtils();
   const router = useRouter();
+
+  useEffect(() => {
+    setIsMacOS(navigator?.userAgent.toLowerCase().includes("mac"));
+  }, []);
 
   const { data: projects, isLoading: isLoadingProjects } =
     api.project.list.useQuery();
@@ -365,6 +523,10 @@ export default function WorkshopPage() {
 
     return null;
   }, [messages]);
+
+  useEffect(() => {
+    if (latestSuggestedPrompt) setSuggestedPromptExpanded(true);
+  }, [latestSuggestedPrompt]);
 
   const sendMessage = api.workshop.sendMessage.useMutation({
     onSuccess: ({ userMessage, assistantMessages }, variables) => {
@@ -399,8 +561,9 @@ export default function WorkshopPage() {
   });
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length, sendMessage.isPending]);
+    const target = suggestedPromptRef.current ?? bottomRef.current;
+    target?.scrollIntoView({ block: "end" });
+  }, [messages.length, sendMessage.isPending, latestSuggestedPrompt]);
 
   const sendPrompt = (prompt: string) => {
     const trimmedPrompt = prompt.trim();
@@ -459,7 +622,7 @@ export default function WorkshopPage() {
 
   return (
     <main className="bg-background text-foreground flex h-screen w-screen flex-col overflow-hidden">
-      <header className="bg-background/95 border-border sticky top-0 z-30 flex items-center justify-between gap-4 border-b px-6 py-4 backdrop-blur">
+      <header className="bg-background/95 border-(--border) sticky top-0 z-30 flex items-center justify-between gap-4 border-b px-6 py-4 backdrop-blur">
         <div className="flex min-w-0 items-center gap-3">
           <Link
             href="/"
@@ -472,6 +635,21 @@ export default function WorkshopPage() {
           >
             <ArrowLeft />
           </Link>
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-blue-500/15 ring-1 ring-blue-500/30">
+              <Sparkles className="size-4 text-blue-400" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="font-heading text-base leading-tight font-bold">
+                Prompt Workshop
+              </h1>
+              <p className="text-muted-foreground truncate text-xs">
+                Refine prompts with an AI collaborator
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
           <ProjectSwitcher
             projects={projects}
             selectedProject={selectedProject}
@@ -479,41 +657,39 @@ export default function WorkshopPage() {
             isLoading={isLoadingProjects}
             onSelectProject={handleSelectProject}
           />
-          <div className="min-w-0">
-            <h1 className="text-sm font-semibold">Prompt Workshop</h1>
-            <p className="text-muted-foreground truncate text-xs">
-              {selectedProject?.name ?? "Select a project"} chat history
-            </p>
-          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="cursor-pointer"
+            disabled={!selectedProjectId || messages.length === 0}
+            onClick={() => setClearDialogOpen(true)}
+          >
+            <Trash2 />
+            Clear
+          </Button>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="cursor-pointer"
-          disabled={!selectedProjectId || messages.length === 0}
-          onClick={() => setClearDialogOpen(true)}
-        >
-          <Trash2 />
-          Clear
-        </Button>
       </header>
 
       <section className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8">
-          <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+          <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
             {errorMessage ? (
-              <div className="text-muted-foreground flex min-h-[40vh] items-center justify-center text-sm">
-                Failed to load workshop history: {errorMessage}
+              <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
+                <div className="border-destructive/40 bg-destructive/10 text-destructive flex size-11 items-center justify-center rounded-xl border">
+                  <Trash2 className="size-5" />
+                </div>
+                <p className="text-foreground text-sm font-medium">
+                  Failed to load workshop history
+                </p>
+                <p className="text-muted-foreground/60 max-w-sm text-xs">
+                  {errorMessage}
+                </p>
               </div>
             ) : isLoadingMessages ? (
               <MessageSkeleton />
             ) : messages.length === 0 ? (
-              <div className="text-muted-foreground flex min-h-[40vh] items-center justify-center text-sm">
-                {selectedProjectId
-                  ? "No workshop messages in this project yet"
-                  : "Select a project to start a workshop chat"}
-              </div>
+              <WorkshopEmptyState selectedProjectId={selectedProjectId} />
             ) : (
               messages.map((message) =>
                 message.role === "suggest_prompt" ? (
@@ -524,46 +700,36 @@ export default function WorkshopPage() {
               )
             )}
             {sendMessage.isPending && (
-              <div className="flex justify-start">
-                <div className="border-border bg-card text-muted-foreground flex items-center gap-2 rounded-lg border px-4 py-3 text-sm">
-                  <Loader2 className="size-4 animate-spin" />
-                  Thinking
+              <div className="flex justify-start [animation:promptGroupFadeIn_0.25s_ease_both]">
+                <div className="border-border bg-card text-muted-foreground flex items-center gap-2 rounded-lg border px-4 py-3 text-sm shadow-sm">
+                  <Loader2 className="size-3.5 animate-spin text-blue-400" />
+                  <span className="animate-pulse">Thinking…</span>
                 </div>
+              </div>
+            )}
+            {latestSuggestedPrompt && (
+              <div ref={suggestedPromptRef}>
+                <SuggestedPromptCard
+                  prompt={latestSuggestedPrompt}
+                  expanded={suggestedPromptExpanded}
+                  onExpandedChange={setSuggestedPromptExpanded}
+                  onUse={handleUseSuggestedPrompt}
+                />
               </div>
             )}
             <div ref={bottomRef} />
           </div>
         </div>
 
-        <div className="border-border border-t px-6 py-4">
-          <div className="mx-auto flex w-full max-w-5xl flex-col gap-3">
-            {latestSuggestedPrompt && (
-              <div className="border-border bg-card text-card-foreground rounded-lg border p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <h2 className="text-sm font-semibold">Use this prompt?</h2>
-                    <p className="text-muted-foreground mt-2 line-clamp-4 text-sm whitespace-pre-wrap">
-                      {latestSuggestedPrompt}
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="shrink-0 cursor-pointer"
-                    onClick={handleUseSuggestedPrompt}
-                  >
-                    <Check />
-                    Use prompt
-                  </Button>
-                </div>
-              </div>
-            )}
+        <div className="border-(--border) bg-background/95 border-t px-6 py-4 backdrop-blur">
+          <div className="mx-auto flex w-full max-w-4xl flex-col gap-3">
             <WorkshopComposer
               selectedProjectId={selectedProjectId}
               sendIsPending={sendMessage.isPending}
               sendPrompt={sendPrompt}
               selectedModel={selectedModel}
               setSelectedModel={setSelectedModel}
+              isMacOS={isMacOS}
             />
           </div>
         </div>
