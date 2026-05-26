@@ -7,8 +7,16 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import { ArrowLeft, Loader2, Send, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  Loader2,
+  Send,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { ProjectSwitcher } from "src/app/_components/project-switcher";
@@ -24,7 +32,10 @@ import {
 import { Skeleton } from "src/components/ui/skeleton";
 import { Textarea } from "src/components/ui/textarea";
 import { cn } from "src/lib/utils";
-import { WORKSHOP_DRAFT_STORAGE_KEY } from "src/lib/workshop";
+import {
+  WORKSHOP_ACCEPTED_PROMPT_STORAGE_KEY,
+  WORKSHOP_DRAFT_STORAGE_KEY,
+} from "src/lib/workshop";
 import { api, type RouterOutputs } from "src/trpc/react";
 
 import Markdown from "react-markdown";
@@ -296,6 +307,21 @@ function WorkshopMessageBubble({ message }: { message: WorkshopMessage }) {
   );
 }
 
+function WorkshopToolCallLine({ message }: { message: WorkshopMessage }) {
+  const agentName =
+    WORKSHOP_MODELS.find((model) => model.slug === message.model)?.name ??
+    "Agent";
+
+  return (
+    <div className="text-muted-foreground flex justify-center text-xs">
+      <div className="border-border bg-card/70 flex max-w-[min(520px,90%)] items-center gap-2 rounded-md border px-3 py-2">
+        <Sparkles className="size-3.5 shrink-0" />
+        <span className="truncate">[{agentName}] suggested a prompt</span>
+      </div>
+    </div>
+  );
+}
+
 function MessageSkeleton() {
   return (
     <div className="flex flex-col gap-4">
@@ -312,12 +338,8 @@ export default function WorkshopPage() {
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const optimisticUserMessageIdRef = useRef<string | null>(null);
-  const [suggestedPrompt, setSuggestedPrompt] = useState<string|null>(null);
   const utils = api.useUtils();
-
-  useEffect(()=>{
-    console.log({suggestedPrompt});
-  }, [suggestedPrompt]);
+  const router = useRouter();
 
   const { data: projects, isLoading: isLoadingProjects } =
     api.project.list.useQuery();
@@ -335,19 +357,26 @@ export default function WorkshopPage() {
     () => messagesQuery.data ?? [],
     [messagesQuery.data],
   );
+  const latestSuggestedPrompt = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message?.role === "suggest_prompt") return message.content;
+    }
+
+    return null;
+  }, [messages]);
 
   const sendMessage = api.workshop.sendMessage.useMutation({
-    onSuccess: ({ userMessage, assistantMessage, suggestedPrompt }, variables) => {
+    onSuccess: ({ userMessage, assistantMessages }, variables) => {
       const optimisticId = optimisticUserMessageIdRef.current;
       optimisticUserMessageIdRef.current = null;
 
       utils.workshop.list.setData({ projectId: variables.projectId }, (old) => [
         ...(old ?? []).filter((message) => message.id !== optimisticId),
         userMessage,
-        assistantMessage,
+        ...assistantMessages,
       ]);
       void utils.workshop.list.invalidate({ projectId: variables.projectId });
-      if(suggestedPrompt !== undefined) setSuggestedPrompt(suggestedPrompt);
     },
     onError: (error, variables) => {
       optimisticUserMessageIdRef.current = null;
@@ -402,6 +431,23 @@ export default function WorkshopPage() {
   const handleClear = () => {
     if (!selectedProjectId) return;
     clearMessages.mutate({ projectId: selectedProjectId });
+  };
+
+  const handleUseSuggestedPrompt = () => {
+    if (!latestSuggestedPrompt) return;
+
+    try {
+      sessionStorage.setItem(
+        WORKSHOP_ACCEPTED_PROMPT_STORAGE_KEY,
+        latestSuggestedPrompt,
+      );
+    } catch (error) {
+      console.error("Failed to save workshop suggested prompt", error);
+      toast.error("Failed to use suggested prompt");
+      return;
+    }
+
+    router.push("/");
   };
 
   const isLoadingMessages =
@@ -469,9 +515,13 @@ export default function WorkshopPage() {
                   : "Select a project to start a workshop chat"}
               </div>
             ) : (
-              messages.map((message) => (
-                <WorkshopMessageBubble key={message.id} message={message} />
-              ))
+              messages.map((message) =>
+                message.role === "suggest_prompt" ? (
+                  <WorkshopToolCallLine key={message.id} message={message} />
+                ) : (
+                  <WorkshopMessageBubble key={message.id} message={message} />
+                ),
+              )
             )}
             {sendMessage.isPending && (
               <div className="flex justify-start">
@@ -486,7 +536,28 @@ export default function WorkshopPage() {
         </div>
 
         <div className="border-border border-t px-6 py-4">
-          <div className="mx-auto w-full max-w-5xl">
+          <div className="mx-auto flex w-full max-w-5xl flex-col gap-3">
+            {latestSuggestedPrompt && (
+              <div className="border-border bg-card text-card-foreground rounded-lg border p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-semibold">Use this prompt?</h2>
+                    <p className="text-muted-foreground mt-2 line-clamp-4 text-sm whitespace-pre-wrap">
+                      {latestSuggestedPrompt}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="shrink-0 cursor-pointer"
+                    onClick={handleUseSuggestedPrompt}
+                  >
+                    <Check />
+                    Use prompt
+                  </Button>
+                </div>
+              </div>
+            )}
             <WorkshopComposer
               selectedProjectId={selectedProjectId}
               sendIsPending={sendMessage.isPending}

@@ -21,17 +21,19 @@ type OpenAIResponseContent = {
   text?: string;
 };
 
-type OpenAIResponseOutput = {
-  type?: string;
-  content?: OpenAIResponseContent[];
-} | {
-  type: "function_call";
-  arguments: string;
-  call_id: string;
-  id: string;
-  name: 'recommend_prompt';
-  status: string;
-};
+type OpenAIResponseOutput =
+  | {
+      type?: string;
+      content?: OpenAIResponseContent[];
+    }
+  | {
+      type: "function_call";
+      arguments: string;
+      call_id: string;
+      id: string;
+      name: "suggest_prompt";
+      status: string;
+    };
 
 type OpenAIResponse = {
   output_text?: string;
@@ -42,8 +44,8 @@ type GeminiResponsePart = {
   text?: string;
   functionCall?: {
     id: string;
-    name: 'recommend_prompt';
-    args: {prompt: string};
+    name: "suggest_prompt";
+    args: { prompt: string };
   };
 };
 
@@ -53,6 +55,17 @@ type GeminiResponse = {
       parts?: GeminiResponsePart[];
     };
   }[];
+};
+
+const suggestedPromptParamSchema = z.object({
+  prompt: z.string(),
+});
+
+type SuggestedPromptParam = z.infer<typeof suggestedPromptParamSchema>;
+
+type ParsedTextResponse = {
+  text: string;
+  suggestedPromptParam?: SuggestedPromptParam;
 };
 
 const workshopSystemPrompt = `## Role
@@ -108,30 +121,41 @@ async function verifyProjectOwnership(userId: string, projectId: string) {
   }
 }
 
-function parseOpenAIResponse(data: OpenAIResponse) {
+function parseOpenAIResponse(data: OpenAIResponse): ParsedTextResponse {
   console.log("[parseOpenAIResponse]", JSON.stringify(data));
-  if (typeof data.output_text === "string" && data.output_text.trim()) {
-    return {text: data.output_text};
-  }
+  if (!data.output) {
+    if (typeof data.output_text === "string" && data.output_text.trim()) {
+      return { text: data.output_text };
+    }
 
-  if(!data.output) {
     throw new Error("OpenAI response did not contain output or output_text");
   }
 
   const functionCallParams = data.output
     .filter((item) => item.type === "function_call")
-    .map((content) => "arguments" in content ? JSON.parse(content.arguments) : undefined)
+    .map((content) => {
+      if (!("arguments" in content)) return undefined;
+
+      const parsedArguments: unknown = JSON.parse(content.arguments);
+      return suggestedPromptParamSchema.parse(parsedArguments);
+    })
     .filter((e) => e !== undefined);
 
-  const text = data.output
-    .flatMap((item) => ("content" in item ? item.content ?? [] : []))
+  const outputText = data.output
+    .flatMap((item) => ("content" in item ? (item.content ?? []) : []))
     .filter((content) => content.type === "output_text" || content.text)
     .map((content) => content.text)
     .filter((value): value is string => typeof value === "string")
     .join("\n")
     .trim();
+  const text =
+    outputText.length > 0 ? outputText : (data.output_text?.trim() ?? "");
 
-  if (!text && functionCallParams.length === 0) throw new Error("OpenAI response did not contain any text or a function call");
+  if (!text && functionCallParams.length === 0) {
+    throw new Error(
+      "OpenAI response did not contain any text or a function call",
+    );
+  }
 
   return {
     text,
@@ -139,8 +163,12 @@ function parseOpenAIResponse(data: OpenAIResponse) {
   };
 }
 
-function parseGeminiResponse(data: GeminiResponse) {
-  if(data.candidates?.[0]?.content?.parts === undefined) throw new Error("Unrecognized Gemini response shape, or responses did not contain any candidates")
+function parseGeminiResponse(data: GeminiResponse): ParsedTextResponse {
+  if (data.candidates?.[0]?.content?.parts === undefined) {
+    throw new Error(
+      "Unrecognized Gemini response shape, or responses did not contain any candidates",
+    );
+  }
 
   const functionCallParams = data.candidates[0].content.parts
     .filter((part) => !!part.functionCall)
@@ -153,8 +181,12 @@ function parseGeminiResponse(data: GeminiResponse) {
     .join("")
     .trim();
 
-  if (!text && functionCallParams.length === 0) throw new Error("Gemini response did not contain any text or a function call");
-  return {text, suggestedPromptParam: functionCallParams[0]}
+  if (!text && functionCallParams.length === 0) {
+    throw new Error(
+      "Gemini response did not contain any text or a function call",
+    );
+  }
+  return { text, suggestedPromptParam: functionCallParams[0] };
 }
 
 async function generateOpenAIText(messages: ChatMessage[]) {
@@ -171,20 +203,23 @@ async function generateOpenAIText(messages: ChatMessage[]) {
         role: message.role === "user" ? "user" : "assistant",
         content: message.content,
       })),
-      tools: [{
-        name: "suggest_prompt",
-        description: "Suggest a final prompt to be submitted to the image generation model",
-        type: "function",
-        parameters: {
-          type: "object",
-          properties: {
-            prompt: {
-              type: "string",
-              description: "The prompt you are suggesting",
+      tools: [
+        {
+          name: "suggest_prompt",
+          description:
+            "Suggest a final prompt to be submitted to the image generation model",
+          type: "function",
+          parameters: {
+            type: "object",
+            properties: {
+              prompt: {
+                type: "string",
+                description: "The prompt you are suggesting",
+              },
             },
           },
         },
-      }],
+      ],
     }),
   });
 
@@ -204,7 +239,7 @@ async function generateGeminiText(messages: ChatMessage[]) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         system_instruction: {
-          parts: [{text: workshopSystemPrompt}],
+          parts: [{ text: workshopSystemPrompt }],
         },
         contents: messages.map((message) => ({
           role: message.role === "assistant" ? "model" : "user",
@@ -215,7 +250,8 @@ async function generateGeminiText(messages: ChatMessage[]) {
             functionDeclarations: [
               {
                 name: "suggest_prompt",
-                description: "Suggest a final prompt to be submitted to the image generation model",
+                description:
+                  "Suggest a final prompt to be submitted to the image generation model",
                 parameters: {
                   type: "object",
                   properties: {
@@ -227,7 +263,7 @@ async function generateGeminiText(messages: ChatMessage[]) {
                 },
               },
             ],
-          }
+          },
         ],
       }),
     },
@@ -247,15 +283,21 @@ async function generateAssistantText(
 ) {
   switch (model) {
     case "gpt-5.4-mini": {
-      const {text, suggestedPromptParam} = await generateOpenAIText(messages);
-      if(!suggestedPromptParam) return {text};
-      return {assistantText: text, suggestedPrompt: suggestedPromptParam.prompt};
+      const { text, suggestedPromptParam } = await generateOpenAIText(messages);
+      if (!suggestedPromptParam) return { assistantText: text };
+      return {
+        assistantText: text || undefined,
+        suggestedPrompt: suggestedPromptParam.prompt,
+      };
     }
 
     case "gemini-3-flash-preview": {
-      const {text, suggestedPromptParam} = await generateGeminiText(messages);
-      if(!suggestedPromptParam) return {text};
-      return {assistantText: text, suggestedPrompt: suggestedPromptParam.prompt};
+      const { text, suggestedPromptParam } = await generateGeminiText(messages);
+      if (!suggestedPromptParam) return { assistantText: text };
+      return {
+        assistantText: text || undefined,
+        suggestedPrompt: suggestedPromptParam.prompt,
+      };
     }
   }
 }
@@ -322,10 +364,10 @@ export const workshopRouter = createTRPCRouter({
       let assistantText: string | undefined;
       let suggestedPrompt: string | undefined;
       try {
-        ({assistantText, suggestedPrompt} = await generateAssistantText(input.model, [
-          ...previousMessages,
-          userMessage,
-        ]));
+        ({ assistantText, suggestedPrompt } = await generateAssistantText(
+          input.model,
+          [...previousMessages, userMessage],
+        ));
       } catch (error) {
         console.error("[workshop.sendMessage] provider request failed", error);
         throw new TRPCError({
@@ -334,39 +376,58 @@ export const workshopRouter = createTRPCRouter({
         });
       }
 
-      if(assistantText === undefined && suggestedPrompt === undefined){
-        console.error("[workshop.sendMessage] got empty response from provider");
+      if (assistantText === undefined && suggestedPrompt === undefined) {
+        console.error(
+          "[workshop.sendMessage] got empty response from provider",
+        );
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Got empty response from provider",
         });
       }
 
-      const [assistantMessage] = await db
+      const insertedAssistantMessages = await db
         .insert(workshopMessages)
-        .values({
-          id: crypto.randomUUID(),
-          userId: ctx.user,
-          projectId: input.projectId,
-          model: input.model,
-          ...(assistantText === undefined) ? {
-            role: "suggest_prompt",
-            content: suggestedPrompt!,
-          } : {
-            role: "assistant",
-            content: assistantText,
-          }
-        })
+        .values([
+          ...(assistantText !== undefined
+            ? [
+                {
+                  id: crypto.randomUUID(),
+                  userId: ctx.user,
+                  projectId: input.projectId,
+                  model: input.model,
+                  role: "assistant" as const,
+                  content: assistantText,
+                },
+              ]
+            : []),
+          ...(suggestedPrompt !== undefined
+            ? [
+                {
+                  id: crypto.randomUUID(),
+                  userId: ctx.user,
+                  projectId: input.projectId,
+                  model: input.model,
+                  role: "suggest_prompt" as const,
+                  content: suggestedPrompt,
+                },
+              ]
+            : []),
+        ])
         .returning();
 
-      if (!assistantMessage) {
+      if (insertedAssistantMessages.length === 0) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to save assistant response",
         });
       }
 
-      return { userMessage, assistantMessage, suggestedPrompt};
+      return {
+        userMessage,
+        assistantMessages: insertedAssistantMessages,
+        suggestedPrompt,
+      };
     }),
 
   clear: protectedProcedure

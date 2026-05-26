@@ -18,6 +18,7 @@ import { calculateGenerationCredits } from "src/lib/credits";
 import { notifyPromptDone } from "src/lib/notify";
 import { isExpectedTRPCError } from "src/lib/trpc-errors";
 import { useUploadThing } from "src/lib/uploadthing";
+import { WORKSHOP_ACCEPTED_PROMPT_STORAGE_KEY } from "src/lib/workshop";
 import { api } from "src/trpc/react";
 
 import { ImageGallery } from "./_components/image-gallery";
@@ -108,6 +109,20 @@ export default function Home() {
         clearTimeout(generateButtonTimeoutRef.current);
       }
     };
+  }, []);
+
+  useEffect(() => {
+    try {
+      const acceptedPrompt = sessionStorage.getItem(
+        WORKSHOP_ACCEPTED_PROMPT_STORAGE_KEY,
+      );
+      if (acceptedPrompt) {
+        setPromptText(acceptedPrompt);
+        sessionStorage.removeItem(WORKSHOP_ACCEPTED_PROMPT_STORAGE_KEY);
+      }
+    } catch (error) {
+      console.error("Failed to read workshop suggested prompt", error);
+    }
   }, []);
 
   const user = useUser();
