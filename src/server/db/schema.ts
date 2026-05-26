@@ -90,7 +90,7 @@ export const GENERATION_COST_EVENT_OPERATIONS = [
 export type GenerationCostEventOperation =
   (typeof GENERATION_COST_EVENT_OPERATIONS)[number];
 
-export const WORKSHOP_MESSAGE_ROLES = ["user", "assistant"] as const;
+export const WORKSHOP_MESSAGE_ROLES = ["user", "assistant", "suggest_prompt"] as const;
 export type WorkshopMessageRole = (typeof WORKSHOP_MESSAGE_ROLES)[number];
 
 export const images = createTable(

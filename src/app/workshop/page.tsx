@@ -31,7 +31,12 @@ import Markdown from "react-markdown";
 
 function OpenAIIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
       <path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zm-9.023 12.608a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zm-9.661-4.125a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zm-1.26-10.383a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.338 7.921zm16.597 3.855l-5.843-3.371 2.019-1.168a.076.076 0 0 1 .071 0l4.83 2.786a4.5 4.5 0 0 1-.677 8.098v-5.683a.795.795 0 0 0-.4-.662zm2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681v6.728zm1.097-2.365l2.679-1.547 2.679 1.546v3.093l-2.679 1.546-2.679-1.546V13.5z" />
     </svg>
   );
@@ -39,7 +44,12 @@ function OpenAIIcon({ className }: { className?: string }) {
 
 function GeminiIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
       <path d="M12 24A14.304 14.304 0 0 0 0 12 14.304 14.304 0 0 0 12 0a14.304 14.304 0 0 0 12 12 14.304 14.304 0 0 0-12 12" />
     </svg>
   );
@@ -68,22 +78,29 @@ type WorkshopModel = (typeof WORKSHOP_MODELS)[number]["slug"];
 type WorkshopMessage = RouterOutputs["workshop"]["list"][number];
 
 type WorkshopComposerProps = {
-  selectedProjectId: string|null,
-  sendIsPending: boolean,
-  sendPrompt: (prompt: string)=>void,
-  selectedModel: WorkshopModel,
-  setSelectedModel: (model: WorkshopModel) => void,
+  selectedProjectId: string | null;
+  sendIsPending: boolean;
+  sendPrompt: (prompt: string) => void;
+  selectedModel: WorkshopModel;
+  setSelectedModel: (model: WorkshopModel) => void;
 };
 
 function WorkshopComposer(props: WorkshopComposerProps) {
-  const {selectedProjectId, sendIsPending, sendPrompt, selectedModel, setSelectedModel} = props;
+  const {
+    selectedProjectId,
+    sendIsPending,
+    sendPrompt,
+    selectedModel,
+    setSelectedModel,
+  } = props;
 
   const [composer, setComposer] = useState("");
 
   const handleSend = () => {
-    sendPrompt(composer);
+    if (!canSend) return;
+    sendPrompt(trimmedComposer);
     setComposer("");
-  }
+  };
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== "Enter" || event.shiftKey) return;
@@ -93,10 +110,9 @@ function WorkshopComposer(props: WorkshopComposerProps) {
 
   const trimmedComposer = composer.trim();
   const canSend =
-    trimmedComposer.length > 0 &&
-    selectedProjectId !== null;
+    trimmedComposer.length > 0 && selectedProjectId !== null && !sendIsPending;
 
-  const textareaShouldBeDisabled = selectedProjectId === null && sendIsPending;
+  const textareaShouldBeDisabled = selectedProjectId === null || sendIsPending;
   const currentModel = WORKSHOP_MODELS.find((m) => m.slug === selectedModel);
 
   useEffect(() => {
@@ -125,10 +141,10 @@ function WorkshopComposer(props: WorkshopComposerProps) {
         disabled={textareaShouldBeDisabled}
         className="max-h-48 min-h-24 resize-none pb-10"
       />
-      <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
+      <div className="absolute right-2 bottom-2 left-2 flex items-center justify-between">
         <Select
           value={selectedModel}
-          onValueChange={(value) => setSelectedModel(value as WorkshopModel)}
+          onValueChange={(value) => setSelectedModel(value!)}
           disabled={textareaShouldBeDisabled}
         >
           <SelectTrigger
@@ -147,9 +163,17 @@ function WorkshopComposer(props: WorkshopComposerProps) {
             )}
             <span>{currentModel?.name}</span>
           </SelectTrigger>
-          <SelectContent align="start" alignItemWithTrigger={false} className="min-w-64">
+          <SelectContent
+            align="start"
+            alignItemWithTrigger={false}
+            className="min-w-64"
+          >
             {WORKSHOP_MODELS.map((model) => (
-              <SelectItem key={model.slug} value={model.slug} className="py-2 pl-2 pr-10">
+              <SelectItem
+                key={model.slug}
+                value={model.slug}
+                className="py-2 pr-10 pl-2"
+              >
                 <div className="flex items-center gap-3">
                   <div
                     className={cn(
@@ -160,7 +184,9 @@ function WorkshopComposer(props: WorkshopComposerProps) {
                     <model.LogoIcon className="size-4 text-white" />
                   </div>
                   <div className="flex min-w-0 flex-col gap-0.5">
-                    <span className="text-sm font-medium leading-none">{model.name}</span>
+                    <span className="text-sm leading-none font-medium">
+                      {model.name}
+                    </span>
                     <span className="text-muted-foreground text-xs">
                       {model.provider} · {model.description}
                     </span>
@@ -200,7 +226,7 @@ function WorkshopMessageBubble({ message }: { message: WorkshopMessage }) {
         className={cn(
           "max-w-[min(780px,85%)] rounded-lg border px-4 py-3 text-sm leading-relaxed",
           isUser
-            ? "text-foreground border-blue-500/30 bg-blue-500/15 whitepsace-pre-wrap"
+            ? "text-foreground border-blue-500/30 bg-blue-500/15 whitespace-pre-wrap"
             : "border-border bg-card text-card-foreground",
         )}
       >
@@ -212,64 +238,59 @@ function WorkshopMessageBubble({ message }: { message: WorkshopMessage }) {
         )}
         <Markdown
           components={{
-            blockquote(props) {
-              const {node, ...rest} = props;
+            blockquote({ children }) {
               return (
-                <blockquote className="border-l border-l-5 ps-4 h-min">
-                    {rest.children}
+                <blockquote className="h-min border-l border-l-5 ps-4">
+                  {children}
                 </blockquote>
               );
             },
-            h1(props) {
-              const {node, ...rest} = props;
-              return <h1 className="text-xl font-bold pbe-2 pbs-2">{rest.children}</h1>;
-            },
-            h2(props) {
-              const {node, ...rest} = props;
-              return <h2 className="text-l font-bold pbe-2 pbs-2">{rest.children}</h2>;
-            },
-            h3(props) {
-              const {node, ...rest} = props;
-              return <h3 className="text-md font-bold pbe-2 pbs-2">{rest.children}</h3>;
-            },
-            h4(props) {
-              const {node, ...rest} = props;
-              return <h3 className="text-md font-bold pbe-2 pbs-2">{rest.children}</h3>;
-            },
-            h5(props) {
-              const {node, ...rest} = props;
-              return <h3 className="text-md font-bold pbe-2 pbs-2">{rest.children}</h3>;
-            },
-            h6(props) {
-              const {node, ...rest} = props;
-              return <h3 className="text-md font-bold pbe-2 pbs-2">{rest.children}</h3>;
-            },
-            ol(props) {
-              const {node, ...rest} = props;
+            h1({ children }) {
               return (
-                <ol className="list-decimal ms-4 pbe-1">{rest.children}</ol>
-              )
-            },
-            pre(props) {
-              const {node, ...rest} = props;
-              return (
-                <pre className="pbe-1">{rest.children}</pre>
+                <h1 className="pbs-2 pbe-2 text-xl font-bold">{children}</h1>
               );
             },
-            p(props) {
-              const {node, ...rest} = props;
+            h2({ children }) {
               return (
-                <p className="pbe-1">{rest.children}</p>
+                <h2 className="text-l pbs-2 pbe-2 font-bold">{children}</h2>
               );
             },
-            ul(props) {
-              const {node, ...rest} = props;
+            h3({ children }) {
               return (
-                <ul className="list-disc ms-4 pbe-1">{rest.children}</ul>
-              )
+                <h3 className="text-md pbs-2 pbe-2 font-bold">{children}</h3>
+              );
+            },
+            h4({ children }) {
+              return (
+                <h3 className="text-md pbs-2 pbe-2 font-bold">{children}</h3>
+              );
+            },
+            h5({ children }) {
+              return (
+                <h3 className="text-md pbs-2 pbe-2 font-bold">{children}</h3>
+              );
+            },
+            h6({ children }) {
+              return (
+                <h3 className="text-md pbs-2 pbe-2 font-bold">{children}</h3>
+              );
+            },
+            ol({ children }) {
+              return <ol className="ms-4 list-decimal pbe-1">{children}</ol>;
+            },
+            pre({ children }) {
+              return <pre className="pbe-1">{children}</pre>;
+            },
+            p({ children }) {
+              return <p className="pbe-1">{children}</p>;
+            },
+            ul({ children }) {
+              return <ul className="ms-4 list-disc pbe-1">{children}</ul>;
             },
           }}
-        >{message.content}</Markdown>
+        >
+          {message.content}
+        </Markdown>
       </div>
     </div>
   );
@@ -290,7 +311,13 @@ export default function WorkshopPage() {
     useState<WorkshopModel>("gpt-5.4-mini");
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const optimisticUserMessageIdRef = useRef<string | null>(null);
+  const [suggestedPrompt, setSuggestedPrompt] = useState<string|null>(null);
   const utils = api.useUtils();
+
+  useEffect(()=>{
+    console.log({suggestedPrompt});
+  }, [suggestedPrompt]);
 
   const { data: projects, isLoading: isLoadingProjects } =
     api.project.list.useQuery();
@@ -310,20 +337,22 @@ export default function WorkshopPage() {
   );
 
   const sendMessage = api.workshop.sendMessage.useMutation({
-    onSuccess: ({ userMessage, assistantMessage }) => {
-      if (!selectedProjectId) return;
-      utils.workshop.list.setData({ projectId: selectedProjectId }, (old) => [
-        ...(old ?? []),
+    onSuccess: ({ userMessage, assistantMessage, suggestedPrompt }, variables) => {
+      const optimisticId = optimisticUserMessageIdRef.current;
+      optimisticUserMessageIdRef.current = null;
+
+      utils.workshop.list.setData({ projectId: variables.projectId }, (old) => [
+        ...(old ?? []).filter((message) => message.id !== optimisticId),
         userMessage,
         assistantMessage,
       ]);
-      void utils.workshop.list.invalidate({ projectId: selectedProjectId });
+      void utils.workshop.list.invalidate({ projectId: variables.projectId });
+      if(suggestedPrompt !== undefined) setSuggestedPrompt(suggestedPrompt);
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      optimisticUserMessageIdRef.current = null;
       toast.error(error.message || "Failed to generate assistant response");
-      if (selectedProjectId) {
-        void utils.workshop.list.invalidate({ projectId: selectedProjectId });
-      }
+      void utils.workshop.list.invalidate({ projectId: variables.projectId });
     },
   });
 
@@ -345,10 +374,27 @@ export default function WorkshopPage() {
   }, [messages.length, sendMessage.isPending]);
 
   const sendPrompt = (prompt: string) => {
-    if(!selectedProjectId) return;
+    const trimmedPrompt = prompt.trim();
+    if (!selectedProjectId || !trimmedPrompt || sendMessage.isPending) return;
+
+    const optimisticId = `optimistic-${crypto.randomUUID()}`;
+    optimisticUserMessageIdRef.current = optimisticId;
+    utils.workshop.list.setData({ projectId: selectedProjectId }, (old) => [
+      ...(old ?? []),
+      {
+        id: optimisticId,
+        userId: "",
+        projectId: selectedProjectId,
+        role: "user",
+        model: null,
+        content: trimmedPrompt,
+        createdAt: new Date(),
+      },
+    ]);
+
     sendMessage.mutate({
       projectId: selectedProjectId,
-      content: prompt,
+      content: trimmedPrompt,
       model: selectedModel,
     });
   };

@@ -24,6 +24,13 @@ type OpenAIResponseContent = {
 type OpenAIResponseOutput = {
   type?: string;
   content?: OpenAIResponseContent[];
+} | {
+  type: "function_call";
+  arguments: string;
+  call_id: string;
+  id: string;
+  name: 'recommend_prompt';
+  status: string;
 };
 
 type OpenAIResponse = {
@@ -31,17 +38,60 @@ type OpenAIResponse = {
   output?: OpenAIResponseOutput[];
 };
 
-type GeminiTextPart = {
+type GeminiResponsePart = {
   text?: string;
+  functionCall?: {
+    id: string;
+    name: 'recommend_prompt';
+    args: {prompt: string};
+  };
 };
 
 type GeminiResponse = {
   candidates?: {
     content?: {
-      parts?: GeminiTextPart[];
+      parts?: GeminiResponsePart[];
     };
   }[];
 };
+
+const workshopSystemPrompt = `## Role
+
+You are an expert image generation prompt engineer. Your goal is to help
+users craft detailed, effective prompts for AI image generators like
+Nano Banana, OpenAI Image, etc.
+
+## Behavior
+
+- Engage the user in a back-and-forth conversation to understand their
+  vision before suggesting a prompt.
+- Ask focused, targeted questions to uncover missing details. Do not
+  bombard the user with too many questions at once — pick the most
+  important 1–2 gaps to address at a time.
+- Build a mental model of what the user wants before committing to a
+  prompt suggestion.
+- Only call \`suggest_prompt\` once you have a reasonable understanding of
+  the user's intent. Don't rush — a few exchanges is usually ideal.
+
+## Prompt Crafting Guidelines
+
+When you are ready to suggest a prompt:
+
+- Write in a descriptive, comma-separated or flowing style suited to the
+  target model.
+- Lead with the most important subject/concept.
+- Layer in style, mood, lighting, and technical quality keywords naturally.
+- Avoid vague filler words. Be specific and visual.
+- Include relevant quality boosters where appropriate (e.g.
+  "highly detailed", "cinematic lighting", "8k", "award-winning
+  photography") but don't overload the prompt with them.
+- Call the \`suggest_prompt\` tool with the final crafted prompt string.
+
+## Tone
+
+Be collaborative, enthusiastic, and creative. You're a creative partner,
+not just a form to fill out. If the user seems unsure, offer ideas or
+examples to spark their imagination.`;
 
 async function verifyProjectOwnership(userId: string, projectId: string) {
   const [project] = await db
@@ -58,32 +108,53 @@ async function verifyProjectOwnership(userId: string, projectId: string) {
   }
 }
 
-function parseOpenAIText(data: OpenAIResponse) {
+function parseOpenAIResponse(data: OpenAIResponse) {
+  console.log("[parseOpenAIResponse]", JSON.stringify(data));
   if (typeof data.output_text === "string" && data.output_text.trim()) {
-    return data.output_text;
+    return {text: data.output_text};
   }
 
+  if(!data.output) {
+    throw new Error("OpenAI response did not contain output or output_text");
+  }
+
+  const functionCallParams = data.output
+    .filter((item) => item.type === "function_call")
+    .map((content) => "arguments" in content ? JSON.parse(content.arguments) : undefined)
+    .filter((e) => e !== undefined);
+
   const text = data.output
-    ?.flatMap((item) => item.content ?? [])
+    .flatMap((item) => ("content" in item ? item.content ?? [] : []))
     .filter((content) => content.type === "output_text" || content.text)
     .map((content) => content.text)
     .filter((value): value is string => typeof value === "string")
     .join("\n")
     .trim();
 
-  if (!text) throw new Error("OpenAI response did not contain text");
-  return text;
+  if (!text && functionCallParams.length === 0) throw new Error("OpenAI response did not contain any text or a function call");
+
+  return {
+    text,
+    suggestedPromptParam: functionCallParams[0],
+  };
 }
 
-function parseGeminiText(data: GeminiResponse) {
-  const text = data.candidates?.[0]?.content?.parts
-    ?.map((part) => part.text)
+function parseGeminiResponse(data: GeminiResponse) {
+  if(data.candidates?.[0]?.content?.parts === undefined) throw new Error("Unrecognized Gemini response shape, or responses did not contain any candidates")
+
+  const functionCallParams = data.candidates[0].content.parts
+    .filter((part) => !!part.functionCall)
+    .map((part) => part.functionCall?.args)
+    .filter((e) => e !== undefined);
+
+  const text = data.candidates[0].content.parts
+    .map((part) => part.text)
     .filter((value): value is string => typeof value === "string")
     .join("")
     .trim();
 
-  if (!text) throw new Error("Gemini response did not contain text");
-  return text;
+  if (!text && functionCallParams.length === 0) throw new Error("Gemini response did not contain any text or a function call");
+  return {text, suggestedPromptParam: functionCallParams[0]}
 }
 
 async function generateOpenAIText(messages: ChatMessage[]) {
@@ -95,10 +166,25 @@ async function generateOpenAIText(messages: ChatMessage[]) {
     },
     body: JSON.stringify({
       model: "gpt-5.4-mini",
+      instructions: workshopSystemPrompt,
       input: messages.map((message) => ({
-        role: message.role,
+        role: message.role === "user" ? "user" : "assistant",
         content: message.content,
       })),
+      tools: [{
+        name: "suggest_prompt",
+        description: "Suggest a final prompt to be submitted to the image generation model",
+        type: "function",
+        parameters: {
+          type: "object",
+          properties: {
+            prompt: {
+              type: "string",
+              description: "The prompt you are suggesting",
+            },
+          },
+        },
+      }],
     }),
   });
 
@@ -107,7 +193,7 @@ async function generateOpenAIText(messages: ChatMessage[]) {
     throw new Error(`OpenAI API error (${res.status}): ${text}`);
   }
 
-  return parseOpenAIText((await res.json()) as OpenAIResponse);
+  return parseOpenAIResponse((await res.json()) as OpenAIResponse);
 }
 
 async function generateGeminiText(messages: ChatMessage[]) {
@@ -117,10 +203,32 @@ async function generateGeminiText(messages: ChatMessage[]) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        system_instruction: {
+          parts: [{text: workshopSystemPrompt}],
+        },
         contents: messages.map((message) => ({
           role: message.role === "assistant" ? "model" : "user",
           parts: [{ text: message.content }],
         })),
+        tools: [
+          {
+            functionDeclarations: [
+              {
+                name: "suggest_prompt",
+                description: "Suggest a final prompt to be submitted to the image generation model",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    prompt: {
+                      type: "string",
+                      description: "The prompt you are suggesting",
+                    },
+                  },
+                },
+              },
+            ],
+          }
+        ],
       }),
     },
   );
@@ -130,7 +238,7 @@ async function generateGeminiText(messages: ChatMessage[]) {
     throw new Error(`Gemini API error (${res.status}): ${text}`);
   }
 
-  return parseGeminiText((await res.json()) as GeminiResponse);
+  return parseGeminiResponse((await res.json()) as GeminiResponse);
 }
 
 async function generateAssistantText(
@@ -138,10 +246,17 @@ async function generateAssistantText(
   messages: ChatMessage[],
 ) {
   switch (model) {
-    case "gpt-5.4-mini":
-      return generateOpenAIText(messages);
-    case "gemini-3-flash-preview":
-      return generateGeminiText(messages);
+    case "gpt-5.4-mini": {
+      const {text, suggestedPromptParam} = await generateOpenAIText(messages);
+      if(!suggestedPromptParam) return {text};
+      return {assistantText: text, suggestedPrompt: suggestedPromptParam.prompt};
+    }
+
+    case "gemini-3-flash-preview": {
+      const {text, suggestedPromptParam} = await generateGeminiText(messages);
+      if(!suggestedPromptParam) return {text};
+      return {assistantText: text, suggestedPrompt: suggestedPromptParam.prompt};
+    }
   }
 }
 
@@ -204,17 +319,26 @@ export const workshopRouter = createTRPCRouter({
         });
       }
 
-      let assistantText: string;
+      let assistantText: string | undefined;
+      let suggestedPrompt: string | undefined;
       try {
-        assistantText = await generateAssistantText(input.model, [
+        ({assistantText, suggestedPrompt} = await generateAssistantText(input.model, [
           ...previousMessages,
           userMessage,
-        ]);
+        ]));
       } catch (error) {
         console.error("[workshop.sendMessage] provider request failed", error);
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to generate assistant response",
+        });
+      }
+
+      if(assistantText === undefined && suggestedPrompt === undefined){
+        console.error("[workshop.sendMessage] got empty response from provider");
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Got empty response from provider",
         });
       }
 
@@ -224,9 +348,14 @@ export const workshopRouter = createTRPCRouter({
           id: crypto.randomUUID(),
           userId: ctx.user,
           projectId: input.projectId,
-          role: "assistant",
           model: input.model,
-          content: assistantText,
+          ...(assistantText === undefined) ? {
+            role: "suggest_prompt",
+            content: suggestedPrompt!,
+          } : {
+            role: "assistant",
+            content: assistantText,
+          }
         })
         .returning();
 
@@ -237,7 +366,7 @@ export const workshopRouter = createTRPCRouter({
         });
       }
 
-      return { userMessage, assistantMessage };
+      return { userMessage, assistantMessage, suggestedPrompt};
     }),
 
   clear: protectedProcedure
