@@ -273,17 +273,17 @@ function WorkshopMessageBubble({ message }: { message: WorkshopMessage }) {
             },
             h4({ children }) {
               return (
-                <h3 className="text-md pbs-2 pbe-2 font-bold">{children}</h3>
+                <h4 className="text-md pbs-2 pbe-2 font-bold">{children}</h4>
               );
             },
             h5({ children }) {
               return (
-                <h3 className="text-md pbs-2 pbe-2 font-bold">{children}</h3>
+                <h5 className="text-md pbs-2 pbe-2 font-bold">{children}</h5>
               );
             },
             h6({ children }) {
               return (
-                <h3 className="text-md pbs-2 pbe-2 font-bold">{children}</h3>
+                <h6 className="text-md pbs-2 pbe-2 font-bold">{children}</h6>
               );
             },
             ol({ children }) {
