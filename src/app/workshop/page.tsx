@@ -318,29 +318,17 @@ function WorkshopMessageBubble({ message }: { message: WorkshopMessage }) {
             },
             h4({ children }) {
               return (
-<<<<<<< HEAD
                 <h4 className="text-md pbs-2 pbe-2 font-bold">{children}</h4>
-=======
-                <h4 className="mt-2 mb-1 text-sm font-semibold">{children}</h4>
->>>>>>> ff8819a (Refresh workshop prompt UI)
               );
             },
             h5({ children }) {
               return (
-<<<<<<< HEAD
                 <h5 className="text-md pbs-2 pbe-2 font-bold">{children}</h5>
-=======
-                <h5 className="mt-2 mb-1 text-sm font-semibold">{children}</h5>
->>>>>>> ff8819a (Refresh workshop prompt UI)
               );
             },
             h6({ children }) {
               return (
-<<<<<<< HEAD
                 <h6 className="text-md pbs-2 pbe-2 font-bold">{children}</h6>
-=======
-                <h6 className="mt-2 mb-1 text-sm font-semibold">{children}</h6>
->>>>>>> ff8819a (Refresh workshop prompt UI)
               );
             },
             ol({ children }) {
