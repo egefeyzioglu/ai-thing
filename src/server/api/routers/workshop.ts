@@ -299,7 +299,10 @@ async function generateGeminiText(messages: ChatMessage[]) {
           parts: [{ text: workshopSystemPrompt }],
         },
         contents: messages.map((message) => ({
-          role: message.role === "assistant" ? "model" : "user",
+          role:
+            message.role === "assistant" || message.role === "suggest_prompt"
+              ? "model"
+              : "user",
           parts: [{ text: message.content }],
         })),
         tools: [
