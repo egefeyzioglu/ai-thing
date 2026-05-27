@@ -527,11 +527,13 @@ export default function WorkshopPage() {
         ...assistantMessages,
       ]);
       void utils.workshop.list.invalidate({ projectId: variables.projectId });
+      void utils.usage.getCurrent.invalidate();
     },
     onError: (error, variables) => {
       optimisticUserMessageIdRef.current = null;
       toast.error(error.message || "Failed to generate assistant response");
       void utils.workshop.list.invalidate({ projectId: variables.projectId });
+      void utils.usage.getCurrent.invalidate();
     },
   });
 

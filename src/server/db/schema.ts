@@ -74,6 +74,12 @@ export const GENERATION_USAGE_STATUSES = [
 ] as const;
 export type GenerationUsageStatus = (typeof GENERATION_USAGE_STATUSES)[number];
 
+export const GENERATION_USAGE_TYPES = [
+  "image_generation",
+  "workshop_message",
+] as const;
+export type GenerationUsageType = (typeof GENERATION_USAGE_TYPES)[number];
+
 export const GENERATION_COST_EVENT_STATUSES = [
   "recorded",
   "estimated",
@@ -86,6 +92,7 @@ export const GENERATION_COST_EVENT_OPERATIONS = [
   "image_generation",
   "image_edit",
   "responses_image_generation",
+  "workshop_message",
 ] as const;
 export type GenerationCostEventOperation =
   (typeof GENERATION_COST_EVENT_OPERATIONS)[number];
@@ -158,6 +165,11 @@ export const generationUsage = createTable(
     resolution: d.text("resolution"),
     aspectRatio: d.text("aspect_ratio"),
     credits: d.integer("credits").notNull(),
+    usageType: d
+      .text("usage_type")
+      .notNull()
+      .default("image_generation")
+      .$type<GenerationUsageType>(),
     status: d
       .text("status")
       .notNull()
@@ -191,6 +203,9 @@ export const generationCostEvents = createTable(
     imageId: d
       .text("image_id")
       .references(() => images.id, { onDelete: "set null" }),
+    usageId: d
+      .text("usage_id")
+      .references(() => generationUsage.id, { onDelete: "set null" }),
     provider: d.text("provider").notNull(),
     providerRequestId: d.text("provider_request_id"),
     model: d.text("model").notNull(),
@@ -228,6 +243,7 @@ export const generationCostEvents = createTable(
   (t) => [
     index("generation_cost_event_user_created_idx").on(t.userId, t.createdAt),
     index("generation_cost_event_image_idx").on(t.imageId),
+    index("generation_cost_event_usage_idx").on(t.usageId),
     index("generation_cost_event_provider_created_idx").on(
       t.provider,
       t.createdAt,
@@ -298,6 +314,10 @@ export const generationCostEventsRelations = relations(
     image: one(images, {
       fields: [generationCostEvents.imageId],
       references: [images.id],
+    }),
+    usage: one(generationUsage, {
+      fields: [generationCostEvents.usageId],
+      references: [generationUsage.id],
     }),
   }),
 );

@@ -3,6 +3,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { env } from "src/env";
+import { MONTHLY_CREDIT_LIMIT } from "src/lib/credits";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import {
@@ -10,9 +11,17 @@ import {
   workshopMessages,
   type WorkshopMessage,
 } from "src/server/db/schema";
+import { recordGenerationCostEvent } from "src/server/generation-costs";
+import {
+  createReservedUsage,
+  getUsedCredits,
+  lockUserUsage,
+  markUsageStatus,
+} from "src/server/usage";
 
 const WORKSHOP_MODELS = ["gpt-5.4-mini", "gemini-3-flash-preview"] as const;
 type WorkshopModel = (typeof WORKSHOP_MODELS)[number];
+const WORKSHOP_MESSAGE_CREDITS = 1;
 
 type ChatMessage = Pick<WorkshopMessage, "role" | "content">;
 
@@ -36,8 +45,10 @@ type OpenAIResponseOutput =
     };
 
 type OpenAIResponse = {
+  id?: string;
   output_text?: string;
   output?: OpenAIResponseOutput[];
+  usage?: unknown;
 };
 
 type GeminiResponsePart = {
@@ -50,11 +61,13 @@ type GeminiResponsePart = {
 };
 
 type GeminiResponse = {
+  responseId?: string;
   candidates?: {
     content?: {
       parts?: GeminiResponsePart[];
     };
   }[];
+  usageMetadata?: unknown;
 };
 
 const suggestedPromptParamSchema = z.object({
@@ -66,6 +79,13 @@ type SuggestedPromptParam = z.infer<typeof suggestedPromptParamSchema>;
 type ParsedTextResponse = {
   text: string;
   suggestedPromptParam?: SuggestedPromptParam;
+};
+
+type ProviderTextResponse = ParsedTextResponse & {
+  provider: "openai" | "gemini";
+  providerRequestId?: string | null;
+  providerModel: string;
+  usageRaw: unknown;
 };
 
 const workshopSystemPrompt = `## Role
@@ -253,7 +273,16 @@ async function generateOpenAIText(messages: ChatMessage[]) {
     throw new Error(`OpenAI API error (${res.status}): ${text}`);
   }
 
-  return parseOpenAIResponse((await res.json()) as OpenAIResponse);
+  const data = (await res.json()) as OpenAIResponse;
+  return {
+    ...parseOpenAIResponse(data),
+    provider: "openai" as const,
+    providerRequestId: data.id ?? null,
+    providerModel: "gpt-5.4-mini",
+    usageRaw: {
+      responseUsage: data.usage ?? null,
+    },
+  };
 }
 
 async function generateGeminiText(messages: ChatMessage[]) {
@@ -302,27 +331,51 @@ async function generateGeminiText(messages: ChatMessage[]) {
     throw new Error(`Gemini API error (${res.status}): ${text}`);
   }
 
-  return parseGeminiResponse((await res.json()) as GeminiResponse);
+  const data = (await res.json()) as GeminiResponse;
+  return {
+    ...parseGeminiResponse(data),
+    provider: "gemini" as const,
+    providerRequestId: data.responseId ?? null,
+    providerModel: "gemini-3-flash-preview",
+    usageRaw: data.usageMetadata ?? null,
+  };
 }
 
 async function generateAssistantText(
   model: WorkshopModel,
   messages: ChatMessage[],
 ) {
+  let generated: ProviderTextResponse;
   switch (model) {
     case "gpt-5.4-mini": {
-      const { text, suggestedPromptParam } = await generateOpenAIText(messages);
-      if (!suggestedPromptParam) return { assistantText: text };
+      generated = await generateOpenAIText(messages);
+      const { text, suggestedPromptParam } = generated;
+      if (!suggestedPromptParam) {
+        return {
+          ...generated,
+          assistantText: text,
+          suggestedPrompt: undefined,
+        };
+      }
       return {
+        ...generated,
         assistantText: text || undefined,
         suggestedPrompt: suggestedPromptParam.prompt,
       };
     }
 
     case "gemini-3-flash-preview": {
-      const { text, suggestedPromptParam } = await generateGeminiText(messages);
-      if (!suggestedPromptParam) return { assistantText: text };
+      generated = await generateGeminiText(messages);
+      const { text, suggestedPromptParam } = generated;
+      if (!suggestedPromptParam) {
+        return {
+          ...generated,
+          assistantText: text,
+          suggestedPrompt: undefined,
+        };
+      }
       return {
+        ...generated,
         assistantText: text || undefined,
         suggestedPrompt: suggestedPromptParam.prompt,
       };
@@ -370,6 +423,25 @@ export const workshopRouter = createTRPCRouter({
         )
         .orderBy(asc(workshopMessages.createdAt));
 
+      const usageRow = await db.transaction(async (tx) => {
+        await lockUserUsage(tx, ctx.user);
+        const usedCredits = await getUsedCredits(tx, ctx.user);
+        if (usedCredits >= MONTHLY_CREDIT_LIMIT) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Monthly credit limit reached",
+          });
+        }
+
+        return createReservedUsage(tx, {
+          userId: ctx.user,
+          imageId: null,
+          model: input.model,
+          credits: WORKSHOP_MESSAGE_CREDITS,
+          usageType: "workshop_message",
+        });
+      });
+
       const [userMessage] = await db
         .insert(workshopMessages)
         .values({
@@ -383,6 +455,9 @@ export const workshopRouter = createTRPCRouter({
         .returning();
 
       if (!userMessage) {
+        await markUsageStatus(usageRow.id, "refunded").catch((err) => {
+          console.error("[workshop.sendMessage] failed to refund usage", err);
+        });
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to save message",
@@ -391,13 +466,27 @@ export const workshopRouter = createTRPCRouter({
 
       let assistantText: string | undefined;
       let suggestedPrompt: string | undefined;
+      let provider: "openai" | "gemini";
+      let providerRequestId: string | null | undefined;
+      let providerModel: string;
+      let usageRaw: unknown;
       try {
-        ({ assistantText, suggestedPrompt } = await generateAssistantText(
-          input.model,
-          [...previousMessages, userMessage],
-        ));
+        ({
+          assistantText,
+          suggestedPrompt,
+          provider,
+          providerRequestId,
+          providerModel,
+          usageRaw,
+        } = await generateAssistantText(input.model, [
+          ...previousMessages,
+          userMessage,
+        ]));
       } catch (error) {
         console.error("[workshop.sendMessage] provider request failed", error);
+        await markUsageStatus(usageRow.id, "refunded").catch((err) => {
+          console.error("[workshop.sendMessage] failed to refund usage", err);
+        });
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to generate assistant response",
@@ -408,6 +497,9 @@ export const workshopRouter = createTRPCRouter({
         console.error(
           "[workshop.sendMessage] got empty response from provider",
         );
+        await markUsageStatus(usageRow.id, "refunded").catch((err) => {
+          console.error("[workshop.sendMessage] failed to refund usage", err);
+        });
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Got empty response from provider",
@@ -445,10 +537,43 @@ export const workshopRouter = createTRPCRouter({
         .returning();
 
       if (insertedAssistantMessages.length === 0) {
+        await markUsageStatus(usageRow.id, "refunded").catch((err) => {
+          console.error("[workshop.sendMessage] failed to refund usage", err);
+        });
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to save assistant response",
         });
+      }
+
+      await recordGenerationCostEvent({
+        userId: ctx.user,
+        usageId: usageRow.id,
+        imageId: null,
+        provider,
+        providerRequestId,
+        model: input.model,
+        providerModel,
+        operation: "workshop_message",
+        usageRaw,
+        fallbackContext: {
+          outputImageCount: 0,
+        },
+      }).catch((err) => {
+        console.error(
+          "[workshop.sendMessage] failed to record provider cost",
+          err,
+        );
+      });
+
+      const didConsume = await markUsageStatus(usageRow.id, "consumed").catch(
+        (err) => {
+          console.error("[workshop.sendMessage] failed to consume usage", err);
+          return false;
+        },
+      );
+      if (!didConsume) {
+        console.warn("[workshop.sendMessage] usage row was not consumed");
       }
 
       return {

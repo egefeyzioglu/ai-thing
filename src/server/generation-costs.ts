@@ -26,6 +26,10 @@ const OPENAI_PRICING = {
 } as const;
 
 const GEMINI_PRICING = {
+  "gemini-3-flash-preview": {
+    inputUsdMicrosPerMillion: 500_000,
+    textOutputUsdMicrosPerMillion: 3_000_000,
+  },
   "gemini-2.5-flash-image": {
     inputUsdMicrosPerMillion: 300_000,
     imageOutputUsdMicrosPerImage: 39_000,
@@ -470,6 +474,68 @@ function calculateOpenAIResponseCost(args: {
   };
 }
 
+function calculateGeminiTextCost(args: {
+  model: string;
+  usageRaw: unknown;
+}): CostFields {
+  if (args.model !== "gemini-3-flash-preview") {
+    return unsupportedModelCost(args.model);
+  }
+
+  const usage = normalizeGeminiUsage(args.usageRaw);
+  if (!usage) {
+    return {
+      status: "estimated",
+      costUsdMicros: 0,
+      fallbackReason: "missing_gemini_usage_metadata",
+      costCalculationRaw: {
+        pricingVersion: COST_PRICING_VERSION,
+        provider: "gemini",
+        model: args.model,
+        fallbackReason: "missing_gemini_usage_metadata",
+      },
+    };
+  }
+
+  const pricing = GEMINI_PRICING["gemini-3-flash-preview"];
+  const outputTextTokens = modalityTokens(
+    usage.candidatesTokensDetails,
+    "text",
+  );
+  const inputCost = microsForTokens(
+    usage.promptTokenCount,
+    pricing.inputUsdMicrosPerMillion,
+  );
+  const textOutputCost = microsForTokens(
+    (outputTextTokens ?? usage.candidatesTokenCount ?? 0) +
+      (usage.thoughtsTokenCount ?? 0),
+    pricing.textOutputUsdMicrosPerMillion,
+  );
+
+  return {
+    status: outputTextTokens === undefined ? "estimated" : "recorded",
+    costUsdMicros: inputCost + textOutputCost,
+    inputTextTokens: modalityTokens(usage.promptTokensDetails, "text"),
+    inputTokens: usage.promptTokenCount,
+    cachedInputTokens: usage.cachedContentTokenCount,
+    outputTextTokens: outputTextTokens ?? usage.candidatesTokenCount,
+    outputTokens: usage.candidatesTokenCount,
+    reasoningTokens: usage.thoughtsTokenCount,
+    totalTokens: usage.totalTokenCount,
+    fallbackReason:
+      outputTextTokens === undefined
+        ? "candidates_token_count_charged_as_text_output_tokens"
+        : null,
+    costCalculationRaw: {
+      pricingVersion: COST_PRICING_VERSION,
+      provider: "gemini",
+      model: args.model,
+      serviceTier: usage.serviceTier,
+      lineItems: { inputCost, textOutputCost },
+    },
+  };
+}
+
 function calculateOpenAIImagesCost(args: {
   model: string;
   operation: GenerationCostEventOperation;
@@ -728,7 +794,10 @@ function calculateCost(args: {
   };
 }): CostFields {
   if (args.provider === "openai") {
-    if (args.operation === "responses_image_generation") {
+    if (
+      args.operation === "responses_image_generation" ||
+      args.operation === "workshop_message"
+    ) {
       return calculateOpenAIResponseCost({
         model: args.model,
         usageRaw: args.usageRaw,
@@ -743,6 +812,13 @@ function calculateCost(args: {
     });
   }
 
+  if (args.operation === "workshop_message") {
+    return calculateGeminiTextCost({
+      model: args.model,
+      usageRaw: args.usageRaw,
+    });
+  }
+
   return calculateGeminiCost({
     model: args.model,
     usageRaw: args.usageRaw,
@@ -754,7 +830,8 @@ function calculateCost(args: {
 
 export async function recordGenerationCostEvent(args: {
   userId: string;
-  imageId: string;
+  imageId?: string | null;
+  usageId?: string | null;
   provider: Provider;
   model: string;
   providerModel?: string | null;
@@ -774,6 +851,7 @@ export async function recordGenerationCostEvent(args: {
       id: crypto.randomUUID(),
       userId: args.userId,
       imageId: args.imageId,
+      usageId: args.usageId,
       provider: args.provider,
       providerRequestId: args.providerRequestId,
       model: args.model,

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
 
 import {
   calculateGenerationCredits,
@@ -89,6 +89,7 @@ export async function getCurrentUsage(userId: string) {
       resolution: generationUsage.resolution,
       aspectRatio: generationUsage.aspectRatio,
       credits: generationUsage.credits,
+      usageType: generationUsage.usageType,
       status: generationUsage.status,
       createdAt: generationUsage.createdAt,
       updatedAt: generationUsage.updatedAt,
@@ -106,9 +107,11 @@ export async function getCurrentUsage(userId: string) {
   const recentImageIds = recent
     .map((row) => row.imageId)
     .filter((imageId): imageId is string => !!imageId);
-  const costRows = recentImageIds.length
+  const recentUsageIds = recent.map((row) => row.id);
+  const costRows = recentUsageIds.length
     ? await db
         .select({
+          usageId: generationCostEvents.usageId,
           imageId: generationCostEvents.imageId,
           costUsdMicros: generationCostEvents.costUsdMicros,
           costStatus: generationCostEvents.status,
@@ -119,7 +122,12 @@ export async function getCurrentUsage(userId: string) {
         .where(
           and(
             eq(generationCostEvents.userId, userId),
-            inArray(generationCostEvents.imageId, recentImageIds),
+            recentImageIds.length
+              ? or(
+                  inArray(generationCostEvents.usageId, recentUsageIds),
+                  inArray(generationCostEvents.imageId, recentImageIds),
+                )
+              : inArray(generationCostEvents.usageId, recentUsageIds),
           ),
         )
         .orderBy(desc(generationCostEvents.createdAt))
@@ -132,8 +140,23 @@ export async function getCurrentUsage(userId: string) {
       costPricingVersion: string;
     }
   >();
+  const latestCostByUsageId = new Map<
+    string,
+    {
+      costUsdMicros: number;
+      costStatus: "recorded" | "estimated" | "missing_usage";
+      costPricingVersion: string;
+    }
+  >();
 
   for (const row of costRows) {
+    if (row.usageId && !latestCostByUsageId.has(row.usageId)) {
+      latestCostByUsageId.set(row.usageId, {
+        costUsdMicros: row.costUsdMicros,
+        costStatus: row.costStatus,
+        costPricingVersion: row.costPricingVersion,
+      });
+    }
     if (!row.imageId || latestCostByImageId.has(row.imageId)) continue;
     latestCostByImageId.set(row.imageId, {
       costUsdMicros: row.costUsdMicros,
@@ -142,9 +165,16 @@ export async function getCurrentUsage(userId: string) {
     });
   }
   const recentWithCosts = recent.map((row) => {
-    const cost = row.imageId ? latestCostByImageId.get(row.imageId) : undefined;
+    const cost =
+      latestCostByUsageId.get(row.id) ??
+      (row.imageId ? latestCostByImageId.get(row.imageId) : undefined);
     return {
       ...row,
+      kind:
+        row.usageType === "workshop_message"
+          ? ("workshop" as const)
+          : ("image" as const),
+      count: 1,
       costUsdMicros: cost?.costUsdMicros ?? null,
       costStatus: cost?.costStatus ?? null,
       costPricingVersion: cost?.costPricingVersion ?? null,
@@ -164,8 +194,61 @@ export async function getCurrentUsage(userId: string) {
       formattedTotal: formatUsdMicros(monthlyCost.totalUsdMicros),
       hasEstimated: monthlyCost.estimatedUsdMicros > 0,
     },
-    recent: recentWithCosts,
+    recent: groupAdjacentWorkshopUsage(recentWithCosts),
   };
+}
+
+function groupAdjacentWorkshopUsage<
+  T extends {
+    id: string;
+    imageId: string | null;
+    model: string;
+    resolution: string | null;
+    aspectRatio: string | null;
+    credits: number;
+    usageType: GenerationUsage["usageType"];
+    createdAt: Date;
+    updatedAt: Date;
+    status: GenerationUsage["status"];
+    kind: "image" | "workshop";
+    count: number;
+    costUsdMicros: number | null;
+    costStatus: "recorded" | "estimated" | "missing_usage" | null;
+    costPricingVersion: string | null;
+  },
+>(rows: T[]): T[] {
+  const grouped: T[] = [];
+
+  for (const row of rows) {
+    const previous = grouped.at(-1);
+    if (
+      previous?.kind === "workshop" &&
+      row.kind === "workshop" &&
+      previous.model === row.model &&
+      previous.status === row.status
+    ) {
+      previous.id = `${previous.id}:${row.id}`;
+      previous.credits += row.credits;
+      previous.count += row.count;
+      previous.createdAt =
+        previous.createdAt > row.createdAt ? previous.createdAt : row.createdAt;
+      previous.updatedAt =
+        previous.updatedAt > row.updatedAt ? previous.updatedAt : row.updatedAt;
+      previous.costUsdMicros =
+        previous.costUsdMicros === null || row.costUsdMicros === null
+          ? null
+          : previous.costUsdMicros + row.costUsdMicros;
+      previous.costStatus =
+        previous.costStatus === "estimated" || row.costStatus === "estimated"
+          ? "estimated"
+          : (previous.costStatus ?? row.costStatus);
+      continue;
+    }
+
+    grouped.push({ ...row });
+  }
+
+  return grouped;
 }
 
 export function calculateUsageRowCredits(args: {
@@ -178,12 +261,14 @@ export function calculateUsageRowCredits(args: {
 
 export async function createReservedUsage(tx: UsageDb, args: {
   userId: string;
-  imageId: string;
+  imageId?: string | null;
   model: string;
   resolution?: string | null;
   aspectRatio?: string | null;
+  credits?: number;
+  usageType?: GenerationUsage["usageType"];
 }): Promise<GenerationUsage> {
-  const credits = calculateUsageRowCredits(args);
+  const credits = args.credits ?? calculateUsageRowCredits(args);
   const [usageRow] = await tx
     .insert(generationUsage)
     .values({
@@ -194,6 +279,7 @@ export async function createReservedUsage(tx: UsageDb, args: {
       resolution: args.resolution,
       aspectRatio: args.aspectRatio,
       credits,
+      usageType: args.usageType,
       status: "reserved",
     })
     .returning();
