@@ -45,7 +45,7 @@ type GeminiResponsePart = {
   functionCall?: {
     id: string;
     name: "suggest_prompt";
-    args: { prompt: string };
+    args: unknown;
   };
 };
 
@@ -122,7 +122,6 @@ async function verifyProjectOwnership(userId: string, projectId: string) {
 }
 
 function parseOpenAIResponse(data: OpenAIResponse): ParsedTextResponse {
-  console.log("[parseOpenAIResponse]", JSON.stringify(data));
   if (!data.output) {
     if (typeof data.output_text === "string" && data.output_text.trim()) {
       return { text: data.output_text };
@@ -163,6 +162,29 @@ function parseOpenAIResponse(data: OpenAIResponse): ParsedTextResponse {
   };
 }
 
+function parseSuggestedPromptArgs(
+  args: unknown,
+): SuggestedPromptParam | undefined {
+  let parsedArgs = args;
+
+  if (typeof args === "string") {
+    try {
+      parsedArgs = JSON.parse(args);
+    } catch {
+      console.warn("[parseGeminiResponse] invalid function call JSON");
+      return undefined;
+    }
+  }
+
+  const result = suggestedPromptParamSchema.safeParse(parsedArgs);
+  if (!result.success) {
+    console.warn("[parseGeminiResponse] invalid function call args");
+    return undefined;
+  }
+
+  return result.data;
+}
+
 function parseGeminiResponse(data: GeminiResponse): ParsedTextResponse {
   if (data.candidates?.[0]?.content?.parts === undefined) {
     throw new Error(
@@ -171,9 +193,12 @@ function parseGeminiResponse(data: GeminiResponse): ParsedTextResponse {
   }
 
   const functionCallParams = data.candidates[0].content.parts
-    .filter((part) => !!part.functionCall)
-    .map((part) => part.functionCall?.args)
-    .filter((e) => e !== undefined);
+    .map((part) =>
+      part.functionCall
+        ? parseSuggestedPromptArgs(part.functionCall.args)
+        : undefined,
+    )
+    .filter((e): e is SuggestedPromptParam => e !== undefined);
 
   const text = data.candidates[0].content.parts
     .map((part) => part.text)
