@@ -719,27 +719,9 @@ export async function sendWorkshopMessage(args: {
   const { userId, input } = args;
 
   await verifyProjectOwnership(userId, input.projectId);
-  const thread = input.threadId
+  const existingThread = input.threadId
     ? await verifyThreadOwnership(userId, input.projectId, input.threadId)
-    : await createWorkshopThread({
-        userId,
-        projectId: input.projectId,
-        title: getThreadTitle(input.content),
-      });
-
-  await args.onThreadReady?.(thread);
-
-  const previousMessages = await db
-    .select()
-    .from(workshopMessages)
-    .where(
-      and(
-        eq(workshopMessages.userId, userId),
-        eq(workshopMessages.projectId, input.projectId),
-        eq(workshopMessages.threadId, thread.id),
-      ),
-    )
-    .orderBy(asc(workshopMessages.createdAt));
+    : null;
 
   const usageRow = await db.transaction(async (tx) => {
     await lockUserUsage(tx, userId);
@@ -759,6 +741,36 @@ export async function sendWorkshopMessage(args: {
       usageType: "workshop_message",
     });
   });
+
+  let thread: WorkshopThread;
+  try {
+    thread =
+      existingThread ??
+      (await createWorkshopThread({
+        userId,
+        projectId: input.projectId,
+        title: getThreadTitle(input.content),
+      }));
+  } catch (error) {
+    await markUsageStatus(usageRow.id, "refunded").catch((err) => {
+      console.error("[workshop.sendMessage] failed to refund usage", err);
+    });
+    throw error;
+  }
+
+  await args.onThreadReady?.(thread);
+
+  const previousMessages = await db
+    .select()
+    .from(workshopMessages)
+    .where(
+      and(
+        eq(workshopMessages.userId, userId),
+        eq(workshopMessages.projectId, input.projectId),
+        eq(workshopMessages.threadId, thread.id),
+      ),
+    )
+    .orderBy(asc(workshopMessages.createdAt));
 
   const [userMessage] = await db
     .insert(workshopMessages)

@@ -806,8 +806,20 @@ function calculateCost(args: {
   if (args.provider === "openai") {
     if (
       args.operation === "responses_image_generation" ||
-      args.operation === "workshop_message"
+      args.model === "gpt-image-2"
     ) {
+      const raw = isRecord(args.usageRaw)
+        ? (args.usageRaw as OpenAIResponseUsageRaw)
+        : undefined;
+      return calculateOpenAIImagesCost({
+        model: args.model,
+        operation: args.operation,
+        usageRaw: raw?.imageGenerationCallUsage ?? args.usageRaw,
+        resolution: args.fallbackContext.resolution,
+      });
+    }
+
+    if (args.operation === "workshop_message") {
       return calculateOpenAIResponseCost({
         model: args.model,
         usageRaw: args.usageRaw,

@@ -503,6 +503,7 @@ function WorkshopComposer(props: WorkshopComposerProps) {
   };
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing) return;
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     handleSend();
@@ -1311,6 +1312,7 @@ export default function WorkshopPage() {
     optimisticUserMessageIdRef.current = optimisticId;
     let activeThreadId = selectedThreadId;
     let hasAddedOptimisticUser = false;
+    let hasReceivedTerminalEvent = false;
 
     if (activeThreadId) {
       addOptimisticUserMessage(projectId, activeThreadId, optimisticId, prompt);
@@ -1382,8 +1384,10 @@ export default function WorkshopPage() {
               streamEvent.data.delta,
             );
           } else if (streamEvent.event === "done") {
+            hasReceivedTerminalEvent = true;
             applySendResult(streamEvent.data, { projectId });
           } else if (streamEvent.event === "error") {
+            hasReceivedTerminalEvent = true;
             throw new Error(
               streamEvent.data.message ?? "Failed to generate assistant response",
             );
@@ -1394,12 +1398,18 @@ export default function WorkshopPage() {
       if (buffer.trim()) {
         const streamEvent = parseWorkshopStreamBlock(buffer);
         if (streamEvent?.event === "done") {
+          hasReceivedTerminalEvent = true;
           applySendResult(streamEvent.data, { projectId });
         } else if (streamEvent?.event === "error") {
+          hasReceivedTerminalEvent = true;
           throw new Error(
             streamEvent.data.message ?? "Failed to generate assistant response",
           );
         }
+      }
+
+      if (!hasReceivedTerminalEvent) {
+        throw new Error("Workshop stream ended before completion");
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
@@ -1414,11 +1424,21 @@ export default function WorkshopPage() {
       optimisticUserMessageIdRef.current = null;
       streamingReasoningMessageIdRef.current = null;
       if (activeThreadId) {
+        utils.workshop.list.setData(
+          { projectId, threadId: activeThreadId },
+          (old) =>
+            (old ?? []).filter(
+              (message) =>
+                message.id !== optimisticId &&
+                !message.id.startsWith("streaming-reasoning-"),
+            ),
+        );
         void utils.workshop.list.invalidate({
           projectId,
           threadId: activeThreadId,
         });
       }
+      hasAddedOptimisticUser = false;
       void utils.usage.getCurrent.invalidate();
     } finally {
       setIsStreamingSend(false);

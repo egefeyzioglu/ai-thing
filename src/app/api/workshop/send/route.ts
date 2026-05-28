@@ -15,7 +15,14 @@ export async function POST(req: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const parsed = workshopSendInputSchema.safeParse(await req.json());
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const parsed = workshopSendInputSchema.safeParse(body);
   if (!parsed.success) {
     return Response.json({ error: "Invalid workshop message" }, { status: 400 });
   }
