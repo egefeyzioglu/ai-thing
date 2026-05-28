@@ -45,6 +45,17 @@ export const localStorageSchema = {
     defaultValue: false,
     version: 1,
   }),
+  workshopLastThreadByProject: defineLocalStorageItem({
+    schema: z.array(
+      z.object({
+        projectId: z.string(),
+        threadId: z.string(),
+      }),
+    ),
+    key: "ai-thing.workshopLastThreadByProject",
+    defaultValue: [],
+    version: 1,
+  }),
 };
 
 export type LocalStorageKey = keyof typeof localStorageSchema;

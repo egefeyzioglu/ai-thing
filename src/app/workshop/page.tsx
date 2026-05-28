@@ -6,19 +6,24 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactElement,
 } from "react";
 import {
   ArrowLeft,
+  Brain,
   Check,
   ChevronDown,
   ChevronUp,
   Folder,
   Loader2,
   MessagesSquare,
+  Pencil,
   Plus,
   Send,
   Sparkles,
+  Square,
   Trash2,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -38,7 +43,15 @@ import {
   SelectTrigger,
 } from "src/components/ui/select";
 import { Skeleton } from "src/components/ui/skeleton";
+import { Input } from "src/components/ui/input";
 import { Textarea } from "src/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "src/components/ui/tooltip";
+import { useActiveProject } from "src/app/_hooks/use-active-project";
+import { useLocalStorage, type LocalStorageValue } from "src/lib/localStorage";
 import { cn } from "src/lib/utils";
 import {
   WORKSHOP_ACCEPTED_PROMPT_STORAGE_KEY,
@@ -61,41 +74,64 @@ function OpenAIIcon({ className }: { className?: string }) {
   );
 }
 
-function GeminiIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path d="M12 24A14.304 14.304 0 0 0 0 12 14.304 14.304 0 0 0 12 0a14.304 14.304 0 0 0 12 12 14.304 14.304 0 0 0-12 12" />
-    </svg>
-  );
-}
-
 const WORKSHOP_MODELS = [
   {
-    slug: "gpt-5.4-mini" as const,
-    name: "GPT 5.4 Mini",
+    slug: "gpt-5.4" as const,
+    name: "GPT 5.4",
     provider: "OpenAI",
-    description: "Fast · concise",
+    description: "Balanced · thinking",
     iconBg: "bg-black dark:bg-neutral-800",
     LogoIcon: OpenAIIcon,
   },
   {
-    slug: "gemini-3-flash-preview" as const,
-    name: "Gemini 3 Flash",
-    provider: "Google",
-    description: "Fast · multimodal",
-    iconBg: "bg-blue-500",
-    LogoIcon: GeminiIcon,
+    slug: "gpt-5.5" as const,
+    name: "GPT 5.5",
+    provider: "OpenAI",
+    description: "Deep · thinking",
+    iconBg: "bg-black dark:bg-neutral-800",
+    LogoIcon: OpenAIIcon,
+  },
+  {
+    slug: "gpt-5.4-mini" as const,
+    name: "GPT 5.4 Mini",
+    provider: "OpenAI",
+    description: "Fast · thinking",
+    iconBg: "bg-black dark:bg-neutral-800",
+    LogoIcon: OpenAIIcon,
   },
 ];
 
+const WORKSHOP_REASONING_EFFORTS = [
+  { value: "low", label: "Low", shortLabel: "Low · Quick" },
+  { value: "medium", label: "Medium", shortLabel: "Medium · Normal" },
+  { value: "high", label: "High", shortLabel: "High · Deep" },
+  { value: "xhigh", label: "Extra High", shortLabel: "Extra High" },
+] as const;
+
 type WorkshopModel = (typeof WORKSHOP_MODELS)[number]["slug"];
+type WorkshopReasoningEffort = (typeof WORKSHOP_REASONING_EFFORTS)[number]["value"];
 type WorkshopMessage = RouterOutputs["workshop"]["list"][number];
+type WorkshopThread = RouterOutputs["workshop"]["listThreads"][number];
+type WorkshopSendResult = RouterOutputs["workshop"]["sendMessage"];
 type Project = RouterOutputs["project"]["list"][number];
+
+type WorkshopStreamEvent =
+  | {
+      event: "thread";
+      data: { thread: WorkshopThread };
+    }
+  | {
+      event: "reasoning_delta";
+      data: { delta: string };
+    }
+  | {
+      event: "done";
+      data: WorkshopSendResult;
+    }
+  | {
+      event: "error";
+      data: { message?: string };
+    };
 
 function formatRelativeTime(date: Date | string): string {
   const diff = Date.now() - new Date(date).getTime();
@@ -109,25 +145,50 @@ function formatRelativeTime(date: Date | string): string {
 
 const THREADS_SHOWN_INITIALLY = 6;
 
+function WorkshopTooltip({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactElement;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={children} />
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function ProjectSection({
   project,
   selectedProjectId,
   selectedThreadId,
   onSelectThread,
   onNewThread,
+  onRenameThread,
+  onDeleteThread,
   createIsPending,
   createTargetProjectId,
+  renameIsPending,
+  deleteIsPending,
 }: {
   project: Project;
   selectedProjectId: string | null;
   selectedThreadId: string | null;
   onSelectThread: (threadId: string, projectId: string) => void;
   onNewThread: (projectId: string) => void;
+  onRenameThread: (thread: WorkshopThread, title: string) => void;
+  onDeleteThread: (thread: WorkshopThread) => void;
   createIsPending: boolean;
   createTargetProjectId: string | null;
+  renameIsPending: boolean;
+  deleteIsPending: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
 
   const threadsQuery = api.workshop.listThreads.useQuery(
     { projectId: project.id },
@@ -142,41 +203,65 @@ function ProjectSection({
   const isCreatingForThis =
     createIsPending && createTargetProjectId === project.id;
 
+  useEffect(() => {
+    if (selectedProjectId === project.id) setExpanded(true);
+  }, [project.id, selectedProjectId]);
+
+  const submitRename = (thread: WorkshopThread) => {
+    const trimmedTitle = editingTitle.trim();
+    if (!trimmedTitle || renameIsPending) return;
+    onRenameThread(thread, trimmedTitle);
+    setEditingThreadId(null);
+    setEditingTitle("");
+  };
+
   return (
     <Collapsible open={expanded} onOpenChange={setExpanded}>
       <div className="group flex items-center gap-1 rounded-md px-1 py-1 hover:bg-muted/40">
-        <CollapsibleTrigger
-          aria-label={expanded ? `Collapse ${project.name}` : `Expand ${project.name}`}
-          aria-expanded={expanded}
-          className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 transition-colors hover:bg-muted/60"
-        >
-          <ChevronDown
-            className={cn(
-              "size-3 text-muted-foreground transition-transform duration-150",
-              !expanded && "-rotate-90",
-            )}
-          />
-        </CollapsibleTrigger>
-        <Folder className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {project.name}
-        </span>
+        <WorkshopTooltip label={expanded ? "Collapse project" : "Expand project"}>
+          <CollapsibleTrigger
+            aria-label={
+              expanded ? `Collapse ${project.name}` : `Expand ${project.name}`
+            }
+            aria-expanded={expanded}
+            className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 transition-colors hover:bg-muted/60"
+          >
+            <ChevronDown
+              className={cn(
+                "size-3 text-muted-foreground transition-transform duration-150",
+                !expanded && "-rotate-90",
+              )}
+            />
+          </CollapsibleTrigger>
+        </WorkshopTooltip>
         <button
           type="button"
-          aria-label={`New thread in ${project.name}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onNewThread(project.id);
-          }}
-          disabled={createIsPending}
-          className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted/60 disabled:cursor-not-allowed"
+          onClick={() => setExpanded((value) => !value)}
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-left transition-colors hover:bg-muted/60"
         >
-          {isCreatingForThis ? (
-            <Loader2 className="size-3 animate-spin text-muted-foreground" />
-          ) : (
-            <Plus className="size-3 text-muted-foreground" />
-          )}
+          <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+            {project.name}
+          </span>
         </button>
+        <WorkshopTooltip label="New thread">
+          <button
+            type="button"
+            aria-label={`New thread in ${project.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onNewThread(project.id);
+            }}
+            disabled={createIsPending}
+            className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted/60 disabled:cursor-not-allowed"
+          >
+            {isCreatingForThis ? (
+              <Loader2 className="size-3 animate-spin text-muted-foreground" />
+            ) : (
+              <Plus className="size-3 text-muted-foreground" />
+            )}
+          </button>
+        </WorkshopTooltip>
       </div>
 
       <CollapsibleContent>
@@ -195,31 +280,106 @@ function ProjectSection({
             <div className="flex flex-col gap-0.5 py-0.5 pr-1">
               {visibleThreads.map((thread) => {
                 const isSelected = thread.id === selectedThreadId;
+                const isEditing = thread.id === editingThreadId;
                 return (
-                  <button
+                  <div
                     key={thread.id}
-                    type="button"
-                    onClick={() => onSelectThread(thread.id, project.id)}
-                    aria-current={isSelected ? "page" : undefined}
                     className={cn(
-                      "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
+                      "group/thread flex items-center gap-1 rounded-md transition-colors",
                       isSelected
                         ? "bg-muted/60 text-foreground"
                         : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
                     )}
                   >
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 truncate text-xs",
-                        isSelected ? "font-semibold" : "font-medium",
-                      )}
-                    >
-                      {thread.title}
-                    </span>
-                    <span className="shrink-0 text-[10px] text-muted-foreground/60">
-                      {formatRelativeTime(thread.updatedAt)}
-                    </span>
-                  </button>
+                    {isEditing ? (
+                      <form
+                        className="flex min-w-0 flex-1 items-center gap-1 px-1 py-1"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          submitRename(thread);
+                        }}
+                      >
+                        <Input
+                          value={editingTitle}
+                          onChange={(event) =>
+                            setEditingTitle(event.target.value)
+                          }
+                          autoFocus
+                          className="h-6 text-xs"
+                        />
+                        <WorkshopTooltip label="Save name">
+                          <button
+                            type="submit"
+                            disabled={renameIsPending || !editingTitle.trim()}
+                            className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded hover:bg-muted/60 disabled:cursor-not-allowed disabled:opacity-50"
+                            aria-label="Save thread name"
+                          >
+                            <Check className="size-3" />
+                          </button>
+                        </WorkshopTooltip>
+                        <WorkshopTooltip label="Cancel rename">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingThreadId(null);
+                              setEditingTitle("");
+                            }}
+                            className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded hover:bg-muted/60"
+                            aria-label="Cancel rename"
+                          >
+                            <X className="size-3" />
+                          </button>
+                        </WorkshopTooltip>
+                      </form>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => onSelectThread(thread.id, project.id)}
+                          aria-current={isSelected ? "page" : undefined}
+                          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left"
+                        >
+                          <span
+                            className={cn(
+                              "min-w-0 flex-1 truncate text-xs",
+                              isSelected ? "font-semibold" : "font-medium",
+                            )}
+                          >
+                            {thread.title}
+                          </span>
+                          <span className="shrink-0 text-[10px] text-muted-foreground/60">
+                            {formatRelativeTime(thread.updatedAt)}
+                          </span>
+                        </button>
+                        <div className="flex shrink-0 items-center pr-1 opacity-0 transition-opacity group-hover/thread:opacity-100">
+                          <WorkshopTooltip label="Rename thread">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingThreadId(thread.id);
+                                setEditingTitle(thread.title);
+                              }}
+                              className="flex size-6 cursor-pointer items-center justify-center rounded hover:bg-muted/60"
+                              aria-label={`Rename ${thread.title}`}
+                            >
+                              <Pencil className="size-3" />
+                            </button>
+                          </WorkshopTooltip>
+                          <WorkshopTooltip label="Delete thread">
+                            <button
+                              type="button"
+                              onClick={() => onDeleteThread(thread)}
+                              disabled={deleteIsPending}
+                              className="flex size-6 cursor-pointer items-center justify-center rounded hover:bg-destructive/15 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
+                              aria-label={`Delete ${thread.title}`}
+                            >
+                              <Trash2 className="size-3" />
+                            </button>
+                          </WorkshopTooltip>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 );
               })}
               {hiddenCount > 0 && !showAll && (
@@ -246,8 +406,12 @@ function WorkshopProjectsSidebar({
   selectedThreadId,
   onSelectThread,
   onNewThread,
+  onRenameThread,
+  onDeleteThread,
   createIsPending,
   createTargetProjectId,
+  renameIsPending,
+  deleteIsPending,
 }: {
   projects: RouterOutputs["project"]["list"] | undefined;
   isLoadingProjects: boolean;
@@ -255,8 +419,12 @@ function WorkshopProjectsSidebar({
   selectedThreadId: string | null;
   onSelectThread: (threadId: string, projectId: string) => void;
   onNewThread: (projectId: string) => void;
+  onRenameThread: (thread: WorkshopThread, title: string) => void;
+  onDeleteThread: (thread: WorkshopThread) => void;
   createIsPending: boolean;
   createTargetProjectId: string | null;
+  renameIsPending: boolean;
+  deleteIsPending: boolean;
 }) {
   return (
     <aside className="bg-background/80 flex w-64 shrink-0 flex-col border-r border-(--border)">
@@ -286,8 +454,12 @@ function WorkshopProjectsSidebar({
                 selectedThreadId={selectedThreadId}
                 onSelectThread={onSelectThread}
                 onNewThread={onNewThread}
+                onRenameThread={onRenameThread}
+                onDeleteThread={onDeleteThread}
                 createIsPending={createIsPending}
                 createTargetProjectId={createTargetProjectId}
+                renameIsPending={renameIsPending}
+                deleteIsPending={deleteIsPending}
               />
             ))}
           </div>
@@ -301,8 +473,11 @@ type WorkshopComposerProps = {
   selectedProjectId: string | null;
   sendIsPending: boolean;
   sendPrompt: (prompt: string) => void;
+  stopGeneration: () => void;
   selectedModel: WorkshopModel;
   setSelectedModel: (model: WorkshopModel) => void;
+  selectedReasoningEffort: WorkshopReasoningEffort;
+  setSelectedReasoningEffort: (effort: WorkshopReasoningEffort) => void;
   isMacOS: boolean | null;
 };
 
@@ -311,8 +486,11 @@ function WorkshopComposer(props: WorkshopComposerProps) {
     selectedProjectId,
     sendIsPending,
     sendPrompt,
+    stopGeneration,
     selectedModel,
     setSelectedModel,
+    selectedReasoningEffort,
+    setSelectedReasoningEffort,
     isMacOS,
   } = props;
 
@@ -336,6 +514,9 @@ function WorkshopComposer(props: WorkshopComposerProps) {
 
   const textareaShouldBeDisabled = selectedProjectId === null || sendIsPending;
   const currentModel = WORKSHOP_MODELS.find((m) => m.slug === selectedModel);
+  const currentReasoningEffort = WORKSHOP_REASONING_EFFORTS.find(
+    (effort) => effort.value === selectedReasoningEffort,
+  );
 
   useEffect(() => {
     try {
@@ -364,75 +545,116 @@ function WorkshopComposer(props: WorkshopComposerProps) {
           disabled={textareaShouldBeDisabled}
           className="max-h-48 min-h-24 resize-none pb-10"
         />
-        <div className="absolute right-2 bottom-2 left-2 flex items-center justify-between">
-          <Select
-            value={selectedModel}
-            onValueChange={(value) => setSelectedModel(value!)}
-            disabled={textareaShouldBeDisabled}
-          >
-            <SelectTrigger
-              size="sm"
-              className="text-muted-foreground hover:text-foreground h-6 cursor-pointer gap-1.5 border-none bg-transparent px-0 text-xs shadow-none transition-colors focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50 [&>svg]:size-3"
+        <div className="absolute right-2 bottom-2 left-2 flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1">
+            <Select
+              value={selectedModel}
+              onValueChange={(value) => setSelectedModel(value!)}
+              disabled={textareaShouldBeDisabled}
             >
-              {currentModel && (
-                <div
-                  className={cn(
-                    "flex size-4 shrink-0 items-center justify-center rounded-sm",
-                    currentModel.iconBg,
-                  )}
-                >
-                  <currentModel.LogoIcon className="size-2.5 text-white" />
-                </div>
-              )}
-              <span>{currentModel?.name}</span>
-            </SelectTrigger>
-            <SelectContent
-              align="start"
-              alignItemWithTrigger={false}
-              className="min-w-64"
-            >
-              {WORKSHOP_MODELS.map((model) => (
-                <SelectItem
-                  key={model.slug}
-                  value={model.slug}
-                  className="cursor-pointer py-2 pr-10 pl-2"
-                >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={cn(
-                        "flex size-8 shrink-0 items-center justify-center rounded-lg",
-                        model.iconBg,
-                      )}
-                    >
-                      <model.LogoIcon className="size-4 text-white" />
-                    </div>
-                    <div className="flex min-w-0 flex-col gap-0.5">
-                      <span className="text-sm leading-none font-medium">
-                        {model.name}
-                      </span>
-                      <span className="text-muted-foreground text-xs">
-                        {model.provider} · {model.description}
-                      </span>
-                    </div>
+              <SelectTrigger
+                size="sm"
+                className="text-muted-foreground hover:text-foreground h-6 max-w-36 cursor-pointer gap-1.5 border-none bg-transparent px-0 text-xs shadow-none transition-colors focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50 [&>svg]:size-3"
+              >
+                {currentModel && (
+                  <div
+                    className={cn(
+                      "flex size-4 shrink-0 items-center justify-center rounded-sm",
+                      currentModel.iconBg,
+                    )}
+                  >
+                    <currentModel.LogoIcon className="size-2.5 text-white" />
                   </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            type="button"
-            size="icon"
-            className="h-7 w-7 cursor-pointer"
-            disabled={!canSend}
-            onClick={handleSend}
-            aria-label="Send message"
+                )}
+                <span className="truncate">{currentModel?.name}</span>
+              </SelectTrigger>
+              <SelectContent
+                align="start"
+                alignItemWithTrigger={false}
+                className="min-w-64"
+              >
+                {WORKSHOP_MODELS.map((model) => (
+                  <SelectItem
+                    key={model.slug}
+                    value={model.slug}
+                    className="cursor-pointer py-2 pr-10 pl-2"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={cn(
+                          "flex size-8 shrink-0 items-center justify-center rounded-lg",
+                          model.iconBg,
+                        )}
+                      >
+                        <model.LogoIcon className="size-4 text-white" />
+                      </div>
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <span className="text-sm leading-none font-medium">
+                          {model.name}
+                        </span>
+                        <span className="text-muted-foreground text-xs">
+                          {model.provider} · {model.description}
+                        </span>
+                      </div>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="bg-border/70 h-4 w-px shrink-0" />
+            <Select
+              value={selectedReasoningEffort}
+              onValueChange={(value) => setSelectedReasoningEffort(value!)}
+              disabled={textareaShouldBeDisabled}
+            >
+              <SelectTrigger
+                size="sm"
+                className="text-muted-foreground hover:text-foreground h-6 max-w-40 cursor-pointer gap-1.5 border-none bg-transparent px-0 text-xs shadow-none transition-colors focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50 [&>svg]:size-3"
+              >
+                <Brain className="size-3.5 shrink-0" />
+                <span className="truncate">
+                  {currentReasoningEffort?.shortLabel}
+                </span>
+              </SelectTrigger>
+              <SelectContent
+                align="start"
+                alignItemWithTrigger={false}
+                className="min-w-44"
+              >
+                <div className="text-muted-foreground px-2 py-1.5 text-[10px] font-medium">
+                  Reasoning
+                </div>
+                {WORKSHOP_REASONING_EFFORTS.map((effort) => (
+                  <SelectItem
+                    key={effort.value}
+                    value={effort.value}
+                    className="cursor-pointer"
+                  >
+                    {effort.label}
+                    {effort.value === "medium" ? " (default)" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <WorkshopTooltip
+            label={sendIsPending ? "Stop generation" : "Send message"}
           >
-            {sendIsPending ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Send className="size-3.5" />
-            )}
-          </Button>
+            <Button
+              type="button"
+              size="icon"
+              className="h-7 w-7 cursor-pointer"
+              disabled={!canSend && !sendIsPending}
+              onClick={sendIsPending ? stopGeneration : handleSend}
+              aria-label={sendIsPending ? "Stop generation" : "Send message"}
+            >
+              {sendIsPending ? (
+                <Square className="size-3.5 fill-current" />
+              ) : (
+                <Send className="size-3.5" />
+              )}
+            </Button>
+          </WorkshopTooltip>
         </div>
       </div>
       <span
@@ -581,6 +803,62 @@ function WorkshopToolCallLine({ message }: { message: WorkshopMessage }) {
   );
 }
 
+function WorkshopReasoningSummaryLine({
+  message,
+}: {
+  message: WorkshopMessage;
+}) {
+  const [expanded, setExpanded] = useState(
+    message.id.startsWith("streaming-reasoning-"),
+  );
+  const agentName =
+    WORKSHOP_MODELS.find((model) => model.slug === message.model)?.name ??
+    "Agent";
+
+  return (
+    <div className="flex [animation:promptGroupFadeIn_0.25s_ease_both] justify-start">
+      <Collapsible
+        open={expanded}
+        onOpenChange={setExpanded}
+        className="border-border bg-card/70 max-w-[min(680px,85%)] overflow-hidden rounded-lg border text-sm shadow-sm"
+      >
+        <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors">
+          <span className="flex min-w-0 items-center gap-2">
+            <Brain className="size-3.5 shrink-0 text-blue-400" />
+            <span className="truncate text-xs">
+              <span className="font-medium">{agentName}</span> reasoning summary
+            </span>
+          </span>
+          {expanded ? (
+            <ChevronUp className="size-4 shrink-0" />
+          ) : (
+            <ChevronDown className="size-4 shrink-0" />
+          )}
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="border-border/70 text-muted-foreground border-t px-4 py-3 text-xs leading-relaxed">
+            <Markdown
+              components={{
+                p({ children }) {
+                  return <p className="mb-1 last:mb-0">{children}</p>;
+                },
+                ul({ children }) {
+                  return <ul className="my-1 ml-4 list-disc">{children}</ul>;
+                },
+                ol({ children }) {
+                  return <ol className="my-1 ml-4 list-decimal">{children}</ol>;
+                },
+              }}
+            >
+              {message.content}
+            </Markdown>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
+  );
+}
+
 function MessageSkeleton() {
   return (
     <div className="flex flex-col gap-4">
@@ -625,18 +903,26 @@ function SuggestedPromptCard({
             <Check />
             Use prompt
           </Button>
-          <CollapsibleTrigger
-            aria-label={
+          <WorkshopTooltip
+            label={
               expanded ? "Collapse suggested prompt" : "Expand suggested prompt"
             }
-            className="hover:text-foreground flex size-7 cursor-pointer items-center justify-center rounded-md text-(--muted-foreground) transition-colors hover:bg-blue-500/15"
           >
-            {expanded ? (
-              <ChevronUp className="size-4" />
-            ) : (
-              <ChevronDown className="size-4" />
-            )}
-          </CollapsibleTrigger>
+            <CollapsibleTrigger
+              aria-label={
+                expanded
+                  ? "Collapse suggested prompt"
+                  : "Expand suggested prompt"
+              }
+              className="hover:text-foreground flex size-7 cursor-pointer items-center justify-center rounded-md text-(--muted-foreground) transition-colors hover:bg-blue-500/15"
+            >
+              {expanded ? (
+                <ChevronUp className="size-4" />
+              ) : (
+                <ChevronDown className="size-4" />
+              )}
+            </CollapsibleTrigger>
+          </WorkshopTooltip>
         </div>
       </div>
       <CollapsibleContent>
@@ -678,10 +964,38 @@ function WorkshopEmptyState({
   );
 }
 
+function isOpenAIWorkshopModel(model: WorkshopModel) {
+  return model.startsWith("gpt-");
+}
+
+function parseWorkshopStreamBlock(block: string): WorkshopStreamEvent | null {
+  let event = "message";
+  const dataLines: string[] = [];
+
+  for (const line of block.split("\n")) {
+    if (line.startsWith("event:")) {
+      event = line.slice("event:".length).trim();
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trimStart());
+    }
+  }
+
+  if (dataLines.length === 0) return null;
+
+  return {
+    event,
+    data: JSON.parse(dataLines.join("\n")) as unknown,
+  } as WorkshopStreamEvent;
+}
+
 export default function WorkshopPage() {
   const [selectedModel, setSelectedModel] =
-    useState<WorkshopModel>("gpt-5.4-mini");
-  const [clearDialogOpen, setClearDialogOpen] = useState(false);
+    useState<WorkshopModel>("gpt-5.4");
+  const [selectedReasoningEffort, setSelectedReasoningEffort] =
+    useState<WorkshopReasoningEffort>("medium");
+  const [threadToDelete, setThreadToDelete] = useState<WorkshopThread | null>(
+    null,
+  );
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
   const [suggestedPromptExpanded, setSuggestedPromptExpanded] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
@@ -691,9 +1005,12 @@ export default function WorkshopPage() {
   const [createTargetProjectId, setCreateTargetProjectId] = useState<
     string | null
   >(null);
+  const [isStreamingSend, setIsStreamingSend] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const suggestedPromptRef = useRef<HTMLDivElement>(null);
   const optimisticUserMessageIdRef = useRef<string | null>(null);
+  const streamingReasoningMessageIdRef = useRef<string | null>(null);
+  const streamAbortControllerRef = useRef<AbortController | null>(null);
   const utils = api.useUtils();
   const router = useRouter();
 
@@ -703,6 +1020,16 @@ export default function WorkshopPage() {
 
   const { data: projects, isLoading: isLoadingProjects } =
     api.project.list.useQuery();
+  const { selectedProjectId: activeProjectId, onSelectProject } =
+    useActiveProject(projects);
+  const [lastThreadByProject, setLastThreadByProject] = useLocalStorage(
+    "workshopLastThreadByProject",
+  );
+
+  const selectedProjectThreadsQuery = api.workshop.listThreads.useQuery(
+    { projectId: selectedProjectId ?? "" },
+    { enabled: Boolean(selectedProjectId && !selectedThreadId) },
+  );
 
   const messagesQuery = api.workshop.list.useQuery(
     { projectId: selectedProjectId ?? "", threadId: selectedThreadId ?? "" },
@@ -725,39 +1052,97 @@ export default function WorkshopPage() {
     if (latestSuggestedPrompt) setSuggestedPromptExpanded(true);
   }, [latestSuggestedPrompt]);
 
-  const sendMessage = api.workshop.sendMessage.useMutation({
-    onSuccess: ({ thread, userMessage, assistantMessages }, variables) => {
-      const optimisticId = optimisticUserMessageIdRef.current;
-      optimisticUserMessageIdRef.current = null;
+  const rememberThread = (projectId: string, threadId: string) => {
+    setLastThreadByProject(
+      (prev: LocalStorageValue<"workshopLastThreadByProject">) => {
+        const next = prev.filter((item) => item.projectId !== projectId);
+        return [...next, { projectId, threadId }];
+      },
+    );
+  };
 
-      setSelectedProjectId(variables.projectId);
-      setSelectedThreadId(thread.id);
-      utils.workshop.list.setData(
-        { projectId: variables.projectId, threadId: thread.id },
-        (old) => [
-          ...(old ?? []).filter((message) => message.id !== optimisticId),
-          userMessage,
-          ...assistantMessages,
-        ],
+  useEffect(() => {
+    if (!selectedProjectId && activeProjectId) {
+      setSelectedProjectId(activeProjectId);
+    }
+  }, [activeProjectId, selectedProjectId]);
+
+  useEffect(() => {
+    if (!selectedProjectId || selectedThreadId) return;
+
+    const rememberedThreadId = lastThreadByProject.find(
+      (item) => item.projectId === selectedProjectId,
+    )?.threadId;
+    if (!rememberedThreadId) return;
+
+    const threads = selectedProjectThreadsQuery.data;
+    if (!threads) return;
+
+    if (threads.some((thread) => thread.id === rememberedThreadId)) {
+      setSelectedThreadId(rememberedThreadId);
+    } else {
+      setLastThreadByProject((prev) =>
+        prev.filter((item) => item.projectId !== selectedProjectId),
       );
-      utils.workshop.listThreads.setData(
-        { projectId: variables.projectId },
-        (old) => {
-          const filtered = (old ?? []).filter((item) => item.id !== thread.id);
-          return [thread, ...filtered];
-        },
-      );
-      void utils.workshop.list.invalidate({
-        projectId: variables.projectId,
-        threadId: thread.id,
-      });
-      void utils.workshop.listThreads.invalidate({
-        projectId: variables.projectId,
-      });
-      void utils.usage.getCurrent.invalidate();
+    }
+  }, [
+    lastThreadByProject,
+    selectedProjectId,
+    selectedProjectThreadsQuery.data,
+    selectedThreadId,
+    setLastThreadByProject,
+  ]);
+
+  const applySendResult = (
+    result: WorkshopSendResult,
+    variables: { projectId: string },
+  ) => {
+    const optimisticId = optimisticUserMessageIdRef.current;
+    const streamingReasoningId = streamingReasoningMessageIdRef.current;
+    optimisticUserMessageIdRef.current = null;
+    streamingReasoningMessageIdRef.current = null;
+
+    setSelectedProjectId(variables.projectId);
+    setSelectedThreadId(result.thread.id);
+    onSelectProject(variables.projectId);
+    rememberThread(variables.projectId, result.thread.id);
+    utils.workshop.list.setData(
+      { projectId: variables.projectId, threadId: result.thread.id },
+      (old) => [
+        ...(old ?? []).filter(
+          (message) =>
+            message.id !== optimisticId && message.id !== streamingReasoningId,
+        ),
+        result.userMessage,
+        ...result.assistantMessages,
+      ],
+    );
+    utils.workshop.listThreads.setData(
+      { projectId: variables.projectId },
+      (old) => {
+        const filtered = (old ?? []).filter(
+          (item) => item.id !== result.thread.id,
+        );
+        return [result.thread, ...filtered];
+      },
+    );
+    void utils.workshop.list.invalidate({
+      projectId: variables.projectId,
+      threadId: result.thread.id,
+    });
+    void utils.workshop.listThreads.invalidate({
+      projectId: variables.projectId,
+    });
+    void utils.usage.getCurrent.invalidate();
+  };
+
+  const sendMessage = api.workshop.sendMessage.useMutation({
+    onSuccess: (result, variables) => {
+      applySendResult(result, variables);
     },
     onError: (error, variables) => {
       optimisticUserMessageIdRef.current = null;
+      streamingReasoningMessageIdRef.current = null;
       toast.error(error.message || "Failed to generate assistant response");
       if (variables.threadId) {
         void utils.workshop.list.invalidate({
@@ -773,6 +1158,8 @@ export default function WorkshopPage() {
     onSuccess: (thread) => {
       setSelectedProjectId(thread.projectId);
       setSelectedThreadId(thread.id);
+      onSelectProject(thread.projectId);
+      rememberThread(thread.projectId, thread.id);
       setCreateTargetProjectId(null);
       utils.workshop.listThreads.setData(
         { projectId: thread.projectId },
@@ -791,33 +1178,61 @@ export default function WorkshopPage() {
     },
   });
 
-  const clearMessages = api.workshop.clear.useMutation({
-    onSuccess: () => {
-      if (!selectedProjectId || !selectedThreadId) return;
-      utils.workshop.list.setData(
-        { projectId: selectedProjectId, threadId: selectedThreadId },
-        [],
+  const renameThread = api.workshop.renameThread.useMutation({
+    onSuccess: (thread) => {
+      utils.workshop.listThreads.setData(
+        { projectId: thread.projectId },
+        (old) =>
+          (old ?? []).map((item) => (item.id === thread.id ? thread : item)),
       );
-      void utils.workshop.list.invalidate({
-        projectId: selectedProjectId,
-        threadId: selectedThreadId,
+      void utils.workshop.listThreads.invalidate({
+        projectId: thread.projectId,
       });
-      setClearDialogOpen(false);
-      toast.success("Workshop thread cleared");
     },
     onError: () => {
-      toast.error("Failed to clear workshop thread");
+      toast.error("Failed to rename workshop thread");
     },
   });
+
+  const deleteThread = api.workshop.deleteThread.useMutation({
+    onSuccess: (_, variables) => {
+      utils.workshop.listThreads.setData(
+        { projectId: variables.projectId },
+        (old) => (old ?? []).filter((item) => item.id !== variables.threadId),
+      );
+      utils.workshop.list.setData(
+        { projectId: variables.projectId, threadId: variables.threadId },
+        [],
+      );
+      setLastThreadByProject((prev) =>
+        prev.filter((item) => item.threadId !== variables.threadId),
+      );
+      if (selectedThreadId === variables.threadId) {
+        setSelectedThreadId(null);
+        setSelectedProjectId(variables.projectId);
+      }
+      setThreadToDelete(null);
+      void utils.workshop.listThreads.invalidate({
+        projectId: variables.projectId,
+      });
+    },
+    onError: () => {
+      toast.error("Failed to delete workshop thread");
+    },
+  });
+
+  const sendIsPending = sendMessage.isPending || isStreamingSend;
 
   useEffect(() => {
     const target = suggestedPromptRef.current ?? bottomRef.current;
     target?.scrollIntoView({ block: "end" });
-  }, [messages.length, sendMessage.isPending, latestSuggestedPrompt]);
+  }, [messages.length, sendIsPending, latestSuggestedPrompt]);
 
   const handleSelectThread = (threadId: string, projectId: string) => {
     setSelectedProjectId(projectId);
     setSelectedThreadId(threadId);
+    onSelectProject(projectId);
+    rememberThread(projectId, threadId);
   };
 
   const handleNewThread = (projectId: string) => {
@@ -826,28 +1241,208 @@ export default function WorkshopPage() {
     createThread.mutate({ projectId });
   };
 
+  const addOptimisticUserMessage = (
+    projectId: string,
+    threadId: string,
+    optimisticId: string,
+    content: string,
+  ) => {
+    utils.workshop.list.setData({ projectId, threadId }, (old) => [
+      ...(old ?? []),
+      {
+        id: optimisticId,
+        userId: "",
+        projectId,
+        threadId,
+        role: "user",
+        model: null,
+        content,
+        createdAt: new Date(),
+      },
+    ]);
+  };
+
+  const appendStreamingReasoningDelta = (
+    projectId: string,
+    threadId: string,
+    model: WorkshopModel,
+    delta: string,
+  ) => {
+    let reasoningId = streamingReasoningMessageIdRef.current;
+    if (!reasoningId) {
+      reasoningId = `streaming-reasoning-${crypto.randomUUID()}`;
+      streamingReasoningMessageIdRef.current = reasoningId;
+    }
+
+    const targetId = reasoningId;
+    utils.workshop.list.setData({ projectId, threadId }, (old) => {
+      const messages = old ?? [];
+      const existing = messages.find((message) => message.id === targetId);
+      if (existing) {
+        return messages.map((message) =>
+          message.id === targetId
+            ? { ...message, content: `${message.content}${delta}` }
+            : message,
+        );
+      }
+
+      return [
+        ...messages,
+        {
+          id: targetId,
+          userId: "",
+          projectId,
+          threadId,
+          role: "reasoning_summary",
+          model,
+          content: delta,
+          createdAt: new Date(),
+        },
+      ];
+    });
+  };
+
+  const sendPromptStream = async (prompt: string) => {
+    if (!selectedProjectId || isStreamingSend) return;
+
+    const projectId = selectedProjectId;
+    const model = selectedModel;
+    const optimisticId = `optimistic-${crypto.randomUUID()}`;
+    optimisticUserMessageIdRef.current = optimisticId;
+    let activeThreadId = selectedThreadId;
+    let hasAddedOptimisticUser = false;
+
+    if (activeThreadId) {
+      addOptimisticUserMessage(projectId, activeThreadId, optimisticId, prompt);
+      hasAddedOptimisticUser = true;
+    }
+
+    setIsStreamingSend(true);
+    const abortController = new AbortController();
+    streamAbortControllerRef.current = abortController;
+
+    try {
+      const response = await fetch("/api/workshop/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: abortController.signal,
+        body: JSON.stringify({
+          projectId,
+          threadId: selectedThreadId ?? undefined,
+          content: prompt,
+          model,
+          reasoningEffort: selectedReasoningEffort,
+        }),
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error("Failed to generate assistant response");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop() ?? "";
+
+        for (const block of blocks) {
+          const streamEvent = parseWorkshopStreamBlock(block);
+          if (!streamEvent) continue;
+
+          if (streamEvent.event === "thread") {
+            const { thread } = streamEvent.data;
+            activeThreadId = thread.id;
+            setSelectedProjectId(projectId);
+            setSelectedThreadId(thread.id);
+            onSelectProject(projectId);
+            rememberThread(projectId, thread.id);
+            utils.workshop.listThreads.setData({ projectId }, (old) => {
+              const filtered = (old ?? []).filter(
+                (item) => item.id !== thread.id,
+              );
+              return [thread, ...filtered];
+            });
+
+            if (!hasAddedOptimisticUser) {
+              addOptimisticUserMessage(projectId, thread.id, optimisticId, prompt);
+              hasAddedOptimisticUser = true;
+            }
+          } else if (streamEvent.event === "reasoning_delta") {
+            if (!activeThreadId) continue;
+            appendStreamingReasoningDelta(
+              projectId,
+              activeThreadId,
+              model,
+              streamEvent.data.delta,
+            );
+          } else if (streamEvent.event === "done") {
+            applySendResult(streamEvent.data, { projectId });
+          } else if (streamEvent.event === "error") {
+            throw new Error(
+              streamEvent.data.message ?? "Failed to generate assistant response",
+            );
+          }
+        }
+      }
+
+      if (buffer.trim()) {
+        const streamEvent = parseWorkshopStreamBlock(buffer);
+        if (streamEvent?.event === "done") {
+          applySendResult(streamEvent.data, { projectId });
+        } else if (streamEvent?.event === "error") {
+          throw new Error(
+            streamEvent.data.message ?? "Failed to generate assistant response",
+          );
+        }
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        toast.info("Generation stopped");
+      } else {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Failed to generate assistant response",
+        );
+      }
+      optimisticUserMessageIdRef.current = null;
+      streamingReasoningMessageIdRef.current = null;
+      if (activeThreadId) {
+        void utils.workshop.list.invalidate({
+          projectId,
+          threadId: activeThreadId,
+        });
+      }
+      void utils.usage.getCurrent.invalidate();
+    } finally {
+      setIsStreamingSend(false);
+      streamAbortControllerRef.current = null;
+    }
+  };
+
   const sendPrompt = (prompt: string) => {
     const trimmedPrompt = prompt.trim();
-    if (!selectedProjectId || !trimmedPrompt || sendMessage.isPending) return;
+    if (!selectedProjectId || !trimmedPrompt || sendIsPending) return;
+
+    if (isOpenAIWorkshopModel(selectedModel)) {
+      void sendPromptStream(trimmedPrompt);
+      return;
+    }
 
     if (selectedThreadId) {
       const optimisticId = `optimistic-${crypto.randomUUID()}`;
       optimisticUserMessageIdRef.current = optimisticId;
-      utils.workshop.list.setData(
-        { projectId: selectedProjectId, threadId: selectedThreadId },
-        (old) => [
-          ...(old ?? []),
-          {
-            id: optimisticId,
-            userId: "",
-            projectId: selectedProjectId,
-            threadId: selectedThreadId,
-            role: "user",
-            model: null,
-            content: trimmedPrompt,
-            createdAt: new Date(),
-          },
-        ],
+      addOptimisticUserMessage(
+        selectedProjectId,
+        selectedThreadId,
+        optimisticId,
+        trimmedPrompt,
       );
     }
 
@@ -856,15 +1451,12 @@ export default function WorkshopPage() {
       threadId: selectedThreadId ?? undefined,
       content: trimmedPrompt,
       model: selectedModel,
+      reasoningEffort: selectedReasoningEffort,
     });
   };
 
-  const handleClear = () => {
-    if (!selectedProjectId || !selectedThreadId) return;
-    clearMessages.mutate({
-      projectId: selectedProjectId,
-      threadId: selectedThreadId,
-    });
+  const stopGeneration = () => {
+    streamAbortControllerRef.current?.abort();
   };
 
   const isLoadingMessages =
@@ -878,17 +1470,19 @@ export default function WorkshopPage() {
     <main className="bg-background text-foreground flex h-screen w-screen flex-col overflow-hidden">
       <header className="bg-background/95 sticky top-0 z-30 flex items-center justify-between gap-4 border-b border-(--border) px-6 py-4 backdrop-blur">
         <div className="flex min-w-0 items-center gap-3">
-          <Link
-            href="/"
-            aria-label="Back to generations"
-            className={buttonVariants({
-              variant: "ghost",
-              size: "icon",
-              className: "cursor-pointer",
-            })}
-          >
-            <ArrowLeft />
-          </Link>
+          <WorkshopTooltip label="Back to generations">
+            <Link
+              href="/"
+              aria-label="Back to generations"
+              className={buttonVariants({
+                variant: "ghost",
+                size: "icon",
+                className: "cursor-pointer",
+              })}
+            >
+              <ArrowLeft />
+            </Link>
+          </WorkshopTooltip>
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-blue-500/15 ring-1 ring-blue-500/30">
               <Sparkles className="size-4 text-blue-400" />
@@ -903,19 +1497,6 @@ export default function WorkshopPage() {
             </div>
           </div>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="cursor-pointer"
-          disabled={
-            !selectedProjectId || !selectedThreadId || messages.length === 0
-          }
-          onClick={() => setClearDialogOpen(true)}
-        >
-          <Trash2 />
-          Clear
-        </Button>
       </header>
 
       <section className="flex min-h-0 flex-1">
@@ -926,8 +1507,18 @@ export default function WorkshopPage() {
           selectedThreadId={selectedThreadId}
           onSelectThread={handleSelectThread}
           onNewThread={handleNewThread}
+          onRenameThread={(thread, title) =>
+            renameThread.mutate({
+              projectId: thread.projectId,
+              threadId: thread.id,
+              title,
+            })
+          }
+          onDeleteThread={setThreadToDelete}
           createIsPending={createThread.isPending}
           createTargetProjectId={createTargetProjectId}
+          renameIsPending={renameThread.isPending}
+          deleteIsPending={deleteThread.isPending}
         />
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -956,12 +1547,17 @@ export default function WorkshopPage() {
                 messages.map((message) =>
                   message.role === "suggest_prompt" ? (
                     <WorkshopToolCallLine key={message.id} message={message} />
+                  ) : message.role === "reasoning_summary" ? (
+                    <WorkshopReasoningSummaryLine
+                      key={message.id}
+                      message={message}
+                    />
                   ) : (
                     <WorkshopMessageBubble key={message.id} message={message} />
                   ),
                 )
               )}
-              {sendMessage.isPending && (
+              {sendIsPending && (
                 <div className="flex [animation:promptGroupFadeIn_0.25s_ease_both] justify-start">
                   <div className="border-border bg-card text-muted-foreground flex items-center gap-2 rounded-lg border px-4 py-3 text-sm shadow-sm">
                     <Loader2 className="size-3.5 animate-spin text-blue-400" />
@@ -1002,10 +1598,13 @@ export default function WorkshopPage() {
             <div className="mx-auto flex w-full max-w-4xl flex-col gap-3">
               <WorkshopComposer
                 selectedProjectId={selectedProjectId}
-                sendIsPending={sendMessage.isPending}
+                sendIsPending={sendIsPending}
                 sendPrompt={sendPrompt}
+                stopGeneration={stopGeneration}
                 selectedModel={selectedModel}
                 setSelectedModel={setSelectedModel}
+                selectedReasoningEffort={selectedReasoningEffort}
+                setSelectedReasoningEffort={setSelectedReasoningEffort}
                 isMacOS={isMacOS}
               />
             </div>
@@ -1014,13 +1613,19 @@ export default function WorkshopPage() {
       </section>
 
       <ConfirmDialog
-        open={clearDialogOpen}
-        title="Clear workshop thread?"
-        description="This deletes every workshop message in the selected thread."
-        confirmLabel="Clear"
-        isPending={clearMessages.isPending}
-        onConfirm={handleClear}
-        onCancel={() => setClearDialogOpen(false)}
+        open={threadToDelete !== null}
+        title="Delete workshop thread?"
+        description="This deletes the selected workshop thread and every message in it."
+        confirmLabel="Delete"
+        isPending={deleteThread.isPending}
+        onConfirm={() => {
+          if (!threadToDelete) return;
+          deleteThread.mutate({
+            projectId: threadToDelete.projectId,
+            threadId: threadToDelete.id,
+          });
+        }}
+        onCancel={() => setThreadToDelete(null)}
       />
     </main>
   );

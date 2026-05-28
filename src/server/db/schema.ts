@@ -100,6 +100,7 @@ export type GenerationCostEventOperation =
 export const WORKSHOP_MESSAGE_ROLES = [
   "user",
   "assistant",
+  "reasoning_summary",
   "suggest_prompt",
 ] as const;
 export type WorkshopMessageRole = (typeof WORKSHOP_MESSAGE_ROLES)[number];

@@ -16,6 +16,16 @@ const OPENAI_PRICING = {
     cachedTextInputUsdMicrosPerMillion: 75_000,
     textOutputUsdMicrosPerMillion: 4_500_000,
   },
+  "gpt-5.4": {
+    textInputUsdMicrosPerMillion: 2_500_000,
+    cachedTextInputUsdMicrosPerMillion: 250_000,
+    textOutputUsdMicrosPerMillion: 15_000_000,
+  },
+  "gpt-5.5": {
+    textInputUsdMicrosPerMillion: 5_000_000,
+    cachedTextInputUsdMicrosPerMillion: 500_000,
+    textOutputUsdMicrosPerMillion: 30_000_000,
+  },
   "gpt-image-2": {
     textInputUsdMicrosPerMillion: 5_000_000,
     cachedTextInputUsdMicrosPerMillion: 1_250_000,
@@ -366,7 +376,10 @@ function calculateOpenAIResponseCost(args: {
   model: string;
   usageRaw: unknown;
 }): CostFields {
-  if (args.model !== "gpt-5.4-mini") return unsupportedModelCost(args.model);
+  const pricing = OPENAI_PRICING[args.model as keyof typeof OPENAI_PRICING];
+  if (!pricing || !("textOutputUsdMicrosPerMillion" in pricing)) {
+    return unsupportedModelCost(args.model);
+  }
 
   const raw = isRecord(args.usageRaw)
     ? (args.usageRaw as OpenAIResponseUsageRaw)
@@ -395,7 +408,6 @@ function calculateOpenAIResponseCost(args: {
     };
   }
 
-  const pricing = OPENAI_PRICING["gpt-5.4-mini"];
   const cachedInputTokens = usage?.input_tokens_details?.cached_tokens ?? 0;
   const imageToolCachedInputTokens =
     imageToolUsage?.input_tokens_details?.cached_tokens ?? 0;
@@ -460,8 +472,6 @@ function calculateOpenAIResponseCost(args: {
       pricingVersion: COST_PRICING_VERSION,
       provider: "openai",
       model: args.model,
-      note:
-        "GPT-5.4 mini image tool tokens are charged at GPT-5.4 mini token rates.",
       lineItems: {
         inputCost,
         cachedInputCost,
