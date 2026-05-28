@@ -49,7 +49,7 @@ export function ConfirmDialog({
     >
       {/* backdrop */}
       <div
-        className="absolute inset-0 bg-black/60"
+        className="absolute inset-0 cursor-pointer bg-black/60"
         onClick={isPending ? undefined : onCancel}
       />
 

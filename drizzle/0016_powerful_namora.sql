@@ -1,0 +1,1 @@
+ALTER TABLE "ai-thing_generation_usage" ADD COLUMN "usage_type" text DEFAULT 'image_generation' NOT NULL;

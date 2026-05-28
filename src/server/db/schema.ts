@@ -74,6 +74,12 @@ export const GENERATION_USAGE_STATUSES = [
 ] as const;
 export type GenerationUsageStatus = (typeof GENERATION_USAGE_STATUSES)[number];
 
+export const GENERATION_USAGE_TYPES = [
+  "image_generation",
+  "workshop_message",
+] as const;
+export type GenerationUsageType = (typeof GENERATION_USAGE_TYPES)[number];
+
 export const GENERATION_COST_EVENT_STATUSES = [
   "recorded",
   "estimated",
@@ -86,9 +92,18 @@ export const GENERATION_COST_EVENT_OPERATIONS = [
   "image_generation",
   "image_edit",
   "responses_image_generation",
+  "workshop_message",
 ] as const;
 export type GenerationCostEventOperation =
   (typeof GENERATION_COST_EVENT_OPERATIONS)[number];
+
+export const WORKSHOP_MESSAGE_ROLES = [
+  "user",
+  "assistant",
+  "reasoning_summary",
+  "suggest_prompt",
+] as const;
+export type WorkshopMessageRole = (typeof WORKSHOP_MESSAGE_ROLES)[number];
 
 export const images = createTable(
   "image",
@@ -155,6 +170,11 @@ export const generationUsage = createTable(
     resolution: d.text("resolution"),
     aspectRatio: d.text("aspect_ratio"),
     credits: d.integer("credits").notNull(),
+    usageType: d
+      .text("usage_type")
+      .notNull()
+      .default("image_generation")
+      .$type<GenerationUsageType>(),
     status: d
       .text("status")
       .notNull()
@@ -188,6 +208,9 @@ export const generationCostEvents = createTable(
     imageId: d
       .text("image_id")
       .references(() => images.id, { onDelete: "set null" }),
+    usageId: d
+      .text("usage_id")
+      .references(() => generationUsage.id, { onDelete: "set null" }),
     provider: d.text("provider").notNull(),
     providerRequestId: d.text("provider_request_id"),
     model: d.text("model").notNull(),
@@ -225,6 +248,7 @@ export const generationCostEvents = createTable(
   (t) => [
     index("generation_cost_event_user_created_idx").on(t.userId, t.createdAt),
     index("generation_cost_event_image_idx").on(t.imageId),
+    index("generation_cost_event_usage_idx").on(t.usageId),
     index("generation_cost_event_provider_created_idx").on(
       t.provider,
       t.createdAt,
@@ -232,8 +256,71 @@ export const generationCostEvents = createTable(
   ],
 );
 
+export const workshopThreads = createTable(
+  "workshop_thread",
+  (d) => ({
+    id: d.text("id").primaryKey(),
+    userId: d.text("user_id").notNull(),
+    projectId: d
+      .text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "restrict" }),
+    title: d.text("title").notNull(),
+    createdAt: d
+      .timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: d
+      .timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  }),
+  (t) => [
+    index("workshop_thread_user_project_updated_idx").on(
+      t.userId,
+      t.projectId,
+      t.updatedAt,
+    ),
+    index("workshop_thread_project_updated_idx").on(t.projectId, t.updatedAt),
+  ],
+);
+
+export const workshopMessages = createTable(
+  "workshop_message",
+  (d) => ({
+    id: d.text("id").primaryKey(),
+    userId: d.text("user_id").notNull(),
+    projectId: d
+      .text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "restrict" }),
+    threadId: d
+      .text("thread_id")
+      .notNull()
+      .references(() => workshopThreads.id, { onDelete: "cascade" }),
+    role: d.text("role").notNull().$type<WorkshopMessageRole>(),
+    model: d.text("model"),
+    content: d.text("content").notNull(),
+    createdAt: d
+      .timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  }),
+  (t) => [
+    index("workshop_message_thread_created_idx").on(t.threadId, t.createdAt),
+    index("workshop_message_user_project_created_idx").on(
+      t.userId,
+      t.projectId,
+      t.createdAt,
+    ),
+    index("workshop_message_project_created_idx").on(t.projectId, t.createdAt),
+  ],
+);
+
 export const projectsRelations = relations(projects, ({ many }) => ({
   prompts: many(prompts),
+  workshopThreads: many(workshopThreads),
+  workshopMessages: many(workshopMessages),
 }));
 
 export const promptsRelations = relations(prompts, ({ many, one }) => ({
@@ -252,12 +339,15 @@ export const imagesRelations = relations(images, ({ one }) => ({
 }));
 
 export const referenceImageRelations = relations(referenceImages, () => ({}));
-export const generationUsageRelations = relations(generationUsage, ({ one }) => ({
-  image: one(images, {
-    fields: [generationUsage.imageId],
-    references: [images.id],
+export const generationUsageRelations = relations(
+  generationUsage,
+  ({ one }) => ({
+    image: one(images, {
+      fields: [generationUsage.imageId],
+      references: [images.id],
+    }),
   }),
-}));
+);
 export const generationCostEventsRelations = relations(
   generationCostEvents,
   ({ one }) => ({
@@ -265,6 +355,33 @@ export const generationCostEventsRelations = relations(
       fields: [generationCostEvents.imageId],
       references: [images.id],
     }),
+    usage: one(generationUsage, {
+      fields: [generationCostEvents.usageId],
+      references: [generationUsage.id],
+    }),
+  }),
+);
+export const workshopMessagesRelations = relations(
+  workshopMessages,
+  ({ one }) => ({
+    project: one(projects, {
+      fields: [workshopMessages.projectId],
+      references: [projects.id],
+    }),
+    thread: one(workshopThreads, {
+      fields: [workshopMessages.threadId],
+      references: [workshopThreads.id],
+    }),
+  }),
+);
+export const workshopThreadsRelations = relations(
+  workshopThreads,
+  ({ many, one }) => ({
+    project: one(projects, {
+      fields: [workshopThreads.projectId],
+      references: [projects.id],
+    }),
+    messages: many(workshopMessages),
   }),
 );
 
@@ -274,3 +391,5 @@ export type ReferenceImage = typeof referenceImages.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type GenerationUsage = typeof generationUsage.$inferSelect;
 export type GenerationCostEvent = typeof generationCostEvents.$inferSelect;
+export type WorkshopMessage = typeof workshopMessages.$inferSelect;
+export type WorkshopThread = typeof workshopThreads.$inferSelect;

@@ -77,6 +77,18 @@ function formatRowCost(row: UsageRow) {
   return `${prefix}${formatUsdMicros(row.costUsdMicros)}`;
 }
 
+function formatRowTitle(row: UsageRow) {
+  if (row.kind !== "workshop") return row.model;
+  return row.count > 1
+    ? `Prompt workshop · ${row.count} messages`
+    : "Prompt workshop";
+}
+
+function formatRowDetails(row: UsageRow) {
+  if (row.kind === "workshop") return row.model;
+  return `${row.resolution ?? "1K"} · ${row.aspectRatio ?? "1:1"}`;
+}
+
 function StatusDot({ status }: { status: UsageRow["status"] }) {
   const cls =
     status === "consumed"
@@ -263,11 +275,10 @@ export function UsageModal({
                       <div className="min-w-0">
                         <div className="flex items-baseline gap-2">
                           <span className="truncate font-medium">
-                            {row.model}
+                            {formatRowTitle(row)}
                           </span>
                           <span className="shrink-0 text-xs text-(--muted-foreground)">
-                            {row.resolution ?? "1K"} ·{" "}
-                            {row.aspectRatio ?? "1:1"}
+                            {formatRowDetails(row)}
                           </span>
                         </div>
                         <div className="mt-0.5 text-xs text-(--muted-foreground) capitalize">

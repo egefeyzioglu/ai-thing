@@ -7,13 +7,16 @@ import {
   ChevronDown,
   ChevronUp,
   Gauge,
+  MessagesSquare,
   Trash2,
   Upload,
   AlertTriangle,
 } from "lucide-react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import clsx from "clsx";
 
+import { Button } from "src/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
@@ -24,6 +27,7 @@ import { Field, FieldLabel } from "src/components/ui/field";
 import { Label } from "src/components/ui/label";
 import { Skeleton } from "src/components/ui/skeleton";
 import { Textarea } from "src/components/ui/textarea";
+import { WORKSHOP_DRAFT_STORAGE_KEY } from "src/lib/workshop";
 import type { RouterInputs, RouterOutputs } from "src/trpc/react";
 import { UsageModal } from "./usage-modal";
 
@@ -192,6 +196,20 @@ export function Sidebar({
   onBypassMonthlyQuotaChange,
 }: SidebarProps) {
   const [usageOpen, setUsageOpen] = useState(false);
+  const router = useRouter();
+
+  const handleOpenWorkshop = () => {
+    const trimmedPrompt = promptText.trim();
+    if (trimmedPrompt) {
+      try {
+        sessionStorage.setItem(WORKSHOP_DRAFT_STORAGE_KEY, promptText);
+      } catch (error) {
+        console.error("Failed to save workshop draft", error);
+      }
+    }
+
+    router.push("/workshop/");
+  };
 
   return (
     <aside className="flex h-screen w-1/5 flex-col border border-x border-(--border)">
@@ -216,14 +234,26 @@ export function Sidebar({
             onChange={(e) => onPromptTextChange(e.target.value)}
             onKeyDown={onPromptKeyDown}
           />
-          <span
-            className={clsx(
-              "mx-0 text-xs text-(--muted-foreground)",
-              isMacOS === null ? "opacity-0" : "opacity-80",
-            )}
-          >
-            Press {isMacOS ? "⌘" : "Ctrl"} + Enter to submit
-          </span>
+          <div className="flex items-center justify-between gap-2">
+            <span
+              className={clsx(
+                "mx-0 text-xs text-(--muted-foreground)",
+                isMacOS === null ? "opacity-0" : "opacity-80",
+              )}
+            >
+              Press {isMacOS ? "⌘" : "Ctrl"} + Enter to submit
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="cursor-pointer"
+              onClick={handleOpenWorkshop}
+            >
+              <MessagesSquare />
+              Workshop
+            </Button>
+          </div>
         </Field>
         <Collapsible
           open={referenceImagesOpen}
@@ -516,10 +546,7 @@ export function Sidebar({
       <div className="flex flex-col items-center-safe gap-2 border-y border-(--border) py-4">
         {usage?.isOverQuota && !bypassMonthlyQuota && (
           <div className="mx-4 mb-1 flex w-[calc(100%-2rem)] items-start gap-3 rounded-md border border-red-500/40 bg-red-500/10 p-3">
-            <AlertTriangle
-              size={16}
-              className="mt-0.5 shrink-0 text-red-400"
-            />
+            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-400" />
             <div className="text-sm text-red-300">
               Out of monthly credits. Resets on{" "}
               {new Intl.DateTimeFormat(undefined, {

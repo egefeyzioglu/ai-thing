@@ -1,0 +1,3 @@
+ALTER TABLE "ai-thing_generation_cost_event" ADD COLUMN "usage_id" text;--> statement-breakpoint
+ALTER TABLE "ai-thing_generation_cost_event" ADD CONSTRAINT "ai-thing_generation_cost_event_usage_id_ai-thing_generation_usage_id_fk" FOREIGN KEY ("usage_id") REFERENCES "public"."ai-thing_generation_usage"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "generation_cost_event_usage_idx" ON "ai-thing_generation_cost_event" USING btree ("usage_id");
