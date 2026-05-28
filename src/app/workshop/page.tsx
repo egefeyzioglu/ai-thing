@@ -126,7 +126,7 @@ function ProjectSection({
   createIsPending: boolean;
   createTargetProjectId: string | null;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const [showAll, setShowAll] = useState(false);
 
   const threadsQuery = api.workshop.listThreads.useQuery(
@@ -145,7 +145,11 @@ function ProjectSection({
   return (
     <Collapsible open={expanded} onOpenChange={setExpanded}>
       <div className="group flex items-center gap-1 rounded-md px-1 py-1 hover:bg-muted/40">
-        <CollapsibleTrigger className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 transition-colors hover:bg-muted/60">
+        <CollapsibleTrigger
+          aria-label={expanded ? `Collapse ${project.name}` : `Expand ${project.name}`}
+          aria-expanded={expanded}
+          className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 transition-colors hover:bg-muted/60"
+        >
           <ChevronDown
             className={cn(
               "size-3 text-muted-foreground transition-transform duration-150",
@@ -164,7 +168,7 @@ function ProjectSection({
             e.stopPropagation();
             onNewThread(project.id);
           }}
-          disabled={isCreatingForThis}
+          disabled={createIsPending}
           className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted/60 disabled:cursor-not-allowed"
         >
           {isCreatingForThis ? (
@@ -817,6 +821,7 @@ export default function WorkshopPage() {
   };
 
   const handleNewThread = (projectId: string) => {
+    if (createThread.isPending) return;
     setCreateTargetProjectId(projectId);
     createThread.mutate({ projectId });
   };
