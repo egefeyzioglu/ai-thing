@@ -120,6 +120,13 @@
       "when": 1779869354885,
       "tag": "0016_powerful_namora",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1779938979486,
+      "tag": "0017_old_morlocks",
+      "breakpoints": true
     }
   ]
 }

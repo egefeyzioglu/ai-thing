@@ -97,7 +97,11 @@ export const GENERATION_COST_EVENT_OPERATIONS = [
 export type GenerationCostEventOperation =
   (typeof GENERATION_COST_EVENT_OPERATIONS)[number];
 
-export const WORKSHOP_MESSAGE_ROLES = ["user", "assistant", "suggest_prompt"] as const;
+export const WORKSHOP_MESSAGE_ROLES = [
+  "user",
+  "assistant",
+  "suggest_prompt",
+] as const;
 export type WorkshopMessageRole = (typeof WORKSHOP_MESSAGE_ROLES)[number];
 
 export const images = createTable(
@@ -251,6 +255,35 @@ export const generationCostEvents = createTable(
   ],
 );
 
+export const workshopThreads = createTable(
+  "workshop_thread",
+  (d) => ({
+    id: d.text("id").primaryKey(),
+    userId: d.text("user_id").notNull(),
+    projectId: d
+      .text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "restrict" }),
+    title: d.text("title").notNull(),
+    createdAt: d
+      .timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: d
+      .timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  }),
+  (t) => [
+    index("workshop_thread_user_project_updated_idx").on(
+      t.userId,
+      t.projectId,
+      t.updatedAt,
+    ),
+    index("workshop_thread_project_updated_idx").on(t.projectId, t.updatedAt),
+  ],
+);
+
 export const workshopMessages = createTable(
   "workshop_message",
   (d) => ({
@@ -260,6 +293,10 @@ export const workshopMessages = createTable(
       .text("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "restrict" }),
+    threadId: d
+      .text("thread_id")
+      .notNull()
+      .references(() => workshopThreads.id, { onDelete: "cascade" }),
     role: d.text("role").notNull().$type<WorkshopMessageRole>(),
     model: d.text("model"),
     content: d.text("content").notNull(),
@@ -269,6 +306,7 @@ export const workshopMessages = createTable(
       .defaultNow(),
   }),
   (t) => [
+    index("workshop_message_thread_created_idx").on(t.threadId, t.createdAt),
     index("workshop_message_user_project_created_idx").on(
       t.userId,
       t.projectId,
@@ -280,6 +318,7 @@ export const workshopMessages = createTable(
 
 export const projectsRelations = relations(projects, ({ many }) => ({
   prompts: many(prompts),
+  workshopThreads: many(workshopThreads),
   workshopMessages: many(workshopMessages),
 }));
 
@@ -328,6 +367,20 @@ export const workshopMessagesRelations = relations(
       fields: [workshopMessages.projectId],
       references: [projects.id],
     }),
+    thread: one(workshopThreads, {
+      fields: [workshopMessages.threadId],
+      references: [workshopThreads.id],
+    }),
+  }),
+);
+export const workshopThreadsRelations = relations(
+  workshopThreads,
+  ({ many, one }) => ({
+    project: one(projects, {
+      fields: [workshopThreads.projectId],
+      references: [projects.id],
+    }),
+    messages: many(workshopMessages),
   }),
 );
 
@@ -338,3 +391,4 @@ export type Project = typeof projects.$inferSelect;
 export type GenerationUsage = typeof generationUsage.$inferSelect;
 export type GenerationCostEvent = typeof generationCostEvents.$inferSelect;
 export type WorkshopMessage = typeof workshopMessages.$inferSelect;
+export type WorkshopThread = typeof workshopThreads.$inferSelect;

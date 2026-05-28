@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { env } from "src/env";
@@ -9,6 +9,7 @@ import { db } from "src/server/db";
 import {
   projects,
   workshopMessages,
+  workshopThreads,
   type WorkshopMessage,
 } from "src/server/db/schema";
 import { recordGenerationCostEvent } from "src/server/generation-costs";
@@ -22,6 +23,7 @@ import {
 const WORKSHOP_MODELS = ["gpt-5.4-mini", "gemini-3-flash-preview"] as const;
 type WorkshopModel = (typeof WORKSHOP_MODELS)[number];
 const WORKSHOP_MESSAGE_CREDITS = 1;
+const DEFAULT_THREAD_TITLE = "New workshop thread";
 
 type ChatMessage = Pick<WorkshopMessage, "role" | "content">;
 
@@ -139,6 +141,65 @@ async function verifyProjectOwnership(userId: string, projectId: string) {
       message: "Project not found",
     });
   }
+}
+
+async function verifyThreadOwnership(
+  userId: string,
+  projectId: string,
+  threadId: string,
+) {
+  const [thread] = await db
+    .select()
+    .from(workshopThreads)
+    .where(
+      and(
+        eq(workshopThreads.id, threadId),
+        eq(workshopThreads.userId, userId),
+        eq(workshopThreads.projectId, projectId),
+      ),
+    )
+    .limit(1);
+
+  if (!thread) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Workshop thread not found",
+    });
+  }
+
+  return thread;
+}
+
+function getThreadTitle(content: string) {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  if (!normalized) return DEFAULT_THREAD_TITLE;
+
+  return normalized.length > 60 ? `${normalized.slice(0, 57)}...` : normalized;
+}
+
+async function createWorkshopThread(args: {
+  userId: string;
+  projectId: string;
+  title?: string;
+}) {
+  const [thread] = await db
+    .insert(workshopThreads)
+    .values({
+      id: crypto.randomUUID(),
+      userId: args.userId,
+      projectId: args.projectId,
+      title: args.title ?? DEFAULT_THREAD_TITLE,
+    })
+    .returning();
+
+  if (!thread) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Failed to create workshop thread",
+    });
+  }
+
+  return thread;
 }
 
 function parseOpenAIResponse(data: OpenAIResponse): ParsedTextResponse {
@@ -387,10 +448,49 @@ async function generateAssistantText(
 }
 
 export const workshopRouter = createTRPCRouter({
-  list: protectedProcedure
+  listThreads: protectedProcedure
     .input(z.object({ projectId: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
       await verifyProjectOwnership(ctx.user, input.projectId);
+
+      return db
+        .select()
+        .from(workshopThreads)
+        .where(
+          and(
+            eq(workshopThreads.userId, ctx.user),
+            eq(workshopThreads.projectId, input.projectId),
+          ),
+        )
+        .orderBy(desc(workshopThreads.updatedAt));
+    }),
+
+  createThread: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string().min(1),
+        title: z.string().trim().min(1).max(120).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await verifyProjectOwnership(ctx.user, input.projectId);
+
+      return createWorkshopThread({
+        userId: ctx.user,
+        projectId: input.projectId,
+        title: input.title,
+      });
+    }),
+
+  list: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string().min(1),
+        threadId: z.string().min(1),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await verifyThreadOwnership(ctx.user, input.projectId, input.threadId);
 
       return db
         .select()
@@ -399,6 +499,7 @@ export const workshopRouter = createTRPCRouter({
           and(
             eq(workshopMessages.userId, ctx.user),
             eq(workshopMessages.projectId, input.projectId),
+            eq(workshopMessages.threadId, input.threadId),
           ),
         )
         .orderBy(asc(workshopMessages.createdAt));
@@ -408,12 +509,20 @@ export const workshopRouter = createTRPCRouter({
     .input(
       z.object({
         projectId: z.string().min(1),
+        threadId: z.string().min(1).optional(),
         content: z.string().trim().min(1).max(20_000),
         model: z.enum(WORKSHOP_MODELS),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       await verifyProjectOwnership(ctx.user, input.projectId);
+      const thread = input.threadId
+        ? await verifyThreadOwnership(ctx.user, input.projectId, input.threadId)
+        : await createWorkshopThread({
+            userId: ctx.user,
+            projectId: input.projectId,
+            title: getThreadTitle(input.content),
+          });
 
       const previousMessages = await db
         .select()
@@ -422,6 +531,7 @@ export const workshopRouter = createTRPCRouter({
           and(
             eq(workshopMessages.userId, ctx.user),
             eq(workshopMessages.projectId, input.projectId),
+            eq(workshopMessages.threadId, thread.id),
           ),
         )
         .orderBy(asc(workshopMessages.createdAt));
@@ -451,6 +561,7 @@ export const workshopRouter = createTRPCRouter({
           id: crypto.randomUUID(),
           userId: ctx.user,
           projectId: input.projectId,
+          threadId: thread.id,
           role: "user",
           model: null,
           content: input.content,
@@ -518,6 +629,7 @@ export const workshopRouter = createTRPCRouter({
                   id: crypto.randomUUID(),
                   userId: ctx.user,
                   projectId: input.projectId,
+                  threadId: thread.id,
                   model: input.model,
                   role: "assistant" as const,
                   content: assistantText,
@@ -530,6 +642,7 @@ export const workshopRouter = createTRPCRouter({
                   id: crypto.randomUUID(),
                   userId: ctx.user,
                   projectId: input.projectId,
+                  threadId: thread.id,
                   model: input.model,
                   role: "suggest_prompt" as const,
                   content: suggestedPrompt,
@@ -548,6 +661,18 @@ export const workshopRouter = createTRPCRouter({
           message: "Failed to save assistant response",
         });
       }
+
+      const [updatedThread] = await db
+        .update(workshopThreads)
+        .set({
+          title:
+            previousMessages.length === 0
+              ? getThreadTitle(input.content)
+              : thread.title,
+          updatedAt: new Date(),
+        })
+        .where(eq(workshopThreads.id, thread.id))
+        .returning();
 
       await recordGenerationCostEvent({
         userId: ctx.user,
@@ -580,6 +705,7 @@ export const workshopRouter = createTRPCRouter({
       }
 
       return {
+        thread: updatedThread ?? thread,
         userMessage,
         assistantMessages: insertedAssistantMessages,
         suggestedPrompt,
@@ -587,9 +713,14 @@ export const workshopRouter = createTRPCRouter({
     }),
 
   clear: protectedProcedure
-    .input(z.object({ projectId: z.string().min(1) }))
+    .input(
+      z.object({
+        projectId: z.string().min(1),
+        threadId: z.string().min(1),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
-      await verifyProjectOwnership(ctx.user, input.projectId);
+      await verifyThreadOwnership(ctx.user, input.projectId, input.threadId);
 
       await db
         .delete(workshopMessages)
@@ -597,6 +728,7 @@ export const workshopRouter = createTRPCRouter({
           and(
             eq(workshopMessages.userId, ctx.user),
             eq(workshopMessages.projectId, input.projectId),
+            eq(workshopMessages.threadId, input.threadId),
           ),
         );
 
