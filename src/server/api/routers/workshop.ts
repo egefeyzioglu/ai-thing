@@ -68,6 +68,58 @@ type OpenAIResponse = {
   usage?: unknown;
 };
 
+type OpenAIResponseUsage = {
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  input_tokens_details?: {
+    cached_tokens?: number;
+    image_tokens?: number;
+    text_tokens?: number;
+  };
+  output_tokens_details?: {
+    image_tokens?: number;
+    reasoning_tokens?: number;
+  };
+};
+
+type OpenAITextRequestBody = {
+  model: OpenAIWorkshopModel;
+  stream: boolean;
+  reasoning: {
+    effort: WorkshopReasoningEffort;
+    summary: "auto";
+  };
+  instructions: string;
+  input:
+    | {
+        role: "user" | "assistant";
+        content: string;
+      }[]
+    | {
+        type: "function_call_output";
+        call_id: string;
+        output: string;
+      }[];
+  tools: {
+    name: "suggest_prompt";
+    description: string;
+    type: "function";
+    parameters: {
+      type: "object";
+      properties: {
+        prompt: {
+          type: "string";
+          description: string;
+        };
+      };
+    };
+  }[];
+  previous_response_id?: string;
+  tool_choice?: "auto" | "none";
+  parallel_tool_calls?: boolean;
+};
+
 const suggestedPromptParamSchema = z.object({
   prompt: z.string(),
 });
@@ -87,6 +139,7 @@ type ParsedTextResponse = {
   text: string;
   reasoningSummary?: string;
   suggestedPromptParam?: SuggestedPromptParam;
+  suggestedPromptCallId?: string;
 };
 
 type ProviderTextResponse = ParsedTextResponse & {
@@ -187,11 +240,16 @@ function getProviderMessages(messages: ChatMessage[]) {
   return messages.filter((message) => message.role !== "reasoning_summary");
 }
 
-function parseOpenAIResponse(data: OpenAIResponse): ParsedTextResponse {
+function parseOpenAIResponse(
+  data: OpenAIResponse,
+  options: { allowEmpty?: boolean } = {},
+): ParsedTextResponse {
   if (!data.output) {
     if (typeof data.output_text === "string" && data.output_text.trim()) {
       return { text: data.output_text };
     }
+
+    if (options.allowEmpty) return { text: "" };
 
     throw new Error("OpenAI response did not contain output or output_text");
   }
@@ -199,10 +257,15 @@ function parseOpenAIResponse(data: OpenAIResponse): ParsedTextResponse {
   const functionCallParams = data.output
     .filter((item) => item.type === "function_call")
     .map((content) => {
-      if (!("arguments" in content)) return undefined;
+      if (!("arguments" in content) || content.name !== "suggest_prompt") {
+        return undefined;
+      }
 
       const parsedArguments: unknown = JSON.parse(content.arguments);
-      return suggestedPromptParamSchema.parse(parsedArguments);
+      return {
+        callId: content.call_id,
+        param: suggestedPromptParamSchema.parse(parsedArguments),
+      };
     })
     .filter((e) => e !== undefined);
 
@@ -225,7 +288,7 @@ function parseOpenAIResponse(data: OpenAIResponse): ParsedTextResponse {
     .join("\n")
     .trim();
 
-  if (!text && functionCallParams.length === 0) {
+  if (!text && functionCallParams.length === 0 && !options.allowEmpty) {
     throw new Error(
       "OpenAI response did not contain any text or a function call",
     );
@@ -234,7 +297,8 @@ function parseOpenAIResponse(data: OpenAIResponse): ParsedTextResponse {
   return {
     text,
     reasoningSummary: reasoningSummary || undefined,
-    suggestedPromptParam: functionCallParams[0],
+    suggestedPromptParam: functionCallParams[0]?.param,
+    suggestedPromptCallId: functionCallParams[0]?.callId,
   };
 }
 
@@ -243,7 +307,7 @@ function createOpenAITextRequestBody(
   messages: ChatMessage[],
   stream: boolean,
   reasoningEffort: WorkshopReasoningEffort,
-) {
+): OpenAITextRequestBody {
   return {
     model,
     stream,
@@ -273,6 +337,29 @@ function createOpenAITextRequestBody(
         },
       },
     ],
+    tool_choice: "auto",
+    parallel_tool_calls: false,
+  };
+}
+
+function createOpenAITextContinuationRequestBody(
+  model: OpenAIWorkshopModel,
+  previousResponseId: string,
+  suggestedPromptCallId: string,
+  stream: boolean,
+  reasoningEffort: WorkshopReasoningEffort,
+): OpenAITextRequestBody {
+  return {
+    ...createOpenAITextRequestBody(model, [], stream, reasoningEffort),
+    input: [
+      {
+        type: "function_call_output",
+        call_id: suggestedPromptCallId,
+        output: JSON.stringify({ status: "recorded" }),
+      },
+    ],
+    previous_response_id: previousResponseId,
+    tool_choice: "none",
   };
 }
 
@@ -291,20 +378,126 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function generateOpenAIText(
-  model: OpenAIWorkshopModel,
-  messages: ChatMessage[],
-  reasoningEffort: WorkshopReasoningEffort,
+function readUsageNumber(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeOpenAIResponseUsage(
+  usage: unknown,
+): OpenAIResponseUsage | undefined {
+  if (!isRecord(usage)) return undefined;
+
+  const inputDetails = isRecord(usage.input_tokens_details)
+    ? usage.input_tokens_details
+    : undefined;
+  const outputDetails = isRecord(usage.output_tokens_details)
+    ? usage.output_tokens_details
+    : undefined;
+
+  return {
+    input_tokens: readUsageNumber(usage, "input_tokens"),
+    output_tokens: readUsageNumber(usage, "output_tokens"),
+    total_tokens: readUsageNumber(usage, "total_tokens"),
+    input_tokens_details: {
+      cached_tokens: inputDetails
+        ? readUsageNumber(inputDetails, "cached_tokens")
+        : undefined,
+      image_tokens: inputDetails
+        ? readUsageNumber(inputDetails, "image_tokens")
+        : undefined,
+      text_tokens: inputDetails
+        ? readUsageNumber(inputDetails, "text_tokens")
+        : undefined,
+    },
+    output_tokens_details: {
+      image_tokens: outputDetails
+        ? readUsageNumber(outputDetails, "image_tokens")
+        : undefined,
+      reasoning_tokens: outputDetails
+        ? readUsageNumber(outputDetails, "reasoning_tokens")
+        : undefined,
+    },
+  };
+}
+
+function addNumbers(...values: (number | undefined)[]) {
+  const numbers = values.filter((value): value is number => value !== undefined);
+  if (numbers.length === 0) return undefined;
+
+  return numbers.reduce((total, value) => total + value, 0);
+}
+
+function mergeOpenAIResponseUsage(usages: unknown[]) {
+  const normalized = usages
+    .map((usage) => normalizeOpenAIResponseUsage(usage))
+    .filter((usage) => usage !== undefined);
+
+  if (normalized.length === 0) return null;
+
+  return {
+    input_tokens: addNumbers(...normalized.map((usage) => usage.input_tokens)),
+    output_tokens: addNumbers(...normalized.map((usage) => usage.output_tokens)),
+    total_tokens: addNumbers(...normalized.map((usage) => usage.total_tokens)),
+    input_tokens_details: {
+      cached_tokens: addNumbers(
+        ...normalized.map((usage) => usage.input_tokens_details?.cached_tokens),
+      ),
+      image_tokens: addNumbers(
+        ...normalized.map((usage) => usage.input_tokens_details?.image_tokens),
+      ),
+      text_tokens: addNumbers(
+        ...normalized.map((usage) => usage.input_tokens_details?.text_tokens),
+      ),
+    },
+    output_tokens_details: {
+      image_tokens: addNumbers(
+        ...normalized.map((usage) => usage.output_tokens_details?.image_tokens),
+      ),
+      reasoning_tokens: addNumbers(
+        ...normalized.map(
+          (usage) => usage.output_tokens_details?.reasoning_tokens,
+        ),
+      ),
+    },
+  };
+}
+
+function mergeParsedOpenAIResponses(responses: OpenAIResponse[]) {
+  const parsedResponses = responses.map((response) =>
+    parseOpenAIResponse(response, { allowEmpty: true }),
+  );
+
+  return {
+    text: parsedResponses
+      .map((parsed) => parsed.text)
+      .filter(Boolean)
+      .join("\n\n")
+      .trim(),
+    reasoningSummary:
+      parsedResponses
+        .map((parsed) => parsed.reasoningSummary)
+        .filter((summary): summary is string => summary !== undefined)
+        .join("\n\n")
+        .trim() || undefined,
+    suggestedPromptParam: parsedResponses.find(
+      (parsed) => parsed.suggestedPromptParam,
+    )?.suggestedPromptParam,
+  };
+}
+
+async function createOpenAIResponse(
+  body: OpenAITextRequestBody,
+  signal?: AbortSignal,
 ) {
   const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
+    signal,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${env.OPENAI_API_KEY}`,
     },
-    body: JSON.stringify(
-      createOpenAITextRequestBody(model, messages, false, reasoningEffort),
-    ),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -312,23 +505,55 @@ async function generateOpenAIText(
     throw new Error(`OpenAI API error (${res.status}): ${text}`);
   }
 
-  const data = (await res.json()) as OpenAIResponse;
+  return (await res.json()) as OpenAIResponse;
+}
+
+async function generateOpenAIText(
+  model: OpenAIWorkshopModel,
+  messages: ChatMessage[],
+  reasoningEffort: WorkshopReasoningEffort,
+) {
+  const data = await createOpenAIResponse(
+    createOpenAITextRequestBody(model, messages, false, reasoningEffort),
+  );
+  const parsed = parseOpenAIResponse(data);
+  const responses = [data];
+
+  if (data.id && parsed.suggestedPromptCallId) {
+    responses.push(
+      await createOpenAIResponse(
+        createOpenAITextContinuationRequestBody(
+          model,
+          data.id,
+          parsed.suggestedPromptCallId,
+          false,
+          reasoningEffort,
+        ),
+      ),
+    );
+  }
+
+  const merged = mergeParsedOpenAIResponses(responses);
   return {
-    ...parseOpenAIResponse(data),
+    ...merged,
     provider: "openai" as const,
-    providerRequestId: data.id ?? null,
+    providerRequestId:
+      responses
+        .map((response) => response.id)
+        .filter(Boolean)
+        .join(",") || null,
     providerModel: model,
     usageRaw: {
-      responseUsage: data.usage ?? null,
+      responseUsage: mergeOpenAIResponseUsage(
+        responses.map((response) => response.usage),
+      ),
     },
   };
 }
 
-async function generateOpenAITextStream(
-  model: OpenAIWorkshopModel,
-  messages: ChatMessage[],
+async function createOpenAIResponseStream(
+  body: OpenAITextRequestBody,
   options: GenerateAssistantTextOptions,
-  reasoningEffort: WorkshopReasoningEffort,
 ) {
   const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -337,9 +562,7 @@ async function generateOpenAITextStream(
       "Content-Type": "application/json",
       Authorization: `Bearer ${env.OPENAI_API_KEY}`,
     },
-    body: JSON.stringify(
-      createOpenAITextRequestBody(model, messages, true, reasoningEffort),
-    ),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -406,13 +629,51 @@ async function generateOpenAITextStream(
     throw new Error("OpenAI streaming response did not complete");
   }
 
+  return completedResponse;
+}
+
+async function generateOpenAITextStream(
+  model: OpenAIWorkshopModel,
+  messages: ChatMessage[],
+  options: GenerateAssistantTextOptions,
+  reasoningEffort: WorkshopReasoningEffort,
+) {
+  const firstResponse = await createOpenAIResponseStream(
+    createOpenAITextRequestBody(model, messages, true, reasoningEffort),
+    options,
+  );
+  const parsed = parseOpenAIResponse(firstResponse);
+  const responses = [firstResponse];
+
+  if (firstResponse.id && parsed.suggestedPromptCallId) {
+    responses.push(
+      await createOpenAIResponseStream(
+        createOpenAITextContinuationRequestBody(
+          model,
+          firstResponse.id,
+          parsed.suggestedPromptCallId,
+          true,
+          reasoningEffort,
+        ),
+        options,
+      ),
+    );
+  }
+
+  const merged = mergeParsedOpenAIResponses(responses);
   return {
-    ...parseOpenAIResponse(completedResponse),
+    ...merged,
     provider: "openai" as const,
-    providerRequestId: completedResponse.id ?? null,
+    providerRequestId:
+      responses
+        .map((response) => response.id)
+        .filter(Boolean)
+        .join(",") || null,
     providerModel: model,
     usageRaw: {
-      responseUsage: completedResponse.usage ?? null,
+      responseUsage: mergeOpenAIResponseUsage(
+        responses.map((response) => response.usage),
+      ),
     },
   };
 }
