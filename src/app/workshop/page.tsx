@@ -12,8 +12,10 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Folder,
   Loader2,
   MessagesSquare,
+  Plus,
   Send,
   Sparkles,
   Trash2,
@@ -22,8 +24,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-import { ProjectSwitcher } from "src/app/_components/project-switcher";
-import { useActiveProject } from "src/app/_hooks/use-active-project";
 import { Button, buttonVariants } from "src/components/ui/button";
 import {
   Collapsible,
@@ -95,6 +95,203 @@ const WORKSHOP_MODELS = [
 
 type WorkshopModel = (typeof WORKSHOP_MODELS)[number]["slug"];
 type WorkshopMessage = RouterOutputs["workshop"]["list"][number];
+type Project = RouterOutputs["project"]["list"][number];
+
+function formatRelativeTime(date: Date | string): string {
+  const diff = Date.now() - new Date(date).getTime();
+  const hours = Math.floor(diff / 3_600_000);
+  const days = Math.floor(diff / 86_400_000);
+  if (diff < 60_000) return "just now";
+  if (hours < 1) return `${Math.floor(diff / 60_000)}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${days}d ago`;
+}
+
+const THREADS_SHOWN_INITIALLY = 6;
+
+function ProjectSection({
+  project,
+  selectedProjectId,
+  selectedThreadId,
+  onSelectThread,
+  onNewThread,
+  createIsPending,
+  createTargetProjectId,
+}: {
+  project: Project;
+  selectedProjectId: string | null;
+  selectedThreadId: string | null;
+  onSelectThread: (threadId: string, projectId: string) => void;
+  onNewThread: (projectId: string) => void;
+  createIsPending: boolean;
+  createTargetProjectId: string | null;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const [showAll, setShowAll] = useState(false);
+
+  const threadsQuery = api.workshop.listThreads.useQuery(
+    { projectId: project.id },
+    { enabled: expanded },
+  );
+
+  const threads = threadsQuery.data ?? [];
+  const visibleThreads = showAll
+    ? threads
+    : threads.slice(0, THREADS_SHOWN_INITIALLY);
+  const hiddenCount = threads.length - THREADS_SHOWN_INITIALLY;
+  const isCreatingForThis =
+    createIsPending && createTargetProjectId === project.id;
+
+  return (
+    <Collapsible open={expanded} onOpenChange={setExpanded}>
+      <div className="group flex items-center gap-1 rounded-md px-1 py-1 hover:bg-muted/40">
+        <CollapsibleTrigger className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 transition-colors hover:bg-muted/60">
+          <ChevronDown
+            className={cn(
+              "size-3 text-muted-foreground transition-transform duration-150",
+              !expanded && "-rotate-90",
+            )}
+          />
+        </CollapsibleTrigger>
+        <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+          {project.name}
+        </span>
+        <button
+          type="button"
+          aria-label={`New thread in ${project.name}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onNewThread(project.id);
+          }}
+          disabled={isCreatingForThis}
+          className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted/60 disabled:cursor-not-allowed"
+        >
+          {isCreatingForThis ? (
+            <Loader2 className="size-3 animate-spin text-muted-foreground" />
+          ) : (
+            <Plus className="size-3 text-muted-foreground" />
+          )}
+        </button>
+      </div>
+
+      <CollapsibleContent>
+        <div className="mb-1 ml-4 border-l border-border/40 pl-2">
+          {threadsQuery.isLoading ? (
+            <div className="flex flex-col gap-1 py-1 pr-1">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-5 rounded" />
+              ))}
+            </div>
+          ) : visibleThreads.length === 0 ? (
+            <p className="py-1.5 pr-1 text-xs text-muted-foreground/60">
+              No threads yet
+            </p>
+          ) : (
+            <div className="flex flex-col gap-0.5 py-0.5 pr-1">
+              {visibleThreads.map((thread) => {
+                const isSelected = thread.id === selectedThreadId;
+                return (
+                  <button
+                    key={thread.id}
+                    type="button"
+                    onClick={() => onSelectThread(thread.id, project.id)}
+                    aria-current={isSelected ? "page" : undefined}
+                    className={cn(
+                      "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
+                      isSelected
+                        ? "bg-muted/60 text-foreground"
+                        : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 truncate text-xs",
+                        isSelected ? "font-semibold" : "font-medium",
+                      )}
+                    >
+                      {thread.title}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-muted-foreground/60">
+                      {formatRelativeTime(thread.updatedAt)}
+                    </span>
+                  </button>
+                );
+              })}
+              {hiddenCount > 0 && !showAll && (
+                <button
+                  type="button"
+                  onClick={() => setShowAll(true)}
+                  className="cursor-pointer px-2 py-1 text-left text-xs text-muted-foreground/50 hover:text-muted-foreground"
+                >
+                  Show more
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function WorkshopProjectsSidebar({
+  projects,
+  isLoadingProjects,
+  selectedProjectId,
+  selectedThreadId,
+  onSelectThread,
+  onNewThread,
+  createIsPending,
+  createTargetProjectId,
+}: {
+  projects: RouterOutputs["project"]["list"] | undefined;
+  isLoadingProjects: boolean;
+  selectedProjectId: string | null;
+  selectedThreadId: string | null;
+  onSelectThread: (threadId: string, projectId: string) => void;
+  onNewThread: (projectId: string) => void;
+  createIsPending: boolean;
+  createTargetProjectId: string | null;
+}) {
+  return (
+    <aside className="bg-background/80 flex w-64 shrink-0 flex-col border-r border-(--border)">
+      <div className="flex items-center gap-2 border-b border-(--border) px-4 py-3">
+        <span className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
+          Projects
+        </span>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        {isLoadingProjects ? (
+          <div className="flex flex-col gap-2 p-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-6 rounded" />
+            ))}
+          </div>
+        ) : !projects || projects.length === 0 ? (
+          <p className="px-4 py-3 text-xs text-muted-foreground">
+            No projects
+          </p>
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            {projects.map((project) => (
+              <ProjectSection
+                key={project.id}
+                project={project}
+                selectedProjectId={selectedProjectId}
+                selectedThreadId={selectedThreadId}
+                onSelectThread={onSelectThread}
+                onNewThread={onNewThread}
+                createIsPending={createIsPending}
+                createTargetProjectId={createTargetProjectId}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
 
 type WorkshopComposerProps = {
   selectedProjectId: string | null;
@@ -158,7 +355,7 @@ function WorkshopComposer(props: WorkshopComposerProps) {
           placeholder={
             selectedProjectId
               ? "Ask for prompt feedback or revisions..."
-              : "Select a project to start..."
+              : "Select a project thread to start..."
           }
           disabled={textareaShouldBeDisabled}
           className="max-h-48 min-h-24 resize-none pb-10"
@@ -283,7 +480,7 @@ function WorkshopMessageBubble({ message }: { message: WorkshopMessage }) {
         className={cn(
           "max-w-[min(780px,85%)] rounded-lg border px-4 py-3 text-sm leading-relaxed shadow-sm",
           isUser
-            ? "border-blue-500/30 bg-blue-500/15 text-foreground whitespace-pre-wrap"
+            ? "text-foreground border-blue-500/30 bg-blue-500/15 whitespace-pre-wrap"
             : "border-border bg-card text-card-foreground",
         )}
       >
@@ -369,7 +566,7 @@ function WorkshopToolCallLine({ message }: { message: WorkshopMessage }) {
     "Agent";
 
   return (
-    <div className="flex justify-center [animation:promptGroupFadeIn_0.25s_ease_both]">
+    <div className="flex [animation:promptGroupFadeIn_0.25s_ease_both] justify-center">
       <div className="text-muted-foreground border-border bg-card/60 flex max-w-[min(520px,90%)] items-center gap-2 rounded-full border px-3 py-1.5 text-xs backdrop-blur-sm">
         <Sparkles className="size-3 shrink-0 text-blue-400" />
         <span className="truncate">
@@ -405,7 +602,7 @@ function SuggestedPromptCard({
     <Collapsible
       open={expanded}
       onOpenChange={onExpandedChange}
-      className="overflow-hidden rounded-lg border border-blue-500/30 bg-blue-500/10 [animation:promptGroupFadeIn_0.3s_ease_both]"
+      className="[animation:promptGroupFadeIn_0.3s_ease_both] overflow-hidden rounded-lg border border-blue-500/30 bg-blue-500/10"
     >
       <div className="flex items-center justify-between gap-2 px-4 py-2.5">
         <div className="flex min-w-0 items-center gap-1.5">
@@ -425,8 +622,10 @@ function SuggestedPromptCard({
             Use prompt
           </Button>
           <CollapsibleTrigger
-            aria-label={expanded ? "Collapse suggested prompt" : "Expand suggested prompt"}
-            className="flex size-7 cursor-pointer items-center justify-center rounded-md text-(--muted-foreground) hover:bg-blue-500/15 hover:text-foreground transition-colors"
+            aria-label={
+              expanded ? "Collapse suggested prompt" : "Expand suggested prompt"
+            }
+            className="hover:text-foreground flex size-7 cursor-pointer items-center justify-center rounded-md text-(--muted-foreground) transition-colors hover:bg-blue-500/15"
           >
             {expanded ? (
               <ChevronUp className="size-4" />
@@ -449,24 +648,28 @@ function SuggestedPromptCard({
 
 function WorkshopEmptyState({
   selectedProjectId,
+  selectedThreadId,
 }: {
   selectedProjectId: string | null;
+  selectedThreadId: string | null;
 }) {
+  const heading = selectedProjectId
+    ? selectedThreadId
+      ? "Start a conversation with the workshop"
+      : "Start a workshop thread"
+    : "Select a thread to get started";
+
+  const body = selectedProjectId
+    ? "Describe what you want to create and the assistant will help you craft a prompt"
+    : "Choose a project from the sidebar and select or create a thread";
+
   return (
     <div className="flex min-h-[40vh] flex-1 flex-col items-center justify-center gap-3 text-center">
       <div className="bg-card border-border flex size-11 items-center justify-center rounded-xl border">
         <MessagesSquare className="text-muted-foreground size-5" />
       </div>
-      <p className="text-foreground text-sm font-medium">
-        {selectedProjectId
-          ? "Start a conversation with the workshop"
-          : "Select a project to start"}
-      </p>
-      <p className="text-muted-foreground/60 max-w-sm text-xs">
-        {selectedProjectId
-          ? "Describe what you want to create and the assistant will help you craft a prompt"
-          : "Workshop history is scoped to each project"}
-      </p>
+      <p className="text-foreground text-sm font-medium">{heading}</p>
+      <p className="text-muted-foreground/60 max-w-sm text-xs">{body}</p>
     </div>
   );
 }
@@ -477,6 +680,13 @@ export default function WorkshopPage() {
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
   const [suggestedPromptExpanded, setSuggestedPromptExpanded] = useState(true);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+    null,
+  );
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [createTargetProjectId, setCreateTargetProjectId] = useState<
+    string | null
+  >(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const suggestedPromptRef = useRef<HTMLDivElement>(null);
   const optimisticUserMessageIdRef = useRef<string | null>(null);
@@ -489,15 +699,10 @@ export default function WorkshopPage() {
 
   const { data: projects, isLoading: isLoadingProjects } =
     api.project.list.useQuery();
-  const {
-    selectedProjectId,
-    selectedProject,
-    onSelectProject: handleSelectProject,
-  } = useActiveProject(projects);
 
   const messagesQuery = api.workshop.list.useQuery(
-    { projectId: selectedProjectId ?? "" },
-    { enabled: Boolean(selectedProjectId) },
+    { projectId: selectedProjectId ?? "", threadId: selectedThreadId ?? "" },
+    { enabled: Boolean(selectedProjectId && selectedThreadId) },
   );
   const messages = useMemo(
     () => messagesQuery.data ?? [],
@@ -517,36 +722,87 @@ export default function WorkshopPage() {
   }, [latestSuggestedPrompt]);
 
   const sendMessage = api.workshop.sendMessage.useMutation({
-    onSuccess: ({ userMessage, assistantMessages }, variables) => {
+    onSuccess: ({ thread, userMessage, assistantMessages }, variables) => {
       const optimisticId = optimisticUserMessageIdRef.current;
       optimisticUserMessageIdRef.current = null;
 
-      utils.workshop.list.setData({ projectId: variables.projectId }, (old) => [
-        ...(old ?? []).filter((message) => message.id !== optimisticId),
-        userMessage,
-        ...assistantMessages,
-      ]);
-      void utils.workshop.list.invalidate({ projectId: variables.projectId });
+      setSelectedProjectId(variables.projectId);
+      setSelectedThreadId(thread.id);
+      utils.workshop.list.setData(
+        { projectId: variables.projectId, threadId: thread.id },
+        (old) => [
+          ...(old ?? []).filter((message) => message.id !== optimisticId),
+          userMessage,
+          ...assistantMessages,
+        ],
+      );
+      utils.workshop.listThreads.setData(
+        { projectId: variables.projectId },
+        (old) => {
+          const filtered = (old ?? []).filter((item) => item.id !== thread.id);
+          return [thread, ...filtered];
+        },
+      );
+      void utils.workshop.list.invalidate({
+        projectId: variables.projectId,
+        threadId: thread.id,
+      });
+      void utils.workshop.listThreads.invalidate({
+        projectId: variables.projectId,
+      });
       void utils.usage.getCurrent.invalidate();
     },
     onError: (error, variables) => {
       optimisticUserMessageIdRef.current = null;
       toast.error(error.message || "Failed to generate assistant response");
-      void utils.workshop.list.invalidate({ projectId: variables.projectId });
+      if (variables.threadId) {
+        void utils.workshop.list.invalidate({
+          projectId: variables.projectId,
+          threadId: variables.threadId,
+        });
+      }
       void utils.usage.getCurrent.invalidate();
+    },
+  });
+
+  const createThread = api.workshop.createThread.useMutation({
+    onSuccess: (thread) => {
+      setSelectedProjectId(thread.projectId);
+      setSelectedThreadId(thread.id);
+      setCreateTargetProjectId(null);
+      utils.workshop.listThreads.setData(
+        { projectId: thread.projectId },
+        (old) => [
+          thread,
+          ...(old ?? []).filter((item) => item.id !== thread.id),
+        ],
+      );
+      void utils.workshop.listThreads.invalidate({
+        projectId: thread.projectId,
+      });
+    },
+    onError: () => {
+      setCreateTargetProjectId(null);
+      toast.error("Failed to create workshop thread");
     },
   });
 
   const clearMessages = api.workshop.clear.useMutation({
     onSuccess: () => {
-      if (!selectedProjectId) return;
-      utils.workshop.list.setData({ projectId: selectedProjectId }, []);
-      void utils.workshop.list.invalidate({ projectId: selectedProjectId });
+      if (!selectedProjectId || !selectedThreadId) return;
+      utils.workshop.list.setData(
+        { projectId: selectedProjectId, threadId: selectedThreadId },
+        [],
+      );
+      void utils.workshop.list.invalidate({
+        projectId: selectedProjectId,
+        threadId: selectedThreadId,
+      });
       setClearDialogOpen(false);
-      toast.success("Workshop history cleared");
+      toast.success("Workshop thread cleared");
     },
     onError: () => {
-      toast.error("Failed to clear workshop history");
+      toast.error("Failed to clear workshop thread");
     },
   });
 
@@ -555,56 +811,59 @@ export default function WorkshopPage() {
     target?.scrollIntoView({ block: "end" });
   }, [messages.length, sendMessage.isPending, latestSuggestedPrompt]);
 
+  const handleSelectThread = (threadId: string, projectId: string) => {
+    setSelectedProjectId(projectId);
+    setSelectedThreadId(threadId);
+  };
+
+  const handleNewThread = (projectId: string) => {
+    setCreateTargetProjectId(projectId);
+    createThread.mutate({ projectId });
+  };
+
   const sendPrompt = (prompt: string) => {
     const trimmedPrompt = prompt.trim();
     if (!selectedProjectId || !trimmedPrompt || sendMessage.isPending) return;
 
-    const optimisticId = `optimistic-${crypto.randomUUID()}`;
-    optimisticUserMessageIdRef.current = optimisticId;
-    utils.workshop.list.setData({ projectId: selectedProjectId }, (old) => [
-      ...(old ?? []),
-      {
-        id: optimisticId,
-        userId: "",
-        projectId: selectedProjectId,
-        role: "user",
-        model: null,
-        content: trimmedPrompt,
-        createdAt: new Date(),
-      },
-    ]);
+    if (selectedThreadId) {
+      const optimisticId = `optimistic-${crypto.randomUUID()}`;
+      optimisticUserMessageIdRef.current = optimisticId;
+      utils.workshop.list.setData(
+        { projectId: selectedProjectId, threadId: selectedThreadId },
+        (old) => [
+          ...(old ?? []),
+          {
+            id: optimisticId,
+            userId: "",
+            projectId: selectedProjectId,
+            threadId: selectedThreadId,
+            role: "user",
+            model: null,
+            content: trimmedPrompt,
+            createdAt: new Date(),
+          },
+        ],
+      );
+    }
 
     sendMessage.mutate({
       projectId: selectedProjectId,
+      threadId: selectedThreadId ?? undefined,
       content: trimmedPrompt,
       model: selectedModel,
     });
   };
 
   const handleClear = () => {
-    if (!selectedProjectId) return;
-    clearMessages.mutate({ projectId: selectedProjectId });
-  };
-
-  const handleUseSuggestedPrompt = () => {
-    if (!latestSuggestedPrompt) return;
-
-    try {
-      sessionStorage.setItem(
-        WORKSHOP_ACCEPTED_PROMPT_STORAGE_KEY,
-        latestSuggestedPrompt,
-      );
-    } catch (error) {
-      console.error("Failed to save workshop suggested prompt", error);
-      toast.error("Failed to use suggested prompt");
-      return;
-    }
-
-    router.push("/");
+    if (!selectedProjectId || !selectedThreadId) return;
+    clearMessages.mutate({
+      projectId: selectedProjectId,
+      threadId: selectedThreadId,
+    });
   };
 
   const isLoadingMessages =
-    Boolean(selectedProjectId) && messagesQuery.isLoading;
+    Boolean(selectedProjectId && selectedThreadId) && messagesQuery.isLoading;
   const errorMessage =
     messagesQuery.error && messagesQuery.error.data?.code !== "NOT_FOUND"
       ? messagesQuery.error.message
@@ -612,7 +871,7 @@ export default function WorkshopPage() {
 
   return (
     <main className="bg-background text-foreground flex h-screen w-screen flex-col overflow-hidden">
-      <header className="bg-background/95 border-(--border) sticky top-0 z-30 flex items-center justify-between gap-4 border-b px-6 py-4 backdrop-blur">
+      <header className="bg-background/95 sticky top-0 z-30 flex items-center justify-between gap-4 border-b border-(--border) px-6 py-4 backdrop-blur">
         <div className="flex min-w-0 items-center gap-3">
           <Link
             href="/"
@@ -639,96 +898,120 @@ export default function WorkshopPage() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <ProjectSwitcher
-            projects={projects}
-            selectedProject={selectedProject}
-            selectedProjectId={selectedProjectId}
-            isLoading={isLoadingProjects}
-            onSelectProject={handleSelectProject}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="cursor-pointer"
-            disabled={!selectedProjectId || messages.length === 0}
-            onClick={() => setClearDialogOpen(true)}
-          >
-            <Trash2 />
-            Clear
-          </Button>
-        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="cursor-pointer"
+          disabled={
+            !selectedProjectId || !selectedThreadId || messages.length === 0
+          }
+          onClick={() => setClearDialogOpen(true)}
+        >
+          <Trash2 />
+          Clear
+        </Button>
       </header>
 
-      <section className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8">
-          <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
-            {errorMessage ? (
-              <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
-                <div className="border-destructive/40 bg-destructive/10 text-destructive flex size-11 items-center justify-center rounded-xl border">
-                  <Trash2 className="size-5" />
-                </div>
-                <p className="text-foreground text-sm font-medium">
-                  Failed to load workshop history
-                </p>
-                <p className="text-muted-foreground/60 max-w-sm text-xs">
-                  {errorMessage}
-                </p>
-              </div>
-            ) : isLoadingMessages ? (
-              <MessageSkeleton />
-            ) : messages.length === 0 ? (
-              <WorkshopEmptyState selectedProjectId={selectedProjectId} />
-            ) : (
-              messages.map((message) =>
-                message.role === "suggest_prompt" ? (
-                  <WorkshopToolCallLine key={message.id} message={message} />
-                ) : (
-                  <WorkshopMessageBubble key={message.id} message={message} />
-                ),
-              )
-            )}
-            {sendMessage.isPending && (
-              <div className="flex justify-start [animation:promptGroupFadeIn_0.25s_ease_both]">
-                <div className="border-border bg-card text-muted-foreground flex items-center gap-2 rounded-lg border px-4 py-3 text-sm shadow-sm">
-                  <Loader2 className="size-3.5 animate-spin text-blue-400" />
-                  <span className="animate-pulse">Thinking…</span>
-                </div>
-              </div>
-            )}
-            {latestSuggestedPrompt && (
-              <div ref={suggestedPromptRef}>
-                <SuggestedPromptCard
-                  prompt={latestSuggestedPrompt}
-                  expanded={suggestedPromptExpanded}
-                  onExpandedChange={setSuggestedPromptExpanded}
-                  onUse={handleUseSuggestedPrompt}
-                />
-              </div>
-            )}
-            <div ref={bottomRef} />
-          </div>
-        </div>
+      <section className="flex min-h-0 flex-1">
+        <WorkshopProjectsSidebar
+          projects={projects}
+          isLoadingProjects={isLoadingProjects}
+          selectedProjectId={selectedProjectId}
+          selectedThreadId={selectedThreadId}
+          onSelectThread={handleSelectThread}
+          onNewThread={handleNewThread}
+          createIsPending={createThread.isPending}
+          createTargetProjectId={createTargetProjectId}
+        />
 
-        <div className="border-(--border) bg-background/95 border-t px-6 py-4 backdrop-blur">
-          <div className="mx-auto flex w-full max-w-4xl flex-col gap-3">
-            <WorkshopComposer
-              selectedProjectId={selectedProjectId}
-              sendIsPending={sendMessage.isPending}
-              sendPrompt={sendPrompt}
-              selectedModel={selectedModel}
-              setSelectedModel={setSelectedModel}
-              isMacOS={isMacOS}
-            />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8">
+            <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+              {errorMessage ? (
+                <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
+                  <div className="border-destructive/40 bg-destructive/10 text-destructive flex size-11 items-center justify-center rounded-xl border">
+                    <Trash2 className="size-5" />
+                  </div>
+                  <p className="text-foreground text-sm font-medium">
+                    Failed to load workshop history
+                  </p>
+                  <p className="text-muted-foreground/60 max-w-sm text-xs">
+                    {errorMessage}
+                  </p>
+                </div>
+              ) : isLoadingMessages ? (
+                <MessageSkeleton />
+              ) : messages.length === 0 ? (
+                <WorkshopEmptyState
+                  selectedProjectId={selectedProjectId}
+                  selectedThreadId={selectedThreadId}
+                />
+              ) : (
+                messages.map((message) =>
+                  message.role === "suggest_prompt" ? (
+                    <WorkshopToolCallLine key={message.id} message={message} />
+                  ) : (
+                    <WorkshopMessageBubble key={message.id} message={message} />
+                  ),
+                )
+              )}
+              {sendMessage.isPending && (
+                <div className="flex [animation:promptGroupFadeIn_0.25s_ease_both] justify-start">
+                  <div className="border-border bg-card text-muted-foreground flex items-center gap-2 rounded-lg border px-4 py-3 text-sm shadow-sm">
+                    <Loader2 className="size-3.5 animate-spin text-blue-400" />
+                    <span className="animate-pulse">Thinking…</span>
+                  </div>
+                </div>
+              )}
+              {latestSuggestedPrompt && (
+                <div ref={suggestedPromptRef}>
+                  <SuggestedPromptCard
+                    prompt={latestSuggestedPrompt}
+                    expanded={suggestedPromptExpanded}
+                    onExpandedChange={setSuggestedPromptExpanded}
+                    onUse={() => {
+                      try {
+                        sessionStorage.setItem(
+                          WORKSHOP_ACCEPTED_PROMPT_STORAGE_KEY,
+                          latestSuggestedPrompt,
+                        );
+                      } catch (error) {
+                        console.error(
+                          "Failed to save workshop suggested prompt",
+                          error,
+                        );
+                        toast.error("Failed to use suggested prompt");
+                        return;
+                      }
+                      router.push("/");
+                    }}
+                  />
+                </div>
+              )}
+              <div ref={bottomRef} />
+            </div>
+          </div>
+
+          <div className="bg-background/95 border-t border-(--border) px-6 py-4 backdrop-blur">
+            <div className="mx-auto flex w-full max-w-4xl flex-col gap-3">
+              <WorkshopComposer
+                selectedProjectId={selectedProjectId}
+                sendIsPending={sendMessage.isPending}
+                sendPrompt={sendPrompt}
+                selectedModel={selectedModel}
+                setSelectedModel={setSelectedModel}
+                isMacOS={isMacOS}
+              />
+            </div>
           </div>
         </div>
       </section>
 
       <ConfirmDialog
         open={clearDialogOpen}
-        title="Clear workshop history?"
-        description="This deletes every workshop message in the selected project."
+        title="Clear workshop thread?"
+        description="This deletes every workshop message in the selected thread."
         confirmLabel="Clear"
         isPending={clearMessages.isPending}
         onConfirm={handleClear}
