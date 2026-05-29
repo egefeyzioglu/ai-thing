@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { env } from "src/env";
@@ -8,8 +8,10 @@ import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import {
   projects,
+  referenceImages,
   workshopMessages,
   workshopThreads,
+  type ReferenceImage,
   type WorkshopMessage,
   type WorkshopThread,
 } from "src/server/db/schema";
@@ -21,19 +23,38 @@ import {
   markUsageStatus,
 } from "src/server/usage";
 
-const WORKSHOP_MODELS = [
-  "gpt-5.4-mini",
-  "gpt-5.4",
-  "gpt-5.5",
-] as const;
+const WORKSHOP_MODELS = ["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"] as const;
 type WorkshopModel = (typeof WORKSHOP_MODELS)[number];
 type OpenAIWorkshopModel = WorkshopModel;
 const WORKSHOP_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
 type WorkshopReasoningEffort = (typeof WORKSHOP_REASONING_EFFORTS)[number];
 const WORKSHOP_MESSAGE_CREDITS = 1;
 const DEFAULT_THREAD_TITLE = "New workshop thread";
+const MAX_WORKSHOP_REFERENCE_IMAGES = 8;
 
-type ChatMessage = Pick<WorkshopMessage, "role" | "content">;
+type WorkshopAttachmentInput = Pick<ReferenceImage, "id" | "url" | "mimeType">;
+
+type WorkshopMessageWithAttachments = WorkshopMessage & {
+  referenceImageIds: string[];
+  attachments: WorkshopAttachmentInput[];
+};
+
+type ChatMessage = Pick<
+  WorkshopMessageWithAttachments,
+  "role" | "content" | "attachments"
+>;
+
+type OpenAIInputTextContent = {
+  type: "input_text";
+  text: string;
+};
+
+type OpenAIInputImageContent = {
+  type: "input_image";
+  image_url: string;
+};
+
+type OpenAIInputContent = OpenAIInputTextContent | OpenAIInputImageContent;
 
 type OpenAIResponseContent = {
   type?: string;
@@ -94,7 +115,7 @@ type OpenAITextRequestBody = {
   input:
     | {
         role: "user" | "assistant";
-        content: string;
+        content: string | OpenAIInputContent[];
       }[]
     | {
         type: "function_call_output";
@@ -124,13 +145,32 @@ const suggestedPromptParamSchema = z.object({
   prompt: z.string(),
 });
 
-export const workshopSendInputSchema = z.object({
-  projectId: z.string().min(1),
-  threadId: z.string().min(1).optional(),
-  content: z.string().trim().min(1).max(20_000),
-  model: z.enum(WORKSHOP_MODELS),
-  reasoningEffort: z.enum(WORKSHOP_REASONING_EFFORTS).default("medium"),
-});
+export const workshopSendInputSchema = z
+  .object({
+    projectId: z.string().min(1),
+    threadId: z.string().min(1).optional(),
+    content: z.string().trim().max(20_000),
+    model: z.enum(WORKSHOP_MODELS),
+    reasoningEffort: z.enum(WORKSHOP_REASONING_EFFORTS).default("medium"),
+    referenceImageIds: z
+      .array(z.string().min(1))
+      .max(MAX_WORKSHOP_REFERENCE_IMAGES)
+      .optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      value.content.length > 0 ||
+      (value.referenceImageIds?.length ?? 0) > 0
+    ) {
+      return;
+    }
+
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Workshop message must include text or an image attachment",
+      path: ["content"],
+    });
+  });
 
 type SuggestedPromptParam = z.infer<typeof suggestedPromptParamSchema>;
 export type WorkshopSendInput = z.infer<typeof workshopSendInputSchema>;
@@ -236,6 +276,112 @@ async function createWorkshopThread(args: {
   return thread;
 }
 
+function normalizeReferenceImageIds(ids?: string[]) {
+  return Array.from(new Set(ids ?? [])).slice(0, MAX_WORKSHOP_REFERENCE_IMAGES);
+}
+
+async function loadOwnedReferenceImages(userId: string, ids: string[]) {
+  if (ids.length === 0) return [];
+
+  const images = await db
+    .select({
+      id: referenceImages.id,
+      url: referenceImages.url,
+      mimeType: referenceImages.mimeType,
+    })
+    .from(referenceImages)
+    .where(
+      and(eq(referenceImages.userId, userId), inArray(referenceImages.id, ids)),
+    );
+
+  if (images.length !== ids.length) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "One or more image attachments could not be found",
+    });
+  }
+
+  const byId = new Map(images.map((image) => [image.id, image]));
+  return ids.map((id) => byId.get(id)).filter((image) => image !== undefined);
+}
+
+function getMessageReferenceIds(message: WorkshopMessage) {
+  return Array.isArray(message.referenceImages)
+    ? message.referenceImages.filter(
+        (id): id is string => typeof id === "string",
+      )
+    : [];
+}
+
+async function hydrateWorkshopMessages(
+  messages: WorkshopMessage[],
+): Promise<WorkshopMessageWithAttachments[]> {
+  const referenceImageIds = Array.from(
+    new Set(messages.flatMap((message) => getMessageReferenceIds(message))),
+  );
+
+  const attachments =
+    referenceImageIds.length > 0
+      ? await db
+          .select({
+            id: referenceImages.id,
+            url: referenceImages.url,
+            mimeType: referenceImages.mimeType,
+          })
+          .from(referenceImages)
+          .where(inArray(referenceImages.id, referenceImageIds))
+      : [];
+  const attachmentsById = new Map(
+    attachments.map((image) => [image.id, image]),
+  );
+
+  return messages.map((message) => {
+    const ids = getMessageReferenceIds(message);
+    return {
+      ...message,
+      referenceImageIds: ids,
+      attachments: ids
+        .map((id) => attachmentsById.get(id))
+        .filter((image) => image !== undefined),
+    };
+  });
+}
+
+function buildProviderInput(messages: ChatMessage[]): {
+  role: "user" | "assistant";
+  content: string | OpenAIInputContent[];
+}[] {
+  return getProviderMessages(messages).map((message) => {
+    const role: "user" | "assistant" =
+      message.role === "user" ? "user" : "assistant";
+    if (role === "assistant" || message.attachments.length === 0) {
+      return {
+        role,
+        content: message.content,
+      };
+    }
+
+    const content: OpenAIInputContent[] = [
+      {
+        type: "input_text",
+        text:
+          message.content ||
+          "Use the attached image(s) as reference for this prompt workshop request.",
+      },
+      ...message.attachments
+        .filter((image): image is WorkshopAttachmentInput & { url: string } =>
+          Boolean(image.url),
+        )
+        .map((image) => ({
+          type: "input_image" as const,
+          image_url: image.url,
+        })),
+    ];
+
+    return { role, content };
+  });
+}
+
 function getProviderMessages(messages: ChatMessage[]) {
   return messages.filter((message) => message.role !== "reasoning_summary");
 }
@@ -280,7 +426,9 @@ function parseOpenAIResponse(
     outputText.length > 0 ? outputText : (data.output_text?.trim() ?? "");
   const reasoningSummary = data.output
     .flatMap((item) =>
-      item.type === "reasoning" && "summary" in item ? (item.summary ?? []) : [],
+      item.type === "reasoning" && "summary" in item
+        ? (item.summary ?? [])
+        : [],
     )
     .filter((summary) => summary.type === "summary_text" || summary.text)
     .map((summary) => summary.text)
@@ -316,10 +464,7 @@ function createOpenAITextRequestBody(
       summary: "auto",
     },
     instructions: workshopSystemPrompt,
-    input: getProviderMessages(messages).map((message) => ({
-      role: message.role === "user" ? "user" : "assistant",
-      content: message.content,
-    })),
+    input: buildProviderInput(messages),
     tools: [
       {
         name: "suggest_prompt",
@@ -380,7 +525,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readUsageNumber(record: Record<string, unknown>, key: string) {
   const value = record[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function normalizeOpenAIResponseUsage(
@@ -422,7 +569,9 @@ function normalizeOpenAIResponseUsage(
 }
 
 function addNumbers(...values: (number | undefined)[]) {
-  const numbers = values.filter((value): value is number => value !== undefined);
+  const numbers = values.filter(
+    (value): value is number => value !== undefined,
+  );
   if (numbers.length === 0) return undefined;
 
   return numbers.reduce((total, value) => total + value, 0);
@@ -437,7 +586,9 @@ function mergeOpenAIResponseUsage(usages: unknown[]) {
 
   return {
     input_tokens: addNumbers(...normalized.map((usage) => usage.input_tokens)),
-    output_tokens: addNumbers(...normalized.map((usage) => usage.output_tokens)),
+    output_tokens: addNumbers(
+      ...normalized.map((usage) => usage.output_tokens),
+    ),
     total_tokens: addNumbers(...normalized.map((usage) => usage.total_tokens)),
     input_tokens_details: {
       cached_tokens: addNumbers(
@@ -690,7 +841,12 @@ async function generateAssistantText(
     case "gpt-5.4":
     case "gpt-5.4-mini": {
       generated = options.onReasoningSummaryDelta
-        ? await generateOpenAITextStream(model, messages, options, reasoningEffort)
+        ? await generateOpenAITextStream(
+            model,
+            messages,
+            options,
+            reasoningEffort,
+          )
         : await generateOpenAIText(model, messages, reasoningEffort);
       const { text, suggestedPromptParam } = generated;
       if (!suggestedPromptParam) {
@@ -717,8 +873,10 @@ export async function sendWorkshopMessage(args: {
   signal?: AbortSignal;
 }) {
   const { userId, input } = args;
+  const referenceImageIds = normalizeReferenceImageIds(input.referenceImageIds);
 
   await verifyProjectOwnership(userId, input.projectId);
+  await loadOwnedReferenceImages(userId, referenceImageIds);
   const existingThread = input.threadId
     ? await verifyThreadOwnership(userId, input.projectId, input.threadId)
     : null;
@@ -749,7 +907,7 @@ export async function sendWorkshopMessage(args: {
       (await createWorkshopThread({
         userId,
         projectId: input.projectId,
-        title: getThreadTitle(input.content),
+        title: getThreadTitle(input.content || "Image attachment"),
       }));
   } catch (error) {
     await markUsageStatus(usageRow.id, "refunded").catch((err) => {
@@ -771,6 +929,8 @@ export async function sendWorkshopMessage(args: {
       ),
     )
     .orderBy(asc(workshopMessages.createdAt));
+  const hydratedPreviousMessages =
+    await hydrateWorkshopMessages(previousMessages);
 
   const [userMessage] = await db
     .insert(workshopMessages)
@@ -782,6 +942,7 @@ export async function sendWorkshopMessage(args: {
       role: "user",
       model: null,
       content: input.content,
+      referenceImages: referenceImageIds.length > 0 ? referenceImageIds : null,
     })
     .returning();
 
@@ -813,7 +974,10 @@ export async function sendWorkshopMessage(args: {
       usageRaw,
     } = await generateAssistantText(
       input.model,
-      [...previousMessages, userMessage],
+      [
+        ...hydratedPreviousMessages,
+        ...(await hydrateWorkshopMessages([userMessage])),
+      ],
       input.reasoningEffort,
       {
         onReasoningSummaryDelta: args.onReasoningSummaryDelta,
@@ -901,7 +1065,9 @@ export async function sendWorkshopMessage(args: {
     .update(workshopThreads)
     .set({
       title:
-        previousMessages.length === 0 ? getThreadTitle(input.content) : thread.title,
+        previousMessages.length === 0
+          ? getThreadTitle(input.content || "Image attachment")
+          : thread.title,
       updatedAt: new Date(),
     })
     .where(eq(workshopThreads.id, thread.id))
@@ -936,8 +1102,8 @@ export async function sendWorkshopMessage(args: {
 
   return {
     thread: updatedThread ?? thread,
-    userMessage,
-    assistantMessages: insertedAssistantMessages,
+    userMessage: (await hydrateWorkshopMessages([userMessage]))[0]!,
+    assistantMessages: await hydrateWorkshopMessages(insertedAssistantMessages),
     suggestedPrompt,
   };
 }
@@ -1040,7 +1206,7 @@ export const workshopRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       await verifyThreadOwnership(ctx.user, input.projectId, input.threadId);
 
-      return db
+      const messages = await db
         .select()
         .from(workshopMessages)
         .where(
@@ -1051,6 +1217,8 @@ export const workshopRouter = createTRPCRouter({
           ),
         )
         .orderBy(asc(workshopMessages.createdAt));
+
+      return hydrateWorkshopMessages(messages);
     }),
 
   sendMessage: protectedProcedure

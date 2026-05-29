@@ -127,6 +127,13 @@
       "when": 1779938979486,
       "tag": "0017_old_morlocks",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1780092990404,
+      "tag": "0018_sharp_white_tiger",
+      "breakpoints": true
     }
   ]
 }
