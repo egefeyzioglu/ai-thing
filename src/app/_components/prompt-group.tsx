@@ -592,7 +592,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
                         onDelete={() => onDeleteImage?.(img.id)}
                         onRetry={onRetryImage ? () => onRetryImage(img.id) : undefined}
                         onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(img.id) : undefined}
-                        onOpen={expanded ? () => setModalImage(img) : undefined}
+                        onOpen={images.length === 1 ? () => setModalImage(img) : undefined}
                       />
                     </div>
                   );
