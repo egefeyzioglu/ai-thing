@@ -1,16 +1,20 @@
 "use client";
 
-import { useState, type RefObject } from "react";
+import { useEffect, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 
 import { UserButton } from "@clerk/nextjs";
 import {
+  Check,
   ChevronDown,
   ChevronUp,
   Gauge,
+  Maximize2,
   MessagesSquare,
   Trash2,
   Upload,
   AlertTriangle,
+  X,
 } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -43,48 +47,28 @@ type ReferenceImageProps = {
   isSelected: boolean;
   onDelete: () => void;
   setSelected: () => void;
+  onPreview: () => void;
 };
 
 function ReferenceImage(props: ReferenceImageProps) {
   return (
     <div
       className={clsx(
-        "group relative flex flex-col justify-center overflow-clip rounded-md border-1",
+        "group relative flex aspect-square flex-col justify-center overflow-clip rounded-md border-1",
       )}
     >
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-10 bg-linear-to-b from-black/45 via-black/20 to-transparent"
+        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-10 bg-linear-to-b from-black/55 via-black/25 to-transparent"
       />
+
+      {/* Image body: click to preview */}
       <button
         type="button"
-        onClick={props.setSelected}
-        aria-label={
-          props.isSelected
-            ? "Deselect reference image"
-            : "Select reference image"
-        }
-        aria-pressed={props.isSelected}
+        onClick={props.onPreview}
+        aria-label="Preview reference image"
         className="block flex grow-1 cursor-pointer bg-transparent text-left"
       >
-        <div
-          className={clsx(
-            "absolute top-1.5 left-1.5 z-10 size-4 cursor-pointer rounded-full border-2 border-(--muted-foreground)",
-            props.isSelected
-              ? "border-blue-500 opacity-100"
-              : "opacity-30 transition-opacity group-hover:opacity-100",
-          )}
-        >
-          <div
-            className={clsx(
-              "absolute top-0.25 left-0.25 size-2.5 rounded-full",
-              props.isSelected
-                ? "bg-blue-500 opacity-100"
-                : "bg-(--muted-foreground) opacity-30 transition-opacity group-hover:opacity-60",
-            )}
-          />
-        </div>
-
         <Image
           src={props.src}
           alt={props.alt}
@@ -92,6 +76,38 @@ function ReferenceImage(props: ReferenceImageProps) {
           height={100}
           className="m-auto w-full"
         />
+
+        {/* Maximize hint on hover (image body only) */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute right-1.5 bottom-1.5 z-10 flex items-center justify-center rounded-md bg-black/50 p-1 opacity-0 transition-opacity group-hover:opacity-100"
+        >
+          <Maximize2 className="size-3 text-white" strokeWidth={2} />
+        </div>
+      </button>
+
+      {/* Select checkbox: top-left, always visible, click to toggle */}
+      <button
+        type="button"
+        role="checkbox"
+        onClick={(e) => {
+          e.stopPropagation();
+          props.setSelected();
+        }}
+        aria-label={
+          props.isSelected
+            ? "Deselect reference image"
+            : "Select reference image"
+        }
+        aria-checked={props.isSelected}
+        className={clsx(
+          "focus-visible:outline-ring absolute top-1.5 left-1.5 z-10 flex size-5 cursor-pointer items-center justify-center rounded-md border-2 opacity-60 transition group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2",
+          props.isSelected
+            ? "border-blue-500 bg-blue-500 text-white"
+            : "border-white/80 bg-black/40 text-transparent hover:border-white",
+        )}
+      >
+        <Check className="size-3" strokeWidth={3} />
       </button>
 
       <button
@@ -101,14 +117,105 @@ function ReferenceImage(props: ReferenceImageProps) {
           e.stopPropagation();
           props.onDelete();
         }}
-        className="focus-visible:outline-ring absolute top-1.5 right-1.5 z-10 flex size-4 cursor-pointer items-center justify-center rounded-full border-2 border-(--muted-foreground) opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2"
+        className="focus-visible:outline-ring absolute top-1.5 right-1.5 z-10 flex size-5 cursor-pointer items-center justify-center rounded-md border-2 border-white/80 bg-black/40 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2"
       >
-        <Trash2
-          className="size-2.5 text-(--muted-foreground)"
-          strokeWidth={2.2}
-        />
+        <Trash2 className="size-3 text-white" strokeWidth={2.2} />
       </button>
     </div>
+  );
+}
+
+/**
+ * Full-bleed lightbox preview, used both from the sidebar grid and from
+ * the Browse modal. Includes a "Use as reference" toggle so users can
+ * select/deselect without closing the preview.
+ */
+function ReferenceImageLightbox({
+  src,
+  alt,
+  isSelected,
+  onToggleSelected,
+  onClose,
+}: {
+  src: string;
+  alt: string;
+  isSelected: boolean;
+  onToggleSelected: () => void;
+  onClose: () => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    setLoaded(false);
+  }, [src]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Reference image preview"
+      onClick={onClose}
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6"
+    >
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+
+      <button
+        type="button"
+        aria-label="Close preview"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+        className="absolute top-4 right-4 z-10 flex size-9 cursor-pointer items-center justify-center rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm"
+      >
+        <X className="size-4" strokeWidth={2} />
+      </button>
+
+      <div
+        className="relative z-10 flex max-h-[90vh] max-w-[90vw] flex-col items-center gap-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Reserved-height image slot — keeps button position stable while the image loads. */}
+        <div className="relative flex h-[75vh] w-[80vw] max-w-[1100px] items-center justify-center">
+          {!loaded && (
+            <Skeleton className="absolute inset-0 size-full rounded-lg" />
+          )}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={src}
+            alt={alt}
+            onLoad={() => setLoaded(true)}
+            className={clsx(
+              "relative block h-auto max-h-full w-auto max-w-full rounded-lg border border-white/10 shadow-2xl transition-opacity duration-150",
+              loaded ? "opacity-100" : "opacity-0",
+            )}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={onToggleSelected}
+          aria-pressed={isSelected}
+          className={clsx(
+            "flex cursor-pointer items-center gap-2 rounded-md border-2 px-4 py-2 text-sm font-medium transition-colors",
+            isSelected
+              ? "border-blue-500 bg-blue-500 text-white"
+              : "border-white/40 bg-black/40 text-white hover:border-white",
+          )}
+        >
+          <Check className={clsx("size-4", !isSelected && "opacity-40")} strokeWidth={3} />
+          {isSelected ? "Selected as reference" : "Use as reference"}
+        </button>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -196,7 +303,21 @@ export function Sidebar({
   onBypassMonthlyQuotaChange,
 }: SidebarProps) {
   const [usageOpen, setUsageOpen] = useState(false);
+  const [previewImage, setPreviewImage] = useState<{
+    id: string;
+    url: string;
+  } | null>(null);
   const router = useRouter();
+
+  const toggleSelected = (id: string) => {
+    if (selectedReferenceImages.includes(id)) {
+      onSelectedReferenceImagesChange(
+        selectedReferenceImages.filter((e) => e !== id),
+      );
+    } else {
+      onSelectedReferenceImagesChange([...selectedReferenceImages, id]);
+    }
+  };
 
   const handleOpenWorkshop = () => {
     const trimmedPrompt = promptText.trim();
@@ -259,23 +380,23 @@ export function Sidebar({
           open={referenceImagesOpen}
           onOpenChange={onReferenceImagesOpenChange}
         >
-          <CollapsibleTrigger className="flex w-full cursor-pointer flex-row justify-between">
-            <FieldLabel className="text-xxs cursor-pointer text-(--muted-foreground) uppercase">
-              Reference Images
-            </FieldLabel>
+          <CollapsibleTrigger className="flex w-full cursor-pointer flex-row items-baseline justify-between">
+            <div className="flex items-baseline gap-1.5">
+              <FieldLabel className="text-xxs cursor-pointer text-(--muted-foreground) uppercase">
+                Reference Images
+              </FieldLabel>
+              {selectedReferenceImages.length > 0 && (
+                <span className="text-xs text-(--muted-foreground)">
+                  ({selectedReferenceImages.length} selected)
+                </span>
+              )}
+            </div>
             {referenceImagesOpen ? (
               <ChevronUp color="var(--muted-foreground)" />
             ) : (
               <ChevronDown color="var(--muted-foreground)" />
             )}
           </CollapsibleTrigger>
-          {selectedReferenceImages.length > 0 ? (
-            <span className="mx-0 text-xs text-(--muted-foreground)">
-              {`(${selectedReferenceImages.length} image${selectedReferenceImages.length > 1 ? "s" : ""} selected)`}
-            </span>
-          ) : (
-            ""
-          )}
           <CollapsibleContent className="max-h-80 overflow-scroll">
             <div className="my-2 grid grid-cols-3 gap-2 p-2">
               {isLoadingRefImages
@@ -288,19 +409,11 @@ export function Sidebar({
                       src={img.url ?? ""}
                       alt="Reference image"
                       isSelected={selectedReferenceImages.includes(img.id)}
-                      setSelected={() => {
-                        if (selectedReferenceImages.includes(img.id)) {
-                          onSelectedReferenceImagesChange(
-                            selectedReferenceImages.filter((e) => e !== img.id),
-                          );
-                        } else {
-                          onSelectedReferenceImagesChange([
-                            ...selectedReferenceImages,
-                            img.id,
-                          ]);
-                        }
-                      }}
+                      setSelected={() => toggleSelected(img.id)}
                       onDelete={() => onDeleteReferenceImage(img.id)}
+                      onPreview={() =>
+                        setPreviewImage({ id: img.id, url: img.url ?? "" })
+                      }
                     />
                   ))}
               <button
@@ -605,6 +718,15 @@ export function Sidebar({
           onBypassMonthlyQuotaChange={onBypassMonthlyQuotaChange}
         />
       </div>
+      {previewImage && (
+        <ReferenceImageLightbox
+          src={previewImage.url}
+          alt="Reference image preview"
+          isSelected={selectedReferenceImages.includes(previewImage.id)}
+          onToggleSelected={() => toggleSelected(previewImage.id)}
+          onClose={() => setPreviewImage(null)}
+        />
+      )}
     </aside>
   );
 }
