@@ -89,6 +89,7 @@ function ReferenceImage(props: ReferenceImageProps) {
       {/* Select checkbox: top-left, always visible, click to toggle */}
       <button
         type="button"
+        role="checkbox"
         onClick={(e) => {
           e.stopPropagation();
           props.setSelected();
@@ -98,7 +99,7 @@ function ReferenceImage(props: ReferenceImageProps) {
             ? "Deselect reference image"
             : "Select reference image"
         }
-        aria-pressed={props.isSelected}
+        aria-checked={props.isSelected}
         className={clsx(
           "focus-visible:outline-ring absolute top-1.5 left-1.5 z-10 flex size-5 cursor-pointer items-center justify-center rounded-md border-2 opacity-60 transition group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2",
           props.isSelected
