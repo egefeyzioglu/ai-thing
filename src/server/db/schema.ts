@@ -51,6 +51,11 @@ export const prompts = createTable(
     // .references(()=>referenceImages.id, {onDelete: "set null"}) // IDK honestly
     resolution: d.text("resolution"),
     aspectRatio: d.text("aspect_ratio"),
+    quality: d.text("quality"),
+    background: d.text("background"),
+    negativePrompt: d.text("negative_prompt"),
+    seed: d.text("seed"),
+    thinking: d.text("thinking"),
   }),
   (t) => [
     index("prompt_created_at_idx").on(t.createdAt),

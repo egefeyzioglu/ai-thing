@@ -134,6 +134,13 @@
       "when": 1780092990404,
       "tag": "0018_sharp_white_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1780115694925,
+      "tag": "0019_exotic_black_queen",
+      "breakpoints": true
     }
   ]
 }

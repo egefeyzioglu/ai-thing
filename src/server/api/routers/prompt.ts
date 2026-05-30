@@ -87,6 +87,15 @@ export const promptRouter = createTRPCRouter({
         referenceImages: z.array(z.string()).optional(),
         resolution: z.string().optional(),
         aspectRatio: z.string().optional(),
+        quality: z.enum(["auto", "low", "medium", "high"]).optional(),
+        background: z.enum(["auto", "opaque", "transparent"]).optional(),
+        negativePrompt: z.string().max(2000).optional(),
+        seed: z
+          .string()
+          .regex(/^\d*$/, "Seed must contain digits only")
+          .max(20)
+          .optional(),
+        thinking: z.enum(["auto", "off", "low", "high"]).optional(),
         requestQuotaBypass: z.boolean().optional(),
       }),
     )
@@ -157,6 +166,19 @@ export const promptRouter = createTRPCRouter({
             referenceImages: referenceImageIds,
             resolution: input.resolution,
             aspectRatio: input.aspectRatio,
+            quality:
+              input.quality && input.quality !== "auto" ? input.quality : null,
+            background:
+              input.background && input.background !== "auto"
+                ? input.background
+                : null,
+            negativePrompt:
+              input.negativePrompt?.trim() ? input.negativePrompt.trim() : null,
+            seed: input.seed?.trim() ? input.seed.trim() : null,
+            thinking:
+              input.thinking && input.thinking !== "auto"
+                ? input.thinking
+                : null,
           })
           .returning();
         if (!promptRow) throw new Error("Failed to insert prompt");

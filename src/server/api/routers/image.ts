@@ -264,6 +264,7 @@ async function generateImageOpenAIResponses(
   referenceImageIds?: string[],
   resolution?: string,
   aspectRatio?: string,
+  advanced?: AdvancedSettings,
 ): Promise<GeneratedImage> {
   const ownedReferenceImages = await loadOwnedReferenceImages(
     userId,
@@ -281,6 +282,14 @@ async function generateImageOpenAIResponses(
   ];
   const size = resolveImageSize(resolution, aspectRatio) ?? "auto";
 
+  const imageTool: Record<string, unknown> = {
+    type: "image_generation",
+    size,
+    output_format: "png",
+  };
+  if (advanced?.quality) imageTool.quality = advanced.quality;
+  if (advanced?.background) imageTool.background = advanced.background;
+
   const body = JSON.stringify({
     model: "gpt-5.4-mini",
     input: [
@@ -289,7 +298,7 @@ async function generateImageOpenAIResponses(
         content: [...modelInputs],
       },
     ],
-    tools: [{ type: "image_generation", size, output_format: "png" }],
+    tools: [imageTool],
   });
 
   const res = await fetch("https://api.openai.com/v1/responses", {
@@ -337,6 +346,7 @@ async function generateImageGptImage2Generations(
   prompt: string,
   model: ["gpt-image-2-2026-04-21"][number],
   size: string,
+  advanced?: AdvancedSettings,
 ) : Promise<GeneratedImage | undefined> {
   const body =
       JSON.stringify({
@@ -344,6 +354,8 @@ async function generateImageGptImage2Generations(
         prompt,
         size,
         output_format: "png",
+        ...(advanced?.quality && { quality: advanced.quality }),
+        ...(advanced?.background && { background: advanced.background }),
       });
   const res = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
@@ -382,6 +394,7 @@ async function generateImageGptImage2Edits(
   prompt: string,
   size: string,
   referenceImages: ReferenceImage[],
+  advanced?: AdvancedSettings,
 ) : Promise<GeneratedImage | undefined> {
   const body =
       JSON.stringify({
@@ -392,6 +405,8 @@ async function generateImageGptImage2Edits(
         })),
         size,
         output_format: "png",
+        ...(advanced?.quality && { quality: advanced.quality }),
+        ...(advanced?.background && { background: advanced.background }),
       })
   const res = await fetch("https://api.openai.com/v1/images/edits", {
     method: "POST",
@@ -432,6 +447,7 @@ async function generateImageGptImage2(
   referenceImageIds?: string[],
   resolution?: string,
   aspectRatio?: string,
+  advanced?: AdvancedSettings,
 ): Promise<GeneratedImage> {
   const ownedReferenceImages = await loadOwnedReferenceImages(
     userId,
@@ -441,8 +457,8 @@ async function generateImageGptImage2(
 
   const image = await (
     ownedReferenceImages.length > 0 ?
-      generateImageGptImage2Edits(prompt, size, ownedReferenceImages) :
-      generateImageGptImage2Generations(prompt, "gpt-image-2-2026-04-21", size)
+      generateImageGptImage2Edits(prompt, size, ownedReferenceImages, advanced) :
+      generateImageGptImage2Generations(prompt, "gpt-image-2-2026-04-21", size, advanced)
   );
 
   if (!image) {
@@ -463,6 +479,7 @@ async function generateImageGeminiModel(
   referenceImageIds?: string[],
   resolution?: string,
   aspectRatio?: string,
+  advanced?: AdvancedSettings,
 ): Promise<GeneratedImage> {
   const ownedReferenceImages = await loadOwnedReferenceImages(
     userId,
@@ -480,6 +497,10 @@ async function generateImageGeminiModel(
       }),
     )
   ).filter((x): x is { b64: string; mimeType: string } => x !== undefined);
+  const negativePrompt = advanced?.negativePrompt?.trim();
+  const promptWithNegatives = negativePrompt
+    ? `${prompt}\n\nAvoid the following in the image: ${negativePrompt}`
+    : prompt;
   const modelInputs = [
     ...referenceImageInputs.map((image) => ({
       inline_data: {
@@ -487,7 +508,11 @@ async function generateImageGeminiModel(
         data: image.b64,
       },
     })),
-    { text: "Generate an image based on the following user input:" + prompt },
+    {
+      text:
+        "Generate an image based on the following user input:" +
+        promptWithNegatives,
+    },
   ];
   // Map resolution to Gemini imageSize
   let imageSize: string | undefined;
@@ -511,6 +536,20 @@ async function generateImageGeminiModel(
     contents: [{ parts: [...modelInputs] }],
   };
 
+  const parsedSeed =
+    advanced?.seed && /^\d+$/.test(advanced.seed)
+      ? Number(advanced.seed)
+      : undefined;
+  const isGemini3 = model.startsWith("gemini-3");
+  let thinkingConfig: Record<string, unknown> | undefined;
+  if (isGemini3 && advanced?.thinking && advanced.thinking !== "auto") {
+    if (advanced.thinking === "off") {
+      thinkingConfig = { thinkingBudget: 0 };
+    } else {
+      thinkingConfig = { thinkingLevel: advanced.thinking };
+    }
+  }
+
   requestBody.generationConfig = {
     responseModalities: ["IMAGE"],
     ...((imageSize != null || aspectRatio != null) && {
@@ -519,6 +558,8 @@ async function generateImageGeminiModel(
         ...(aspectRatio && { aspectRatio }),
       },
     }),
+    ...(parsedSeed !== undefined && { seed: parsedSeed }),
+    ...(thinkingConfig && { thinkingConfig }),
   };
 
   const res = await fetch(
@@ -588,6 +629,14 @@ async function uploadGeneratedImage(args: {
   return { url: uploaded.data.ufsUrl, key: uploaded.data.key };
 }
 
+type AdvancedSettings = {
+  quality?: string | null;
+  background?: string | null;
+  negativePrompt?: string | null;
+  seed?: string | null;
+  thinking?: string | null;
+};
+
 async function generateForModel(
   model: string,
   userId: string,
@@ -595,6 +644,7 @@ async function generateForModel(
   referenceImageIds?: string[],
   resolution?: string,
   aspectRatio?: string,
+  advanced?: AdvancedSettings,
 ): Promise<GeneratedImage> {
   switch (model) {
     case "gpt-image-2":
@@ -604,6 +654,7 @@ async function generateForModel(
         referenceImageIds,
         resolution,
         aspectRatio,
+        advanced,
       );
     case "gpt-5.4-mini":
       return generateImageOpenAIResponses(
@@ -612,6 +663,7 @@ async function generateForModel(
         referenceImageIds,
         resolution,
         aspectRatio,
+        advanced,
       );
     case "gemini-2.5-flash-image":
     case "gemini-3.1-flash-image-preview":
@@ -623,6 +675,7 @@ async function generateForModel(
         referenceImageIds,
         resolution,
         aspectRatio,
+        advanced,
       );
     default:
       throw new Error(`Unsupported model: ${model}`);
@@ -726,6 +779,11 @@ export const imageRouter = createTRPCRouter({
           referenceImages: prompts.referenceImages,
           resolution: prompts.resolution,
           aspectRatio: prompts.aspectRatio,
+          quality: prompts.quality,
+          background: prompts.background,
+          negativePrompt: prompts.negativePrompt,
+          seed: prompts.seed,
+          thinking: prompts.thinking,
         })
         .from(prompts)
         .where(
@@ -859,6 +917,13 @@ export const imageRouter = createTRPCRouter({
           referenceImageIds,
           promptRow.resolution ?? undefined,
           promptRow.aspectRatio ?? undefined,
+          {
+            quality: promptRow.quality,
+            background: promptRow.background,
+            negativePrompt: promptRow.negativePrompt,
+            seed: promptRow.seed,
+            thinking: promptRow.thinking,
+          },
         );
         await recordGenerationCostEvent({
           userId: ctx.user,

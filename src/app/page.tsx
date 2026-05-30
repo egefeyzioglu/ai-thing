@@ -379,6 +379,11 @@ export default function Home() {
             : undefined,
         resolution,
         aspectRatio: aspect,
+        quality: advanced.quality,
+        background: advanced.background,
+        negativePrompt: advanced.negativePrompt || undefined,
+        seed: advanced.seed || undefined,
+        thinking: advanced.thinking,
         requestQuotaBypass: effectiveBypassMonthlyQuota,
       });
     } catch (reason) {
