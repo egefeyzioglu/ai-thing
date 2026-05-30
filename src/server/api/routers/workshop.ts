@@ -16,6 +16,7 @@ import {
   type WorkshopThread,
 } from "src/server/db/schema";
 import { recordGenerationCostEvent } from "src/server/generation-costs";
+import { currentUserCanBypassLimits } from "src/server/limits";
 import {
   createReservedUsage,
   getUsedCredits,
@@ -152,6 +153,7 @@ export const workshopSendInputSchema = z
     content: z.string().trim().max(20_000),
     model: z.enum(WORKSHOP_MODELS),
     reasoningEffort: z.enum(WORKSHOP_REASONING_EFFORTS).default("medium"),
+    requestQuotaBypass: z.boolean().optional(),
     referenceImageIds: z
       .array(z.string().min(1))
       .max(MAX_WORKSHOP_REFERENCE_IMAGES)
@@ -892,11 +894,14 @@ export async function sendWorkshopMessage(args: {
   const existingThread = input.threadId
     ? await verifyThreadOwnership(userId, input.projectId, input.threadId)
     : null;
+  const shouldBypassMonthlyQuota = input.requestQuotaBypass
+    ? await currentUserCanBypassLimits()
+    : false;
 
   const usageRow = await db.transaction(async (tx) => {
     await lockUserUsage(tx, userId);
     const usedCredits = await getUsedCredits(tx, userId);
-    if (usedCredits >= MONTHLY_CREDIT_LIMIT) {
+    if (!shouldBypassMonthlyQuota && usedCredits >= MONTHLY_CREDIT_LIMIT) {
       throw new TRPCError({
         code: "TOO_MANY_REQUESTS",
         message: "Monthly credit limit reached",

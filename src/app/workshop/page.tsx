@@ -1,5 +1,6 @@
 "use client";
 
+import { useUser } from "@clerk/nextjs";
 import {
   useEffect,
   useMemo,
@@ -1223,10 +1224,26 @@ export default function WorkshopPage() {
   const streamAbortControllerRef = useRef<AbortController | null>(null);
   const utils = api.useUtils();
   const router = useRouter();
+  const user = useUser();
+  const [bypassMonthlyQuota, setBypassMonthlyQuota] =
+    useLocalStorage("bypassMonthlyQuota");
+  const canBypassLimits = user.user?.publicMetadata.canBypassLimits === true;
+  const effectiveBypassMonthlyQuota = canBypassLimits && bypassMonthlyQuota;
 
   useEffect(() => {
     setIsMacOS(navigator?.userAgent.toLowerCase().includes("mac"));
   }, []);
+
+  useEffect(() => {
+    if (user.isLoaded && !canBypassLimits && bypassMonthlyQuota) {
+      setBypassMonthlyQuota(false);
+    }
+  }, [
+    bypassMonthlyQuota,
+    canBypassLimits,
+    setBypassMonthlyQuota,
+    user.isLoaded,
+  ]);
 
   const { data: projects, isLoading: isLoadingProjects } =
     api.project.list.useQuery();
@@ -1563,6 +1580,7 @@ export default function WorkshopPage() {
           content: prompt,
           model,
           reasoningEffort: selectedReasoningEffort,
+          requestQuotaBypass: effectiveBypassMonthlyQuota,
           referenceImageIds,
         }),
       });
@@ -1719,6 +1737,7 @@ export default function WorkshopPage() {
       content: trimmedPrompt,
       model: selectedModel,
       reasoningEffort: selectedReasoningEffort,
+      requestQuotaBypass: effectiveBypassMonthlyQuota,
       referenceImageIds,
     });
   };
