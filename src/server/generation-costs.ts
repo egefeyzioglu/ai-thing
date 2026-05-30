@@ -89,6 +89,15 @@ type CostFallbackContext = {
   thinking?: string | null;
 };
 
+function pricingContext(context: CostFallbackContext): Record<string, unknown> {
+  return {
+    resolution: context.resolution,
+    outputImageCount: context.outputImageCount,
+    size: context.size,
+    quality: context.quality,
+  };
+}
+
 type OpenAIResponseUsageRaw = {
   responseUsage?: unknown;
   imageGenerationCallUsage?: unknown;
@@ -632,7 +641,7 @@ function calculateOpenAIImagesCost(args: {
         provider: "openai",
         model: args.model,
         fallbackReason: "missing_openai_images_usage",
-        fallbackContext: args.fallbackContext,
+        pricingContext: pricingContext(args.fallbackContext),
         assumptions: [
           "gpt_image_2_output_tokens_estimated_from_quality_and_size",
           ...qualityFallbackAssumption,
@@ -687,7 +696,7 @@ function calculateOpenAIImagesCost(args: {
       pricingVersion: COST_PRICING_VERSION,
       provider: "openai",
       model: args.model,
-      fallbackContext: args.fallbackContext,
+      pricingContext: pricingContext(args.fallbackContext),
       assumptions,
       lineItems: { textInputCost, imageInputCost, imageOutputCost },
     },
@@ -729,7 +738,7 @@ function calculateGeminiCost(args: {
           provider: "gemini",
           model: args.model,
           fallbackReason: "missing_gemini_usage_metadata",
-          fallbackContext: args.fallbackContext,
+          pricingContext: pricingContext(args.fallbackContext),
           assumptions: [
             "scaled_from_1290_tokens_for_1k_square_or_smaller_by_estimated_pixel_area",
           ],
@@ -765,7 +774,7 @@ function calculateGeminiCost(args: {
         provider: "gemini",
         model: args.model,
         fallbackReason: "missing_gemini_usage_metadata",
-        fallbackContext: args.fallbackContext,
+        pricingContext: pricingContext(args.fallbackContext),
         lineItems: { imageOutputCost },
       },
     };
@@ -846,7 +855,7 @@ function calculateGeminiCost(args: {
       provider: "gemini",
       model: args.model,
       serviceTier: usage.serviceTier,
-      fallbackContext: args.fallbackContext,
+      pricingContext: pricingContext(args.fallbackContext),
       assumptions,
       lineItems: { inputCost, imageOutputCost, textOutputCost },
     },
