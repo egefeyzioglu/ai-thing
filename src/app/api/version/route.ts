@@ -6,6 +6,8 @@ export function GET() {
   return NextResponse.json(
     {
       version: process.env.VERCEL_GIT_COMMIT_SHA ?? "unknown",
+      forceRefreshNotify:
+        process.env.NEXT_PUBLIC_REFRESH_NOTIFY_DEBUG === "true",
     },
     {
       headers: {

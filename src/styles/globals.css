@@ -145,3 +145,49 @@
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+@keyframes refreshNotifyBounce {
+  0%,
+  12%,
+  24%,
+  36%,
+  48%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+  6% {
+    transform: translateY(calc(-1 * var(--refresh-notify-bounce-height, 14px)));
+  }
+  18% {
+    transform: translateY(
+      calc(-1 * var(--refresh-notify-bounce-height, 14px) * 0.71)
+    );
+  }
+  30% {
+    transform: translateY(
+      calc(-1 * var(--refresh-notify-bounce-height, 14px) * 0.5)
+    );
+  }
+  42% {
+    transform: translateY(
+      calc(-1 * var(--refresh-notify-bounce-height, 14px) * 0.29)
+    );
+  }
+  54% {
+    transform: translateY(
+      calc(-1 * var(--refresh-notify-bounce-height, 14px) * 0.14)
+    );
+  }
+}
+
+.refresh-notify-toast {
+  animation: refreshNotifyBounce 2.8s ease-in-out infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refresh-notify-toast {
+    animation: none;
+  }
+}
