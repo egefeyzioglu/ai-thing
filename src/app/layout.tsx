@@ -9,6 +9,7 @@ import { TooltipProvider } from "src/components/ui/tooltip";
 import { Toaster } from "src/components/ui/sonner";
 import { TRPCReactProvider } from "src/trpc/react";
 
+import { DeploymentRefreshNotifier } from "./_components/deployment-refresh-notifier";
 import { PostHogProvider } from "./providers";
 
 export const metadata: Metadata = {
@@ -35,6 +36,7 @@ export default function RootLayout({
           <PostHogProvider>
             <TooltipProvider>
               <TRPCReactProvider>{children}</TRPCReactProvider>
+              <DeploymentRefreshNotifier />
               <Toaster />
             </TooltipProvider>
           </PostHogProvider>
