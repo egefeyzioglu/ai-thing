@@ -1,0 +1,62 @@
+[
+  {
+    "event": "image_generation_started",
+    "description": "Fired when the user clicks Generate and the API call begins. Tracks model count, resolution, aspect ratio, run count, and whether reference images were used.",
+    "file": "src/app/page.tsx"
+  },
+  {
+    "event": "image_generation_completed",
+    "description": "Fired after all image generation tasks in a batch resolve (success or failure). Tracks how many succeeded and how many failed.",
+    "file": "src/app/page.tsx"
+  },
+  {
+    "event": "image_retry_started",
+    "description": "Fired when the user requests a retry on a failed image.",
+    "file": "src/app/page.tsx"
+  },
+  {
+    "event": "reference_image_uploaded",
+    "description": "Fired after one or more reference images are successfully uploaded from disk.",
+    "file": "src/app/page.tsx"
+  },
+  {
+    "event": "generated_image_reused_as_reference",
+    "description": "Fired when the user reuses a generated image as a reference image for future generations.",
+    "file": "src/app/page.tsx"
+  },
+  {
+    "event": "workshop_message_sent",
+    "description": "Fired when the user submits a message to the prompt workshop. Tracks model and reasoning effort.",
+    "file": "src/app/workshop/page.tsx"
+  },
+  {
+    "event": "workshop_suggested_prompt_used",
+    "description": "Fired when the user accepts an AI-suggested prompt from the workshop and navigates back to the generator.",
+    "file": "src/app/workshop/page.tsx"
+  },
+  {
+    "event": "workshop_thread_deleted",
+    "description": "Fired after a workshop thread is successfully deleted.",
+    "file": "src/app/workshop/page.tsx"
+  },
+  {
+    "event": "project_created",
+    "description": "Server-side event fired when a user creates a new project.",
+    "file": "src/server/api/routers/project.ts"
+  },
+  {
+    "event": "project_renamed",
+    "description": "Server-side event fired when a user renames a project.",
+    "file": "src/server/api/routers/project.ts"
+  },
+  {
+    "event": "image_generation_succeeded",
+    "description": "Server-side event fired when an individual image generation succeeds. Tracks model and provider.",
+    "file": "src/server/api/routers/image.ts"
+  },
+  {
+    "event": "image_generation_failed",
+    "description": "Server-side event fired when an individual image generation fails. Tracks model and error message.",
+    "file": "src/server/api/routers/image.ts"
+  }
+]

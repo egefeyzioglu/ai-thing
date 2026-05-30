@@ -26,6 +26,7 @@ import {
   lockUserUsage,
   markUsageStatus,
 } from "src/server/usage";
+import { getPostHogClient } from "src/lib/posthog-server";
 
 type ResponsesApiOutputItem = {
   id?: string;
@@ -1020,6 +1021,15 @@ export const imageRouter = createTRPCRouter({
         if (!didConsume) {
           console.warn("[runGeneration] usage row was not consumed");
         }
+        getPostHogClient().capture({
+          distinctId: ctx.user,
+          event: "image_generation_succeeded",
+          properties: {
+            image_id: imageRow.id,
+            model: imageRow.model,
+            provider: generated.cost.provider,
+          },
+        });
         console.log("[runGeneration] done, status: succeeded");
         return updated;
       } catch (err) {
@@ -1050,6 +1060,15 @@ export const imageRouter = createTRPCRouter({
         if (!didRefund) {
           console.warn("[runGeneration] usage row was not refunded");
         }
+        getPostHogClient().capture({
+          distinctId: ctx.user,
+          event: "image_generation_failed",
+          properties: {
+            image_id: imageRow.id,
+            model: imageRow.model,
+            error: message,
+          },
+        });
         console.log("[runGeneration] done, status: failed, error:", message);
         return updated;
       }
