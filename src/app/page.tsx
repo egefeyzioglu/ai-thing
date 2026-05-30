@@ -25,13 +25,12 @@ import { ImageGallery } from "./_components/image-gallery";
 import type { PromptComposerHandle } from "./_components/prompt-composer";
 import {
   Sidebar,
-  type BackgroundOption,
   type PromptModelSlug,
-  type QualityOption,
   type ResolutionOption,
 } from "./_components/sidebar";
 import { useActiveProject } from "./_hooks/use-active-project";
 import { useLocalStorage } from "src/lib/localStorage";
+import { useSessionStorage } from "src/lib/sessionStorage";
 
 type PendingDelete =
   | { type: "referenceImage"; id: string }
@@ -84,11 +83,9 @@ export default function Home() {
   const [selectedModels, setSelectedModels] = useState<PromptModelSlug[]>([]);
   const [resolution, setResolution] = useState<ResolutionOption>("1K");
   const [aspect, setAspect] = useState("1:1");
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [quality, setQuality] = useState<QualityOption>("auto");
-  const [background, setBackground] = useState<BackgroundOption>("auto");
-  const [negativePrompt, setNegativePrompt] = useState("");
-  const [seed, setSeed] = useState("");
+  const [advanced, setAdvanced] = useSessionStorage(
+    "imageGenerationAdvanced",
+  );
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
   const [runs, setRuns] = useState(1);
   const [pushPermissionDialogOpen, setPushPermissionDialogOpen] =
@@ -671,16 +668,30 @@ export default function Home() {
         onResolutionChange={setResolution}
         aspect={aspect}
         onAspectChange={setAspect}
-        advancedOpen={advancedOpen}
-        onAdvancedOpenChange={setAdvancedOpen}
-        quality={quality}
-        onQualityChange={setQuality}
-        background={background}
-        onBackgroundChange={setBackground}
-        negativePrompt={negativePrompt}
-        onNegativePromptChange={setNegativePrompt}
-        seed={seed}
-        onSeedChange={setSeed}
+        advancedOpen={advanced.advancedOpen}
+        onAdvancedOpenChange={(open) =>
+          setAdvanced((s) => ({ ...s, advancedOpen: open }))
+        }
+        quality={advanced.quality}
+        onQualityChange={(value) =>
+          setAdvanced((s) => ({ ...s, quality: value }))
+        }
+        background={advanced.background}
+        onBackgroundChange={(value) =>
+          setAdvanced((s) => ({ ...s, background: value }))
+        }
+        negativePrompt={advanced.negativePrompt}
+        onNegativePromptChange={(value) =>
+          setAdvanced((s) => ({ ...s, negativePrompt: value }))
+        }
+        seed={advanced.seed}
+        onSeedChange={(value) =>
+          setAdvanced((s) => ({ ...s, seed: value }))
+        }
+        thinking={advanced.thinking}
+        onThinkingChange={(value) =>
+          setAdvanced((s) => ({ ...s, thinking: value }))
+        }
         hasOpenAIModelSelected={hasOpenAIModelSelected}
         hasGeminiModelSelected={hasGeminiModelSelected}
         isMacOS={isMacOS}

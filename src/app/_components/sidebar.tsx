@@ -58,6 +58,7 @@ export const RESOLUTION_OPTIONS: ResolutionOption[] = ["512", "1K", "2K", "4K"];
 
 export type QualityOption = "auto" | "low" | "medium" | "high";
 export type BackgroundOption = "auto" | "opaque" | "transparent";
+export type ThinkingOption = "auto" | "off" | "low" | "high";
 
 export const QUALITY_OPTIONS: { value: QualityOption; label: string }[] = [
   { value: "auto", label: "Auto" },
@@ -72,6 +73,13 @@ export const BACKGROUND_OPTIONS: { value: BackgroundOption; label: string }[] =
     { value: "opaque", label: "Opaque" },
     { value: "transparent", label: "Transparent" },
   ];
+
+export const THINKING_OPTIONS: { value: ThinkingOption; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "off", label: "Off" },
+  { value: "low", label: "Low" },
+  { value: "high", label: "High" },
+];
 
 function AdvancedControlLabel({
   label,
@@ -302,6 +310,8 @@ type SidebarProps = {
   onNegativePromptChange: (value: string) => void;
   seed: string;
   onSeedChange: (value: string) => void;
+  thinking: ThinkingOption;
+  onThinkingChange: (value: ThinkingOption) => void;
   hasOpenAIModelSelected: boolean;
   hasGeminiModelSelected: boolean;
   isMacOS: boolean | null;
@@ -355,6 +365,8 @@ export function Sidebar({
   onNegativePromptChange,
   seed,
   onSeedChange,
+  thinking,
+  onThinkingChange,
   hasOpenAIModelSelected,
   hasGeminiModelSelected,
   isMacOS,
@@ -654,7 +666,8 @@ export function Sidebar({
               {(quality !== "auto" ||
                 background !== "auto" ||
                 negativePrompt.trim().length > 0 ||
-                seed.trim().length > 0) && (
+                seed.trim().length > 0 ||
+                thinking !== "auto") && (
                 <span className="text-xs text-(--muted-foreground)">
                   (modified)
                 </span>
@@ -772,21 +785,51 @@ export function Sidebar({
                     disabled={!hasGeminiModelSelected}
                   />
                 </Field>
-                <Field>
-                  <AdvancedControlLabel
-                    label="Seed"
-                    help="Use the same seed to reproduce results. Leave blank for random."
-                  />
-                  <Input
-                    inputMode="numeric"
-                    placeholder="Random"
-                    value={seed}
-                    onChange={(e) =>
-                      onSeedChange(e.target.value.replace(/[^0-9]/g, ""))
-                    }
-                    disabled={!hasGeminiModelSelected}
-                  />
-                </Field>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field>
+                    <AdvancedControlLabel
+                      label="Seed"
+                      help="Use the same seed to reproduce results. Leave blank for random."
+                    />
+                    <Input
+                      inputMode="numeric"
+                      placeholder="Random"
+                      value={seed}
+                      onChange={(e) =>
+                        onSeedChange(e.target.value.replace(/[^0-9]/g, ""))
+                      }
+                      disabled={!hasGeminiModelSelected}
+                    />
+                  </Field>
+                  <Field>
+                    <AdvancedControlLabel
+                      label="Thinking"
+                      help="How much the model reasons before generating. Costs extra tokens. Only Gemini 3 models support thinking."
+                    />
+                    <Select
+                      value={thinking}
+                      onValueChange={(value) =>
+                        onThinkingChange(value ?? "auto")
+                      }
+                      disabled={!hasGeminiModelSelected}
+                    >
+                      <SelectTrigger size="sm" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {THINKING_OPTIONS.map((option) => (
+                          <SelectItem
+                            key={option.value}
+                            value={option.value}
+                            className="cursor-pointer"
+                          >
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
               </div>
             </div>
           </CollapsibleContent>
