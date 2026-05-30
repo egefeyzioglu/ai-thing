@@ -1,7 +1,7 @@
 "use client";
 
 import { z } from "zod";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type SessionStorageSchemaItem<TSchema extends z.ZodTypeAny> = {
   schema: TSchema;
@@ -112,13 +112,22 @@ export function useSessionStorage<K extends SessionStorageKey>(
 ): [SessionStorageValue<K>, SessionStorageSetter<K>] {
   const defaultValue = sessionStorageSchema[key].defaultValue;
   const [value, setValue] = useState(defaultValue);
+  const skipNextPersistRef = useRef(true);
 
   useEffect(() => {
     const storedValue = getSessionStorage(key);
-    if (storedValue !== undefined) {
-      setValue(storedValue);
-    }
+    skipNextPersistRef.current = true;
+    setValue(storedValue ?? sessionStorageSchema[key].defaultValue);
   }, [key]);
+
+  useEffect(() => {
+    if (skipNextPersistRef.current) {
+      skipNextPersistRef.current = false;
+      return;
+    }
+
+    setSessionStorage(key, value);
+  }, [key, value]);
 
   const setValueWrapper = useCallback(
     (
@@ -129,11 +138,9 @@ export function useSessionStorage<K extends SessionStorageKey>(
       if (typeof newVal === "function") {
         setValue((prev: SessionStorageValue<K>) => {
           const newValue = newVal(prev ?? sessionStorageSchema[key].defaultValue);
-          setSessionStorage(key, newValue);
           return newValue;
         });
       } else {
-        setSessionStorage(key, newVal);
         setValue(newVal);
       }
     },
