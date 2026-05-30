@@ -654,16 +654,18 @@ export function Sidebar({
           </UserButton>
           {userFullName}
         </div>
-        {usageOpen ? <UsageModal
-          open={usageOpen}
-          onOpenChange={setUsageOpen}
-          usage={usage}
-          isLoading={isLoadingUsage}
-          currentRequestCost={currentRequestCost}
-          canBypassLimits={canBypassLimits}
-          bypassMonthlyQuota={bypassMonthlyQuota}
-          onBypassMonthlyQuotaChange={onBypassMonthlyQuotaChange}
-        /> : <></>}
+        {usageOpen && (
+          <UsageModal
+            open={usageOpen}
+            onOpenChange={setUsageOpen}
+            usage={usage}
+            isLoading={isLoadingUsage}
+            currentRequestCost={currentRequestCost}
+            canBypassLimits={canBypassLimits}
+            bypassMonthlyQuota={bypassMonthlyQuota}
+            onBypassMonthlyQuotaChange={onBypassMonthlyQuotaChange}
+          />
+        )}
       </div>
       {previewImage && (
         <ReferenceImageLightbox

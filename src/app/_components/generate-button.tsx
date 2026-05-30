@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, type RefObject } from "react";
-import clsx from "clsx";
 
+import { Button } from "src/components/ui/button";
 import type { PromptComposerHandle } from "./prompt-composer";
 
 type GenerateButtonProps = {
@@ -41,14 +41,11 @@ export function GenerateButton({
     !generateButtonLocked;
 
   return (
-    <button
+    <Button
+      type="button"
+      variant="outline"
       aria-busy={generateButtonLocked}
-      className={clsx(
-        "w-2/3 cursor-pointer rounded-md border border-1 px-4 py-2",
-        canGenerate
-          ? "hover:bg-gray-900 active:bg-gray-500"
-          : "cursor-not-allowed opacity-50",
-      )}
+      className="h-auto w-2/3 rounded-md px-4 py-2 hover:bg-gray-900 active:bg-gray-500"
       disabled={!canGenerate}
       onClick={onGenerate}
     >
@@ -57,6 +54,6 @@ export function GenerateButton({
         : isOverQuota && !bypassMonthlyQuota
           ? "Out of credits"
           : "Generate"}
-    </button>
+    </Button>
   );
 }
