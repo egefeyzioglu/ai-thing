@@ -70,7 +70,7 @@ export const projectRouter = createTRPCRouter({
           .returning();
 
         if (!project) throw new Error("Failed to create project");
-        getPostHogClient().capture({
+        await getPostHogClient().captureImmediate({
           distinctId: ctx.user,
           event: "project_created",
           properties: { project_id: project.id, project_name: project.name },
@@ -114,7 +114,7 @@ export const projectRouter = createTRPCRouter({
           .returning();
 
         if (!project) throw new Error("Failed to rename project");
-        getPostHogClient().capture({
+        await getPostHogClient().captureImmediate({
           distinctId: ctx.user,
           event: "project_renamed",
           properties: { project_id: project.id, new_name: project.name },

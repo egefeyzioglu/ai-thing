@@ -260,6 +260,26 @@ function parseReferenceImageIds(raw: unknown): string[] {
   return raw.filter((value): value is string => typeof value === "string");
 }
 
+function redactErrorMessage(message: string) {
+  return message
+    .replace(/Bearer\s+[^\s"']+/gi, "Bearer [redacted]")
+    .replace(/\b(?:sk|phc)_[A-Za-z0-9_-]+\b/g, "[redacted]")
+    .slice(0, 240);
+}
+
+function imageGenerationErrorCode(error: unknown, message: string) {
+  if (error instanceof TRPCError) return `trpc_${error.code.toLowerCase()}`;
+  if (message.startsWith("OpenAI API error")) return "openai_api_error";
+  if (message.startsWith("OpenAI Images API error")) {
+    return "openai_images_api_error";
+  }
+  if (message.startsWith("Gemini API error")) return "gemini_api_error";
+  if (message.startsWith("UploadThing upload failed")) return "upload_failed";
+  if (message.includes("did not contain an image")) return "empty_image_response";
+  if (message.startsWith("Unsupported model")) return "unsupported_model";
+  return "unknown_generation_error";
+}
+
 async function loadOwnedReferenceImages(
   userId: string,
   referenceImageIds?: string[],
@@ -1021,7 +1041,7 @@ export const imageRouter = createTRPCRouter({
         if (!didConsume) {
           console.warn("[runGeneration] usage row was not consumed");
         }
-        getPostHogClient().capture({
+        await getPostHogClient().captureImmediate({
           distinctId: ctx.user,
           event: "image_generation_succeeded",
           properties: {
@@ -1060,13 +1080,14 @@ export const imageRouter = createTRPCRouter({
         if (!didRefund) {
           console.warn("[runGeneration] usage row was not refunded");
         }
-        getPostHogClient().capture({
+        await getPostHogClient().captureImmediate({
           distinctId: ctx.user,
           event: "image_generation_failed",
           properties: {
             image_id: imageRow.id,
             model: imageRow.model,
-            error: message,
+            error_code: imageGenerationErrorCode(err, message),
+            error_snippet: redactErrorMessage(message),
           },
         });
         console.log("[runGeneration] done, status: failed, error:", message);

@@ -7,6 +7,16 @@ import type React from "react";
 import { useEffect } from "react";
 import { env } from "src/env";
 
+if (typeof window !== "undefined" && !posthog.__loaded) {
+  posthog.init(env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN, {
+    api_host: env.NEXT_PUBLIC_POSTHOG_API_HOST,
+    ui_host: env.NEXT_PUBLIC_POSTHOG_UI_HOST,
+    defaults: "2026-01-30",
+    person_profiles: "identified_only",
+    capture_exceptions: true,
+  });
+}
+
 function PostHogIdentifier() {
   const { user, isLoaded } = useUser();
 
@@ -26,16 +36,6 @@ function PostHogIdentifier() {
 }
 
 export function PostHogProvider({children}: {children: React.ReactNode}) {
-  useEffect(()=>{
-    posthog.init(env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN, {
-      api_host: env.NEXT_PUBLIC_POSTHOG_API_HOST,
-      ui_host: env.NEXT_PUBLIC_POSTHOG_UI_HOST,
-      defaults: '2026-01-30',
-      person_profiles: 'identified_only',
-      capture_exceptions: true,
-    })
-  }, []);
-
   return (
     <PHProvider client={posthog}>
       <PostHogIdentifier />
