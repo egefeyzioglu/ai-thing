@@ -21,6 +21,8 @@ import { useUploadThing } from "src/lib/uploadthing";
 import { WORKSHOP_ACCEPTED_PROMPT_STORAGE_KEY } from "src/lib/workshop";
 import { api } from "src/trpc/react";
 
+import posthog from "posthog-js";
+
 import { ImageGallery } from "./_components/image-gallery";
 import type { PromptComposerHandle } from "./_components/prompt-composer";
 import {
@@ -327,6 +329,9 @@ export default function Home() {
         }
 
         if (failedCount === 0) {
+          posthog.capture("reference_image_uploaded", {
+            count: res.length,
+          });
           toast.success(
             res.length === 1
               ? "Reference image uploaded"
@@ -361,6 +366,18 @@ export default function Home() {
       );
       return;
     }
+
+    posthog.capture("image_generation_started", {
+      models: selectedModels,
+      model_count: selectedModels.length,
+      resolution,
+      aspect_ratio: aspect,
+      runs,
+      total_generations: selectedModels.length * runs,
+      has_reference_images: selectedReferenceImages.length > 0,
+      reference_image_count: selectedReferenceImages.length,
+      prompt_length: trimmedPrompt.length,
+    });
 
     maybeShowPushPermissionDialog();
     generateButtonLockedRef.current = true;
@@ -446,6 +463,12 @@ export default function Home() {
           generationResult.status === "rejected" ||
           generationResult.value.status === "failed",
       ).length;
+      posthog.capture("image_generation_completed", {
+        total: generationResults.length,
+        succeeded: generationResults.length - failedGenerationCount,
+        failed: failedGenerationCount,
+        models: selectedModels,
+      });
       notifyPromptDone({
         failureState:
           failedGenerationCount === 0
@@ -487,6 +510,7 @@ export default function Home() {
         ? prev
         : [...prev, result.referenceImageRow.id],
     );
+    posthog.capture("generated_image_reused_as_reference", { image_id: imageId });
     toast.success("Image reused as reference");
     setReferenceImagesOpen(true);
   };
@@ -501,6 +525,7 @@ export default function Home() {
       return;
     }
 
+    posthog.capture("image_retry_started", { image_id: imageId });
     toast.info("Retry generation started");
     utils.prompt.list.setData({ projectId: selectedProjectId }, (old) =>
       old?.map((p) => ({

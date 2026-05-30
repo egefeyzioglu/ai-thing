@@ -64,6 +64,7 @@ import {
 } from "src/lib/workshop";
 import { api, type RouterOutputs } from "src/trpc/react";
 
+import posthog from "posthog-js";
 import Markdown from "react-markdown";
 
 function OpenAIIcon({ className }: { className?: string }) {
@@ -1439,6 +1440,7 @@ export default function WorkshopPage() {
         setSelectedProjectId(variables.projectId);
       }
       setThreadToDelete(null);
+      posthog.capture("workshop_thread_deleted");
       void utils.workshop.listThreads.invalidate({
         projectId: variables.projectId,
       });
@@ -1714,6 +1716,14 @@ export default function WorkshopPage() {
     )
       return;
 
+    posthog.capture("workshop_message_sent", {
+      model: selectedModel,
+      reasoning_effort: selectedReasoningEffort,
+      has_attachments: referenceImageIds.length > 0,
+      attachment_count: referenceImageIds.length,
+      is_new_thread: !selectedThreadId,
+    });
+
     if (isOpenAIWorkshopModel(selectedModel)) {
       void sendPromptStream(trimmedPrompt, referenceImageIds, attachments);
       return;
@@ -1872,6 +1882,10 @@ export default function WorkshopPage() {
                         toast.error("Failed to use suggested prompt");
                         return;
                       }
+                      posthog.capture("workshop_suggested_prompt_used", {
+                        prompt_length: latestSuggestedPrompt.length,
+                        model: selectedModel,
+                      });
                       router.push("/");
                     }}
                   />

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import { projects, type Project } from "src/server/db/schema";
+import { getPostHogClient } from "src/lib/posthog-server";
 
 const DEFAULT_PROJECT_NAME = "Default Project";
 const PROJECT_NAME_MAX_LENGTH = 80;
@@ -69,6 +70,11 @@ export const projectRouter = createTRPCRouter({
           .returning();
 
         if (!project) throw new Error("Failed to create project");
+        await getPostHogClient().captureImmediate({
+          distinctId: ctx.user,
+          event: "project_created",
+          properties: { project_id: project.id, project_name: project.name },
+        });
         return project;
       } catch (error) {
         if (isUniqueViolation(error)) {
@@ -108,6 +114,11 @@ export const projectRouter = createTRPCRouter({
           .returning();
 
         if (!project) throw new Error("Failed to rename project");
+        await getPostHogClient().captureImmediate({
+          distinctId: ctx.user,
+          event: "project_renamed",
+          properties: { project_id: project.id, new_name: project.name },
+        });
         return project;
       } catch (error) {
         if (isUniqueViolation(error)) {
