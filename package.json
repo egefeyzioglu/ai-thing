@@ -39,6 +39,7 @@
     "next": "^15.2.3",
     "postgres": "^3.4.9",
     "posthog-js": "^1.372.6",
+    "posthog-node": "^5.35.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
