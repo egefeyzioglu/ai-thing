@@ -302,6 +302,18 @@ async function loadOwnedReferenceImages(userId: string, ids: string[]) {
   }
 
   const byId = new Map(images.map((image) => [image.id, image]));
+  const unresolvedImageIds = ids.filter((id) => {
+    const image = byId.get(id);
+    return image?.url == null || image.mimeType == null;
+  });
+
+  if (unresolvedImageIds.length > 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `One or more image attachments are missing upload data: ${unresolvedImageIds.join(", ")}`,
+    });
+  }
+
   return ids.map((id) => byId.get(id)).filter((image) => image !== undefined);
 }
 
