@@ -24,6 +24,7 @@ type ImageGalleryProps = {
   models: ModelList | undefined;
   referenceImages: ReferenceImageList | undefined;
   onDeletePrompt: (promptId: string) => void;
+  onMovePrompt: (promptId: string, projectId: string) => void;
   onDeleteImage: (imageId: string) => void;
   onReuseAsReference: (imageId: string) => Promise<void>;
   onRetryImage: (imageId: string) => void;
@@ -75,6 +76,7 @@ export function ImageGallery({
   models,
   referenceImages,
   onDeletePrompt,
+  onMovePrompt,
   onDeleteImage,
   onReuseAsReference,
   onRetryImage,
@@ -172,6 +174,8 @@ export function ImageGallery({
               aspectRatio={prompt.aspectRatio ?? undefined}
               createdAt={prompt.createdAt}
               models={models ?? []}
+              projects={projects}
+              currentProjectId={selectedProjectId}
               images={prompt.images.map((image) => ({
                 id: image.id,
                 url: image.url ?? "",
@@ -193,6 +197,7 @@ export function ImageGallery({
                   : []
               }
               onDeletePrompt={() => onDeletePrompt(prompt.id)}
+              onMovePrompt={(projectId) => onMovePrompt(prompt.id, projectId)}
               onDeleteImage={onDeleteImage}
               onReuseAsReference={onReuseAsReference}
               onRetryImage={onRetryImage}

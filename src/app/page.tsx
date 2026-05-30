@@ -229,6 +229,15 @@ export default function Home() {
       toast.error("Failed to delete generation");
     },
   });
+  const movePromptMutation = api.prompt.movePrompt.useMutation({
+    onSuccess: () => {
+      toast.success("Generation moved");
+      void utils.prompt.list.invalidate();
+    },
+    onError: () => {
+      toast.error("Failed to move generation");
+    },
+  });
   const deleteImageMutation = api.image.deleteImage.useMutation({
     onSuccess: () => {
       toast.success("Image deleted");
@@ -763,6 +772,9 @@ export default function Home() {
         models={models}
         referenceImages={referenceImages}
         onDeletePrompt={(id) => setPendingDelete({ type: "prompt", id })}
+        onMovePrompt={(id, projectId) =>
+          movePromptMutation.mutate({ id, projectId })
+        }
         onDeleteImage={(id) => setPendingDelete({ type: "image", id })}
         onReuseAsReference={handleReuseAsReference}
         onRetryImage={handleRetryImage}
