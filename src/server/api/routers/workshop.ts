@@ -32,6 +32,10 @@ type WorkshopReasoningEffort = (typeof WORKSHOP_REASONING_EFFORTS)[number];
 const WORKSHOP_MESSAGE_CREDITS = 1;
 const DEFAULT_THREAD_TITLE = "New workshop thread";
 const MAX_WORKSHOP_REFERENCE_IMAGES = 8;
+const OPENAI_EXTENDED_PROMPT_CACHE_MODELS: readonly OpenAIWorkshopModel[] = [
+  "gpt-5.5",
+  "gpt-5.4",
+];
 
 type WorkshopAttachmentInput = Pick<ReferenceImage, "id" | "url" | "mimeType">;
 
@@ -108,6 +112,8 @@ type OpenAIResponseUsage = {
 type OpenAITextRequestBody = {
   model: OpenAIWorkshopModel;
   stream: boolean;
+  prompt_cache_key?: string;
+  prompt_cache_retention?: "24h";
   reasoning: {
     effort: WorkshopReasoningEffort;
     summary: "auto";
@@ -193,6 +199,8 @@ type ProviderTextResponse = ParsedTextResponse & {
 
 type GenerateAssistantTextOptions = {
   onReasoningSummaryDelta?: (delta: string) => void | Promise<void>;
+  promptCacheKey?: string;
+  promptCacheRetention?: OpenAITextRequestBody["prompt_cache_retention"];
   signal?: AbortSignal;
 };
 
@@ -400,6 +408,21 @@ function getProviderMessages(messages: ChatMessage[]) {
   return messages.filter((message) => message.role !== "reasoning_summary");
 }
 
+function getWorkshopPromptCacheKey(
+  threadId: string,
+  model: OpenAIWorkshopModel,
+) {
+  return `workshop:${threadId}:${model}`;
+}
+
+function getOpenAIPromptCacheRetention(
+  model: OpenAIWorkshopModel,
+): OpenAITextRequestBody["prompt_cache_retention"] | undefined {
+  return OPENAI_EXTENDED_PROMPT_CACHE_MODELS.includes(model)
+    ? "24h"
+    : undefined;
+}
+
 function parseOpenAIResponse(
   data: OpenAIResponse,
   options: { allowEmpty?: boolean } = {},
@@ -469,10 +492,13 @@ function createOpenAITextRequestBody(
   messages: ChatMessage[],
   stream: boolean,
   reasoningEffort: WorkshopReasoningEffort,
+  options: GenerateAssistantTextOptions = {},
 ): OpenAITextRequestBody {
   return {
     model,
     stream,
+    prompt_cache_key: options.promptCacheKey,
+    prompt_cache_retention: options.promptCacheRetention,
     reasoning: {
       effort: reasoningEffort,
       summary: "auto",
@@ -507,9 +533,10 @@ function createOpenAITextContinuationRequestBody(
   suggestedPromptCallId: string,
   stream: boolean,
   reasoningEffort: WorkshopReasoningEffort,
+  options: GenerateAssistantTextOptions = {},
 ): OpenAITextRequestBody {
   return {
-    ...createOpenAITextRequestBody(model, [], stream, reasoningEffort),
+    ...createOpenAITextRequestBody(model, [], stream, reasoningEffort, options),
     input: [
       {
         type: "function_call_output",
@@ -677,9 +704,16 @@ async function generateOpenAIText(
   model: OpenAIWorkshopModel,
   messages: ChatMessage[],
   reasoningEffort: WorkshopReasoningEffort,
+  options: GenerateAssistantTextOptions = {},
 ) {
   const data = await createOpenAIResponse(
-    createOpenAITextRequestBody(model, messages, false, reasoningEffort),
+    createOpenAITextRequestBody(
+      model,
+      messages,
+      false,
+      reasoningEffort,
+      options,
+    ),
   );
   const parsed = parseOpenAIResponse(data);
   const responses = [data];
@@ -693,6 +727,7 @@ async function generateOpenAIText(
           parsed.suggestedPromptCallId,
           false,
           reasoningEffort,
+          options,
         ),
       ),
     );
@@ -804,7 +839,13 @@ async function generateOpenAITextStream(
   reasoningEffort: WorkshopReasoningEffort,
 ) {
   const firstResponse = await createOpenAIResponseStream(
-    createOpenAITextRequestBody(model, messages, true, reasoningEffort),
+    createOpenAITextRequestBody(
+      model,
+      messages,
+      true,
+      reasoningEffort,
+      options,
+    ),
     options,
   );
   const parsed = parseOpenAIResponse(firstResponse);
@@ -819,6 +860,7 @@ async function generateOpenAITextStream(
           parsed.suggestedPromptCallId,
           true,
           reasoningEffort,
+          options,
         ),
         options,
       ),
@@ -861,7 +903,7 @@ async function generateAssistantText(
             options,
             reasoningEffort,
           )
-        : await generateOpenAIText(model, messages, reasoningEffort);
+        : await generateOpenAIText(model, messages, reasoningEffort, options);
       const { text, suggestedPromptParam } = generated;
       if (!suggestedPromptParam) {
         return {
@@ -998,6 +1040,8 @@ export async function sendWorkshopMessage(args: {
       input.reasoningEffort,
       {
         onReasoningSummaryDelta: args.onReasoningSummaryDelta,
+        promptCacheKey: getWorkshopPromptCacheKey(thread.id, input.model),
+        promptCacheRetention: getOpenAIPromptCacheRetention(input.model),
         signal: args.signal,
       },
     ));
