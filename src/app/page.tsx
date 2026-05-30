@@ -30,6 +30,7 @@ import {
 } from "./_components/sidebar";
 import { useActiveProject } from "./_hooks/use-active-project";
 import { useLocalStorage } from "src/lib/localStorage";
+import { useSessionStorage } from "src/lib/sessionStorage";
 
 type PendingDelete =
   | { type: "referenceImage"; id: string }
@@ -40,6 +41,11 @@ const PUSH_PERMISSION_PROMPT_STORAGE_KEY = "ai-thing.pushPermissionPrompt";
 const OPENAI_MODEL_SLUGS = new Set<PromptModelSlug>([
   "gpt-image-2",
   "gpt-5.4-mini",
+]);
+const GEMINI_MODEL_SLUGS = new Set<PromptModelSlug>([
+  "gemini-2.5-flash-image",
+  "gemini-3.1-flash-image-preview",
+  "gemini-3-pro-image-preview",
 ]);
 
 function hasDismissedPushPermissionPrompt() {
@@ -77,6 +83,9 @@ export default function Home() {
   const [selectedModels, setSelectedModels] = useState<PromptModelSlug[]>([]);
   const [resolution, setResolution] = useState<ResolutionOption>("1K");
   const [aspect, setAspect] = useState("1:1");
+  const [advanced, setAdvanced] = useSessionStorage(
+    "imageGenerationAdvanced",
+  );
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
   const [runs, setRuns] = useState(1);
   const [pushPermissionDialogOpen, setPushPermissionDialogOpen] =
@@ -370,6 +379,11 @@ export default function Home() {
             : undefined,
         resolution,
         aspectRatio: aspect,
+        quality: advanced.quality,
+        background: advanced.background,
+        negativePrompt: advanced.negativePrompt || undefined,
+        seed: advanced.seed || undefined,
+        thinking: advanced.thinking,
         requestQuotaBypass: effectiveBypassMonthlyQuota,
       });
     } catch (reason) {
@@ -560,6 +574,12 @@ export default function Home() {
   const hasOnlyOpenAIModelsSelected =
     selectedModels.length > 0 &&
     selectedModels.every((model) => OPENAI_MODEL_SLUGS.has(model));
+  const hasOpenAIModelSelected = selectedModels.some((model) =>
+    OPENAI_MODEL_SLUGS.has(model),
+  );
+  const hasGeminiModelSelected = selectedModels.some((model) =>
+    GEMINI_MODEL_SLUGS.has(model),
+  );
   const isGalleryLoading =
     isLoadingProjects || !selectedProjectId || promptsQuery.isLoading;
   const galleryErrorMessage =
@@ -653,6 +673,32 @@ export default function Home() {
         onResolutionChange={setResolution}
         aspect={aspect}
         onAspectChange={setAspect}
+        advancedOpen={advanced.advancedOpen}
+        onAdvancedOpenChange={(open) =>
+          setAdvanced((s) => ({ ...s, advancedOpen: open }))
+        }
+        quality={advanced.quality}
+        onQualityChange={(value) =>
+          setAdvanced((s) => ({ ...s, quality: value }))
+        }
+        background={advanced.background}
+        onBackgroundChange={(value) =>
+          setAdvanced((s) => ({ ...s, background: value }))
+        }
+        negativePrompt={advanced.negativePrompt}
+        onNegativePromptChange={(value) =>
+          setAdvanced((s) => ({ ...s, negativePrompt: value }))
+        }
+        seed={advanced.seed}
+        onSeedChange={(value) =>
+          setAdvanced((s) => ({ ...s, seed: value }))
+        }
+        thinking={advanced.thinking}
+        onThinkingChange={(value) =>
+          setAdvanced((s) => ({ ...s, thinking: value }))
+        }
+        hasOpenAIModelSelected={hasOpenAIModelSelected}
+        hasGeminiModelSelected={hasGeminiModelSelected}
         isMacOS={isMacOS}
         promptComposerRef={promptComposerRef}
         hasSelectedProject={Boolean(selectedProjectId)}

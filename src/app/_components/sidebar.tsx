@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronUp,
   Gauge,
+  HelpCircle,
   Maximize2,
   Trash2,
   Upload,
@@ -25,8 +26,22 @@ import {
 } from "src/components/ui/collapsible";
 import { Checkbox } from "src/components/ui/checkbox";
 import { Field, FieldLabel } from "src/components/ui/field";
+import { Input } from "src/components/ui/input";
 import { Label } from "src/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "src/components/ui/select";
 import { Skeleton } from "src/components/ui/skeleton";
+import { Textarea } from "src/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "src/components/ui/tooltip";
 import type { RouterInputs, RouterOutputs } from "src/trpc/react";
 import { GenerateButton } from "./generate-button";
 import {
@@ -40,6 +55,59 @@ export type PromptModelSlug =
 export type ResolutionOption = "512" | "1K" | "2K" | "4K";
 
 export const RESOLUTION_OPTIONS: ResolutionOption[] = ["512", "1K", "2K", "4K"];
+
+export type QualityOption = "auto" | "low" | "medium" | "high";
+export type BackgroundOption = "auto" | "opaque" | "transparent";
+export type ThinkingOption = "auto" | "off" | "low" | "high";
+
+export const QUALITY_OPTIONS: { value: QualityOption; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+];
+
+export const BACKGROUND_OPTIONS: { value: BackgroundOption; label: string }[] =
+  [
+    { value: "auto", label: "Auto" },
+    { value: "opaque", label: "Opaque" },
+    { value: "transparent", label: "Transparent" },
+  ];
+
+export const THINKING_OPTIONS: { value: ThinkingOption; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "off", label: "Off" },
+  { value: "low", label: "Low" },
+  { value: "high", label: "High" },
+];
+
+function AdvancedControlLabel({
+  label,
+  help,
+}: {
+  label: string;
+  help: string;
+}) {
+  return (
+    <FieldLabel className="text-xxs flex items-center gap-1 text-(--muted-foreground) uppercase">
+      <span>{label}</span>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label={`What does ${label} do?`}
+              className="focus-visible:outline-ring inline-flex cursor-help items-center justify-center text-(--muted-foreground)/60 hover:text-(--muted-foreground) focus-visible:outline focus-visible:outline-1"
+            >
+              <HelpCircle size={12} />
+            </button>
+          }
+        />
+        <TooltipContent>{help}</TooltipContent>
+      </Tooltip>
+    </FieldLabel>
+  );
+}
 
 type ReferenceImageProps = {
   src: string;
@@ -232,6 +300,20 @@ type SidebarProps = {
   onResolutionChange: (resolution: ResolutionOption) => void;
   aspect: string;
   onAspectChange: (aspect: string) => void;
+  advancedOpen: boolean;
+  onAdvancedOpenChange: (open: boolean) => void;
+  quality: QualityOption;
+  onQualityChange: (quality: QualityOption) => void;
+  background: BackgroundOption;
+  onBackgroundChange: (background: BackgroundOption) => void;
+  negativePrompt: string;
+  onNegativePromptChange: (value: string) => void;
+  seed: string;
+  onSeedChange: (value: string) => void;
+  thinking: ThinkingOption;
+  onThinkingChange: (value: ThinkingOption) => void;
+  hasOpenAIModelSelected: boolean;
+  hasGeminiModelSelected: boolean;
   isMacOS: boolean | null;
   promptComposerRef: RefObject<PromptComposerHandle | null>;
   hasSelectedProject: boolean;
@@ -273,6 +355,20 @@ export function Sidebar({
   onResolutionChange,
   aspect,
   onAspectChange,
+  advancedOpen,
+  onAdvancedOpenChange,
+  quality,
+  onQualityChange,
+  background,
+  onBackgroundChange,
+  negativePrompt,
+  onNegativePromptChange,
+  seed,
+  onSeedChange,
+  thinking,
+  onThinkingChange,
+  hasOpenAIModelSelected,
+  hasGeminiModelSelected,
   isMacOS,
   promptComposerRef,
   hasSelectedProject,
@@ -561,6 +657,183 @@ export function Sidebar({
             ))}
           </div>
         </Field>
+        <Collapsible open={advancedOpen} onOpenChange={onAdvancedOpenChange}>
+          <CollapsibleTrigger className="flex w-full cursor-pointer flex-row items-baseline justify-between">
+            <div className="flex items-baseline gap-1.5">
+              <FieldLabel className="text-xxs cursor-pointer text-(--muted-foreground) uppercase">
+                Advanced
+              </FieldLabel>
+              {(quality !== "auto" ||
+                background !== "auto" ||
+                negativePrompt.trim().length > 0 ||
+                seed.trim().length > 0 ||
+                thinking !== "auto") && (
+                <span className="text-xs text-(--muted-foreground)">
+                  (modified)
+                </span>
+              )}
+            </div>
+            {advancedOpen ? (
+              <ChevronUp color="var(--muted-foreground)" />
+            ) : (
+              <ChevronDown color="var(--muted-foreground)" />
+            )}
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="mt-3 flex flex-col gap-4">
+              <div
+                className={clsx(
+                  "flex flex-col gap-2 transition-opacity",
+                  !hasOpenAIModelSelected && "opacity-50",
+                )}
+              >
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[10px] font-medium tracking-wide text-(--muted-foreground) uppercase">
+                    OpenAI
+                  </span>
+                  {!hasOpenAIModelSelected && (
+                    <span className="text-[10px] text-(--muted-foreground)/70 italic">
+                      no OpenAI model selected
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field>
+                    <AdvancedControlLabel
+                      label="Quality"
+                      help="Image quality. Higher uses more credits but produces sharper results."
+                    />
+                    <Select
+                      value={quality}
+                      onValueChange={(value) =>
+                        onQualityChange(value ?? "auto")
+                      }
+                      disabled={!hasOpenAIModelSelected}
+                    >
+                      <SelectTrigger size="sm" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {QUALITY_OPTIONS.map((option) => (
+                          <SelectItem
+                            key={option.value}
+                            value={option.value}
+                            className="cursor-pointer"
+                          >
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field>
+                    <AdvancedControlLabel
+                      label="Background"
+                      help="Transparent produces a PNG with no background. Auto lets the model decide."
+                    />
+                    <Select
+                      value={background}
+                      onValueChange={(value) =>
+                        onBackgroundChange(value ?? "auto")
+                      }
+                      disabled={!hasOpenAIModelSelected}
+                    >
+                      <SelectTrigger size="sm" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {BACKGROUND_OPTIONS.map((option) => (
+                          <SelectItem
+                            key={option.value}
+                            value={option.value}
+                            className="cursor-pointer"
+                          >
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+              </div>
+              <div
+                className={clsx(
+                  "flex flex-col gap-2 transition-opacity",
+                  !hasGeminiModelSelected && "opacity-50",
+                )}
+              >
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[10px] font-medium tracking-wide text-(--muted-foreground) uppercase">
+                    Gemini
+                  </span>
+                  {!hasGeminiModelSelected && (
+                    <span className="text-[10px] text-(--muted-foreground)/70 italic">
+                      no Gemini model selected
+                    </span>
+                  )}
+                </div>
+                <Field>
+                  <AdvancedControlLabel
+                    label="Negative Prompt"
+                    help="Describe what you don't want in the image (e.g. blurry, text)."
+                  />
+                  <Textarea
+                    rows={2}
+                    placeholder="e.g. blurry, low quality, text"
+                    value={negativePrompt}
+                    onChange={(e) => onNegativePromptChange(e.target.value)}
+                    disabled={!hasGeminiModelSelected}
+                  />
+                </Field>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field>
+                    <AdvancedControlLabel
+                      label="Seed"
+                      help="Use the same seed to reproduce results. Leave blank for random."
+                    />
+                    <Input
+                      inputMode="numeric"
+                      placeholder="Random"
+                      value={seed}
+                      onChange={(e) =>
+                        onSeedChange(e.target.value.replace(/[^0-9]/g, ""))
+                      }
+                      disabled={!hasGeminiModelSelected}
+                    />
+                  </Field>
+                  <Field>
+                    <AdvancedControlLabel
+                      label="Thinking"
+                      help="How much the model reasons before generating. Costs extra tokens. Only Gemini 3 models support thinking."
+                    />
+                    <Select
+                      value={thinking}
+                      onValueChange={(value) =>
+                        onThinkingChange(value ?? "auto")
+                      }
+                      disabled={!hasGeminiModelSelected}
+                    >
+                      <SelectTrigger size="sm" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {THINKING_OPTIONS.map((option) => (
+                          <SelectItem
+                            key={option.value}
+                            value={option.value}
+                            className="cursor-pointer"
+                          >
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
         <Field className="w-full">
           <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
             Runs per Model
