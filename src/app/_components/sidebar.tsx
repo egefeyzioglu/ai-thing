@@ -10,17 +10,14 @@ import {
   ChevronUp,
   Gauge,
   Maximize2,
-  MessagesSquare,
   Trash2,
   Upload,
   AlertTriangle,
   X,
 } from "lucide-react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import clsx from "clsx";
 
-import { Button } from "src/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
@@ -30,9 +27,12 @@ import { Checkbox } from "src/components/ui/checkbox";
 import { Field, FieldLabel } from "src/components/ui/field";
 import { Label } from "src/components/ui/label";
 import { Skeleton } from "src/components/ui/skeleton";
-import { Textarea } from "src/components/ui/textarea";
-import { WORKSHOP_DRAFT_STORAGE_KEY } from "src/lib/workshop";
 import type { RouterInputs, RouterOutputs } from "src/trpc/react";
+import { GenerateButton } from "./generate-button";
+import {
+  PromptComposer,
+  type PromptComposerHandle,
+} from "./prompt-composer";
 import { UsageModal } from "./usage-modal";
 
 export type PromptModelSlug =
@@ -233,13 +233,11 @@ type SidebarProps = {
   aspect: string;
   onAspectChange: (aspect: string) => void;
   isMacOS: boolean | null;
-  promptText: string;
-  onPromptTextChange: (text: string) => void;
-  onPromptKeyDown: (event: React.KeyboardEvent) => void;
+  promptComposerRef: RefObject<PromptComposerHandle | null>;
+  hasSelectedProject: boolean;
   runs: number;
   onRunsChange: (runs: number) => void;
   generateButtonLocked: boolean;
-  canGenerate: boolean;
   onGenerate: () => void;
   fileInputRef: RefObject<HTMLInputElement | null>;
   onFileUpload: (event: React.ChangeEvent<HTMLInputElement>) => void;
@@ -276,13 +274,11 @@ export function Sidebar({
   aspect,
   onAspectChange,
   isMacOS,
-  promptText,
-  onPromptTextChange,
-  onPromptKeyDown,
+  promptComposerRef,
+  hasSelectedProject,
   runs,
   onRunsChange,
   generateButtonLocked,
-  canGenerate,
   onGenerate,
   fileInputRef,
   onFileUpload,
@@ -307,7 +303,6 @@ export function Sidebar({
     id: string;
     url: string;
   } | null>(null);
-  const router = useRouter();
 
   const toggleSelected = (id: string) => {
     if (selectedReferenceImages.includes(id)) {
@@ -317,19 +312,6 @@ export function Sidebar({
     } else {
       onSelectedReferenceImagesChange([...selectedReferenceImages, id]);
     }
-  };
-
-  const handleOpenWorkshop = () => {
-    const trimmedPrompt = promptText.trim();
-    if (trimmedPrompt) {
-      try {
-        sessionStorage.setItem(WORKSHOP_DRAFT_STORAGE_KEY, promptText);
-      } catch (error) {
-        console.error("Failed to save workshop draft", error);
-      }
-    }
-
-    router.push("/workshop/");
   };
 
   return (
@@ -344,38 +326,11 @@ export function Sidebar({
         </div>
       </div>
       <div className="flex grow flex-col gap-3 overflow-y-scroll p-5">
-        <Field>
-          <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
-            Prompt
-          </FieldLabel>
-          <Textarea
-            id="prompt"
-            placeholder="What do you want to create?.."
-            value={promptText}
-            onChange={(e) => onPromptTextChange(e.target.value)}
-            onKeyDown={onPromptKeyDown}
-          />
-          <div className="flex items-center justify-between gap-2">
-            <span
-              className={clsx(
-                "mx-0 text-xs text-(--muted-foreground)",
-                isMacOS === null ? "opacity-0" : "opacity-80",
-              )}
-            >
-              Press {isMacOS ? "⌘" : "Ctrl"} + Enter to submit
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="cursor-pointer"
-              onClick={handleOpenWorkshop}
-            >
-              <MessagesSquare />
-              Workshop
-            </Button>
-          </div>
-        </Field>
+        <PromptComposer
+          ref={promptComposerRef}
+          isMacOS={isMacOS}
+          onSubmit={onGenerate}
+        />
         <Collapsible
           open={referenceImagesOpen}
           onOpenChange={onReferenceImagesOpenChange}
@@ -677,23 +632,15 @@ export function Sidebar({
             </div>
           </div>
         )}
-        <button
-          aria-busy={generateButtonLocked}
-          className={clsx(
-            "w-2/3 cursor-pointer rounded-md border border-1 px-4 py-2",
-            canGenerate
-              ? "hover:bg-gray-900 active:bg-gray-500"
-              : "cursor-not-allowed opacity-50",
-          )}
-          disabled={!canGenerate}
-          onClick={onGenerate}
-        >
-          {generateButtonLocked
-            ? "Generating..."
-            : usage?.isOverQuota && !bypassMonthlyQuota
-              ? "Out of credits"
-              : "Generate"}
-        </button>
+        <GenerateButton
+          promptComposerRef={promptComposerRef}
+          selectedModelsCount={selectedModels.length}
+          hasSelectedProject={hasSelectedProject}
+          isOverQuota={Boolean(usage?.isOverQuota)}
+          bypassMonthlyQuota={bypassMonthlyQuota}
+          generateButtonLocked={generateButtonLocked}
+          onGenerate={onGenerate}
+        />
         <br />
         <div className="flex w-full flex-row items-center-safe justify-start gap-4 px-4">
           <UserButton>
@@ -707,16 +654,18 @@ export function Sidebar({
           </UserButton>
           {userFullName}
         </div>
-        <UsageModal
-          open={usageOpen}
-          onOpenChange={setUsageOpen}
-          usage={usage}
-          isLoading={isLoadingUsage}
-          currentRequestCost={currentRequestCost}
-          canBypassLimits={canBypassLimits}
-          bypassMonthlyQuota={bypassMonthlyQuota}
-          onBypassMonthlyQuotaChange={onBypassMonthlyQuotaChange}
-        />
+        {usageOpen && (
+          <UsageModal
+            open={usageOpen}
+            onOpenChange={setUsageOpen}
+            usage={usage}
+            isLoading={isLoadingUsage}
+            currentRequestCost={currentRequestCost}
+            canBypassLimits={canBypassLimits}
+            bypassMonthlyQuota={bypassMonthlyQuota}
+            onBypassMonthlyQuotaChange={onBypassMonthlyQuotaChange}
+          />
+        )}
       </div>
       {previewImage && (
         <ReferenceImageLightbox
