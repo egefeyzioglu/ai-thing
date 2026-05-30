@@ -22,6 +22,7 @@ import { WORKSHOP_ACCEPTED_PROMPT_STORAGE_KEY } from "src/lib/workshop";
 import { api } from "src/trpc/react";
 
 import { ImageGallery } from "./_components/image-gallery";
+import type { PromptComposerHandle } from "./_components/prompt-composer";
 import {
   Sidebar,
   type PromptModelSlug,
@@ -77,7 +78,7 @@ export default function Home() {
   const [resolution, setResolution] = useState<ResolutionOption>("1K");
   const [aspect, setAspect] = useState("1:1");
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
-  const [promptText, setPromptText] = useState("");
+  const [hasPromptContent, setHasPromptContent] = useState(false);
   const [runs, setRuns] = useState(1);
   const [pushPermissionDialogOpen, setPushPermissionDialogOpen] =
     useState(false);
@@ -90,6 +91,7 @@ export default function Home() {
 
   const generateButtonLockedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const promptComposerRef = useRef<PromptComposerHandle>(null);
   const generateButtonTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -117,7 +119,7 @@ export default function Home() {
         WORKSHOP_ACCEPTED_PROMPT_STORAGE_KEY,
       );
       if (acceptedPrompt) {
-        setPromptText(acceptedPrompt);
+        promptComposerRef.current?.setValue(acceptedPrompt);
         sessionStorage.removeItem(WORKSHOP_ACCEPTED_PROMPT_STORAGE_KEY);
       }
     } catch (error) {
@@ -153,7 +155,7 @@ export default function Home() {
   useEffect(() => {
     unlockGenerateButton();
   }, [
-    promptText,
+    hasPromptContent,
     selectedModels,
     selectedReferenceImages,
     resolution,
@@ -332,7 +334,7 @@ export default function Home() {
   };
 
   const handleGenerate = async () => {
-    const trimmedPrompt = promptText.trim();
+    const trimmedPrompt = (promptComposerRef.current?.getValue() ?? "").trim();
     if (!trimmedPrompt || selectedModels.length === 0 || !selectedProjectId)
       return;
     if (generateButtonLockedRef.current) return;
@@ -448,16 +450,6 @@ export default function Home() {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (
-      (isMacOS && e.metaKey && e.key === "Enter") ||
-      (!isMacOS && e.ctrlKey && e.key === "Enter")
-    ) {
-      e.preventDefault();
-      void handleGenerate();
-    }
-  };
-
   const handleReuseAsReference = async (imageId: string) => {
     let result;
     try {
@@ -561,7 +553,7 @@ export default function Home() {
     selectedModels.length > 0 &&
     selectedModels.every((model) => OPENAI_MODEL_SLUGS.has(model));
   const canGenerate =
-    Boolean(promptText.trim()) &&
+    hasPromptContent &&
     selectedModels.length > 0 &&
     Boolean(selectedProjectId) &&
     (effectiveBypassMonthlyQuota || !usage?.isOverQuota) &&
@@ -660,9 +652,8 @@ export default function Home() {
         aspect={aspect}
         onAspectChange={setAspect}
         isMacOS={isMacOS}
-        promptText={promptText}
-        onPromptTextChange={setPromptText}
-        onPromptKeyDown={handleKeyDown}
+        promptComposerRef={promptComposerRef}
+        onPromptHasContentChange={setHasPromptContent}
         runs={runs}
         onRunsChange={setRuns}
         generateButtonLocked={generateButtonLocked}

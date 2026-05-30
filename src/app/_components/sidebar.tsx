@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useState, type Ref, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
 import { UserButton } from "@clerk/nextjs";
@@ -10,17 +10,14 @@ import {
   ChevronUp,
   Gauge,
   Maximize2,
-  MessagesSquare,
   Trash2,
   Upload,
   AlertTriangle,
   X,
 } from "lucide-react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import clsx from "clsx";
 
-import { Button } from "src/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
@@ -30,9 +27,11 @@ import { Checkbox } from "src/components/ui/checkbox";
 import { Field, FieldLabel } from "src/components/ui/field";
 import { Label } from "src/components/ui/label";
 import { Skeleton } from "src/components/ui/skeleton";
-import { Textarea } from "src/components/ui/textarea";
-import { WORKSHOP_DRAFT_STORAGE_KEY } from "src/lib/workshop";
 import type { RouterInputs, RouterOutputs } from "src/trpc/react";
+import {
+  PromptComposer,
+  type PromptComposerHandle,
+} from "./prompt-composer";
 import { UsageModal } from "./usage-modal";
 
 export type PromptModelSlug =
@@ -233,9 +232,8 @@ type SidebarProps = {
   aspect: string;
   onAspectChange: (aspect: string) => void;
   isMacOS: boolean | null;
-  promptText: string;
-  onPromptTextChange: (text: string) => void;
-  onPromptKeyDown: (event: React.KeyboardEvent) => void;
+  promptComposerRef: Ref<PromptComposerHandle>;
+  onPromptHasContentChange: (hasContent: boolean) => void;
   runs: number;
   onRunsChange: (runs: number) => void;
   generateButtonLocked: boolean;
@@ -276,9 +274,8 @@ export function Sidebar({
   aspect,
   onAspectChange,
   isMacOS,
-  promptText,
-  onPromptTextChange,
-  onPromptKeyDown,
+  promptComposerRef,
+  onPromptHasContentChange,
   runs,
   onRunsChange,
   generateButtonLocked,
@@ -307,7 +304,6 @@ export function Sidebar({
     id: string;
     url: string;
   } | null>(null);
-  const router = useRouter();
 
   const toggleSelected = (id: string) => {
     if (selectedReferenceImages.includes(id)) {
@@ -317,19 +313,6 @@ export function Sidebar({
     } else {
       onSelectedReferenceImagesChange([...selectedReferenceImages, id]);
     }
-  };
-
-  const handleOpenWorkshop = () => {
-    const trimmedPrompt = promptText.trim();
-    if (trimmedPrompt) {
-      try {
-        sessionStorage.setItem(WORKSHOP_DRAFT_STORAGE_KEY, promptText);
-      } catch (error) {
-        console.error("Failed to save workshop draft", error);
-      }
-    }
-
-    router.push("/workshop/");
   };
 
   return (
@@ -344,38 +327,12 @@ export function Sidebar({
         </div>
       </div>
       <div className="flex grow flex-col gap-3 overflow-y-scroll p-5">
-        <Field>
-          <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
-            Prompt
-          </FieldLabel>
-          <Textarea
-            id="prompt"
-            placeholder="What do you want to create?.."
-            value={promptText}
-            onChange={(e) => onPromptTextChange(e.target.value)}
-            onKeyDown={onPromptKeyDown}
-          />
-          <div className="flex items-center justify-between gap-2">
-            <span
-              className={clsx(
-                "mx-0 text-xs text-(--muted-foreground)",
-                isMacOS === null ? "opacity-0" : "opacity-80",
-              )}
-            >
-              Press {isMacOS ? "⌘" : "Ctrl"} + Enter to submit
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="cursor-pointer"
-              onClick={handleOpenWorkshop}
-            >
-              <MessagesSquare />
-              Workshop
-            </Button>
-          </div>
-        </Field>
+        <PromptComposer
+          ref={promptComposerRef}
+          isMacOS={isMacOS}
+          onSubmit={onGenerate}
+          onHasContentChange={onPromptHasContentChange}
+        />
         <Collapsible
           open={referenceImagesOpen}
           onOpenChange={onReferenceImagesOpenChange}
