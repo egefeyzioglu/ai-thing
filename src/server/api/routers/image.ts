@@ -118,8 +118,36 @@ type GeneratedImage = {
     providerModel?: string | null;
     operation: GenerationCostEventOperation;
     usageRaw: unknown;
+    fallbackContext?: GenerationCostFallbackContext;
   };
 };
+
+type GenerationCostFallbackContext = {
+  resolution?: string | null;
+  aspectRatio?: string | null;
+  outputImageCount?: number;
+  size?: string | null;
+  quality?: string | null;
+  background?: string | null;
+  negativePrompt?: string | null;
+  seed?: string | null;
+  thinking?: string | null;
+};
+
+function advancedCostContext(
+  advanced?: AdvancedSettings,
+): Pick<
+  GenerationCostFallbackContext,
+  "quality" | "background" | "negativePrompt" | "seed" | "thinking"
+> {
+  return {
+    quality: advanced?.quality ?? "auto",
+    background: advanced?.background ?? "auto",
+    negativePrompt: advanced?.negativePrompt ?? null,
+    seed: advanced?.seed ?? null,
+    thinking: advanced?.thinking ?? "auto",
+  };
+}
 
 const OPENAI_IMAGE_MAX_EDGE = 3840;
 const OPENAI_IMAGE_MIN_PIXELS = 655_360;
@@ -338,6 +366,10 @@ async function generateImageOpenAIResponses(
         responseUsage: data.usage ?? null,
         imageGenerationCallUsage: imageCall.usage ?? null,
       },
+      fallbackContext: {
+        size,
+        ...advancedCostContext(advanced),
+      },
     },
   };
 }
@@ -347,16 +379,15 @@ async function generateImageGptImage2Generations(
   model: ["gpt-image-2-2026-04-21"][number],
   size: string,
   advanced?: AdvancedSettings,
-) : Promise<GeneratedImage | undefined> {
-  const body =
-      JSON.stringify({
-        model,
-        prompt,
-        size,
-        output_format: "png",
-        ...(advanced?.quality && { quality: advanced.quality }),
-        ...(advanced?.background && { background: advanced.background }),
-      });
+): Promise<GeneratedImage | undefined> {
+  const body = JSON.stringify({
+    model,
+    prompt,
+    size,
+    output_format: "png",
+    ...(advanced?.quality && { quality: advanced.quality }),
+    ...(advanced?.background && { background: advanced.background }),
+  });
   const res = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
     headers: {
@@ -386,6 +417,10 @@ async function generateImageGptImage2Generations(
       providerModel: data.model ?? model,
       operation: "image_generation",
       usageRaw: data.usage ?? null,
+      fallbackContext: {
+        size,
+        ...advancedCostContext(advanced),
+      },
     },
   };
 }
@@ -395,19 +430,18 @@ async function generateImageGptImage2Edits(
   size: string,
   referenceImages: ReferenceImage[],
   advanced?: AdvancedSettings,
-) : Promise<GeneratedImage | undefined> {
-  const body =
-      JSON.stringify({
-        model: "gpt-image-2-2026-04-21",
-        prompt,
-        images: referenceImages.map((image) => ({
-          image_url: image.url,
-        })),
-        size,
-        output_format: "png",
-        ...(advanced?.quality && { quality: advanced.quality }),
-        ...(advanced?.background && { background: advanced.background }),
-      })
+): Promise<GeneratedImage | undefined> {
+  const body = JSON.stringify({
+    model: "gpt-image-2-2026-04-21",
+    prompt,
+    images: referenceImages.map((image) => ({
+      image_url: image.url,
+    })),
+    size,
+    output_format: "png",
+    ...(advanced?.quality && { quality: advanced.quality }),
+    ...(advanced?.background && { background: advanced.background }),
+  });
   const res = await fetch("https://api.openai.com/v1/images/edits", {
     method: "POST",
     headers: {
@@ -437,6 +471,10 @@ async function generateImageGptImage2Edits(
       providerModel: data.model ?? "gpt-image-2-2026-04-21",
       operation: "image_edit",
       usageRaw: data.usage ?? null,
+      fallbackContext: {
+        size,
+        ...advancedCostContext(advanced),
+      },
     },
   };
 }
@@ -455,11 +493,14 @@ async function generateImageGptImage2(
   );
   const size = resolveImageSize(resolution, aspectRatio) ?? "auto";
 
-  const image = await (
-    ownedReferenceImages.length > 0 ?
-      generateImageGptImage2Edits(prompt, size, ownedReferenceImages, advanced) :
-      generateImageGptImage2Generations(prompt, "gpt-image-2-2026-04-21", size, advanced)
-  );
+  const image = await (ownedReferenceImages.length > 0
+    ? generateImageGptImage2Edits(prompt, size, ownedReferenceImages, advanced)
+    : generateImageGptImage2Generations(
+        prompt,
+        "gpt-image-2-2026-04-21",
+        size,
+        advanced,
+      ));
 
   if (!image) {
     throw new Error("OpenAI Images API response did not contain an image");
@@ -596,6 +637,7 @@ async function generateImageGeminiModel(
       providerModel: data.modelVersion ?? model,
       operation: "image_generation",
       usageRaw: data.usageMetadata ?? null,
+      fallbackContext: advancedCostContext(advanced),
     },
   };
 }
@@ -928,6 +970,7 @@ export const imageRouter = createTRPCRouter({
         await recordGenerationCostEvent({
           userId: ctx.user,
           imageId: imageRow.id,
+          usageId: claimResult.usageId,
           provider: generated.cost.provider,
           providerRequestId: generated.cost.providerRequestId,
           model: imageRow.model,
@@ -938,6 +981,7 @@ export const imageRouter = createTRPCRouter({
             resolution: promptRow.resolution,
             aspectRatio: promptRow.aspectRatio,
             outputImageCount: 1,
+            ...generated.cost.fallbackContext,
           },
         }).catch((err) => {
           console.error("[runGeneration] failed to record generation cost:", err);

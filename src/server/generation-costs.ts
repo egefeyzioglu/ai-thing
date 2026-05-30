@@ -77,6 +77,18 @@ type CostFields = {
   costCalculationRaw: Record<string, unknown>;
 };
 
+type CostFallbackContext = {
+  resolution?: string | null;
+  aspectRatio?: string | null;
+  outputImageCount?: number;
+  size?: string | null;
+  quality?: string | null;
+  background?: string | null;
+  negativePrompt?: string | null;
+  seed?: string | null;
+  thinking?: string | null;
+};
+
 type OpenAIResponseUsageRaw = {
   responseUsage?: unknown;
   imageGenerationCallUsage?: unknown;
@@ -252,18 +264,53 @@ function normalizeGeminiUsage(value: unknown): GeminiUsageMetadata | null {
   };
 }
 
-function outputTokensForOpenAIResolution(resolution?: string | null): number {
-  switch (resolution) {
+function parseSizePixels(size?: string | null): number | undefined {
+  const [rawWidth, rawHeight] = size?.split("x") ?? [];
+  const width = Number(rawWidth);
+  const height = Number(rawHeight);
+
+  if (
+    Number.isFinite(width) &&
+    width > 0 &&
+    Number.isFinite(height) &&
+    height > 0
+  ) {
+    return width * height;
+  }
+
+  return undefined;
+}
+
+function outputTokensForOpenAIImage2Fallback(args: {
+  resolution?: string | null;
+  size?: string | null;
+  quality?: string | null;
+}): number {
+  const quality =
+    args.quality && args.quality !== "auto" ? args.quality : "medium";
+  const baseTokens =
+    quality === "low"
+      ? 200
+      : quality === "high"
+        ? 7034
+        : 1767;
+  const pixels = parseSizePixels(args.size);
+
+  if (pixels) {
+    return Math.max(1, Math.ceil(baseTokens * (pixels / (1024 * 1024))));
+  }
+
+  switch (args.resolution) {
     case "512":
-      return 750;
+      return Math.max(1, Math.ceil(baseTokens * 0.25));
     case "2K":
     case "2048":
-      return 2000;
+      return baseTokens * 4;
     case "4K":
     case "4096":
-      return 4000;
+      return baseTokens * 8;
     default:
-      return 1290;
+      return baseTokens;
   }
 }
 
@@ -550,7 +597,7 @@ function calculateOpenAIImagesCost(args: {
   model: string;
   operation: GenerationCostEventOperation;
   usageRaw: unknown;
-  resolution?: string | null;
+  fallbackContext: CostFallbackContext;
 }): CostFields {
   if (args.model !== "gpt-image-2") return unsupportedModelCost(args.model);
 
@@ -559,7 +606,15 @@ function calculateOpenAIImagesCost(args: {
   const assumptions: string[] = [];
 
   if (!usage?.input_tokens && !usage?.output_tokens) {
-    const outputImageTokens = outputTokensForOpenAIResolution(args.resolution);
+    const qualityFallbackAssumption =
+      !args.fallbackContext.quality || args.fallbackContext.quality === "auto"
+        ? ["auto_quality_charged_as_medium_for_missing_usage_fallback"]
+        : [];
+    const outputImageTokens = outputTokensForOpenAIImage2Fallback({
+      resolution: args.fallbackContext.resolution,
+      size: args.fallbackContext.size,
+      quality: args.fallbackContext.quality,
+    });
     const outputCost = microsForTokens(
       outputImageTokens,
       pricing.imageOutputUsdMicrosPerMillion,
@@ -577,6 +632,11 @@ function calculateOpenAIImagesCost(args: {
         provider: "openai",
         model: args.model,
         fallbackReason: "missing_openai_images_usage",
+        fallbackContext: args.fallbackContext,
+        assumptions: [
+          "gpt_image_2_output_tokens_estimated_from_quality_and_size",
+          ...qualityFallbackAssumption,
+        ],
         lineItems: { outputCost },
       },
     };
@@ -627,6 +687,7 @@ function calculateOpenAIImagesCost(args: {
       pricingVersion: COST_PRICING_VERSION,
       provider: "openai",
       model: args.model,
+      fallbackContext: args.fallbackContext,
       assumptions,
       lineItems: { textInputCost, imageInputCost, imageOutputCost },
     },
@@ -636,8 +697,7 @@ function calculateOpenAIImagesCost(args: {
 function calculateGeminiCost(args: {
   model: string;
   usageRaw: unknown;
-  resolution?: string | null;
-  aspectRatio?: string | null;
+  fallbackContext: CostFallbackContext;
   outputImageCount: number;
 }): CostFields {
   const pricing = GEMINI_PRICING[args.model as keyof typeof GEMINI_PRICING];
@@ -648,8 +708,8 @@ function calculateGeminiCost(args: {
   if (!usage) {
     if (args.model === "gemini-2.5-flash-image") {
       const outputImageTokens = outputTokensForGemini25Fallback({
-        resolution: args.resolution,
-        aspectRatio: args.aspectRatio,
+        resolution: args.fallbackContext.resolution,
+        aspectRatio: args.fallbackContext.aspectRatio,
       });
       const costUsdMicros =
         microsForTokens(
@@ -669,11 +729,10 @@ function calculateGeminiCost(args: {
           provider: "gemini",
           model: args.model,
           fallbackReason: "missing_gemini_usage_metadata",
+          fallbackContext: args.fallbackContext,
           assumptions: [
             "scaled_from_1290_tokens_for_1k_square_or_smaller_by_estimated_pixel_area",
           ],
-          resolution: args.resolution,
-          aspectRatio: args.aspectRatio,
           lineItems: { imageOutputCost: costUsdMicros },
         },
       };
@@ -681,8 +740,8 @@ function calculateGeminiCost(args: {
 
     const outputImageTokens =
       args.model === "gemini-3-pro-image-preview"
-        ? outputTokensForGeminiProPreview(args.resolution)
-        : outputTokensForGeminiFlashPreview(args.resolution);
+        ? outputTokensForGeminiProPreview(args.fallbackContext.resolution)
+        : outputTokensForGeminiFlashPreview(args.fallbackContext.resolution);
     const imageOutputUsdMicrosPerMillion =
       args.model === "gemini-3-pro-image-preview"
         ? GEMINI_PRICING["gemini-3-pro-image-preview"]
@@ -706,6 +765,7 @@ function calculateGeminiCost(args: {
         provider: "gemini",
         model: args.model,
         fallbackReason: "missing_gemini_usage_metadata",
+        fallbackContext: args.fallbackContext,
         lineItems: { imageOutputCost },
       },
     };
@@ -786,6 +846,7 @@ function calculateGeminiCost(args: {
       provider: "gemini",
       model: args.model,
       serviceTier: usage.serviceTier,
+      fallbackContext: args.fallbackContext,
       assumptions,
       lineItems: { inputCost, imageOutputCost, textOutputCost },
     },
@@ -797,11 +858,7 @@ function calculateCost(args: {
   model: string;
   operation: GenerationCostEventOperation;
   usageRaw: unknown;
-  fallbackContext: {
-    resolution?: string | null;
-    aspectRatio?: string | null;
-    outputImageCount?: number;
-  };
+  fallbackContext: CostFallbackContext;
 }): CostFields {
   if (args.provider === "openai") {
     if (
@@ -815,7 +872,7 @@ function calculateCost(args: {
         model: args.model,
         operation: args.operation,
         usageRaw: raw?.imageGenerationCallUsage ?? args.usageRaw,
-        resolution: args.fallbackContext.resolution,
+        fallbackContext: args.fallbackContext,
       });
     }
 
@@ -830,7 +887,7 @@ function calculateCost(args: {
       model: args.model,
       operation: args.operation,
       usageRaw: args.usageRaw,
-      resolution: args.fallbackContext.resolution,
+      fallbackContext: args.fallbackContext,
     });
   }
 
@@ -844,8 +901,7 @@ function calculateCost(args: {
   return calculateGeminiCost({
     model: args.model,
     usageRaw: args.usageRaw,
-    resolution: args.fallbackContext.resolution,
-    aspectRatio: args.fallbackContext.aspectRatio,
+    fallbackContext: args.fallbackContext,
     outputImageCount: args.fallbackContext.outputImageCount ?? 1,
   });
 }
@@ -860,11 +916,7 @@ export async function recordGenerationCostEvent(args: {
   operation: GenerationCostEventOperation;
   providerRequestId?: string | null;
   usageRaw: unknown;
-  fallbackContext: {
-    resolution?: string | null;
-    aspectRatio?: string | null;
-    outputImageCount?: number;
-  };
+  fallbackContext: CostFallbackContext;
 }): Promise<GenerationCostEvent> {
   const cost = calculateCost(args);
   const [event] = await db
