@@ -25,7 +25,9 @@ import { ImageGallery } from "./_components/image-gallery";
 import type { PromptComposerHandle } from "./_components/prompt-composer";
 import {
   Sidebar,
+  type BackgroundOption,
   type PromptModelSlug,
+  type QualityOption,
   type ResolutionOption,
 } from "./_components/sidebar";
 import { useActiveProject } from "./_hooks/use-active-project";
@@ -40,6 +42,11 @@ const PUSH_PERMISSION_PROMPT_STORAGE_KEY = "ai-thing.pushPermissionPrompt";
 const OPENAI_MODEL_SLUGS = new Set<PromptModelSlug>([
   "gpt-image-2",
   "gpt-5.4-mini",
+]);
+const GEMINI_MODEL_SLUGS = new Set<PromptModelSlug>([
+  "gemini-2.5-flash-image",
+  "gemini-3.1-flash-image-preview",
+  "gemini-3-pro-image-preview",
 ]);
 
 function hasDismissedPushPermissionPrompt() {
@@ -77,6 +84,11 @@ export default function Home() {
   const [selectedModels, setSelectedModels] = useState<PromptModelSlug[]>([]);
   const [resolution, setResolution] = useState<ResolutionOption>("1K");
   const [aspect, setAspect] = useState("1:1");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [quality, setQuality] = useState<QualityOption>("auto");
+  const [background, setBackground] = useState<BackgroundOption>("auto");
+  const [negativePrompt, setNegativePrompt] = useState("");
+  const [seed, setSeed] = useState("");
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
   const [runs, setRuns] = useState(1);
   const [pushPermissionDialogOpen, setPushPermissionDialogOpen] =
@@ -560,6 +572,12 @@ export default function Home() {
   const hasOnlyOpenAIModelsSelected =
     selectedModels.length > 0 &&
     selectedModels.every((model) => OPENAI_MODEL_SLUGS.has(model));
+  const hasOpenAIModelSelected = selectedModels.some((model) =>
+    OPENAI_MODEL_SLUGS.has(model),
+  );
+  const hasGeminiModelSelected = selectedModels.some((model) =>
+    GEMINI_MODEL_SLUGS.has(model),
+  );
   const isGalleryLoading =
     isLoadingProjects || !selectedProjectId || promptsQuery.isLoading;
   const galleryErrorMessage =
@@ -653,6 +671,18 @@ export default function Home() {
         onResolutionChange={setResolution}
         aspect={aspect}
         onAspectChange={setAspect}
+        advancedOpen={advancedOpen}
+        onAdvancedOpenChange={setAdvancedOpen}
+        quality={quality}
+        onQualityChange={setQuality}
+        background={background}
+        onBackgroundChange={setBackground}
+        negativePrompt={negativePrompt}
+        onNegativePromptChange={setNegativePrompt}
+        seed={seed}
+        onSeedChange={setSeed}
+        hasOpenAIModelSelected={hasOpenAIModelSelected}
+        hasGeminiModelSelected={hasGeminiModelSelected}
         isMacOS={isMacOS}
         promptComposerRef={promptComposerRef}
         hasSelectedProject={Boolean(selectedProjectId)}
