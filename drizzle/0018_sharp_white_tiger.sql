@@ -1,0 +1,1 @@
+ALTER TABLE "ai-thing_workshop_message" ADD COLUMN "reference_ids" json;

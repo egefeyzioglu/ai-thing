@@ -301,6 +301,7 @@ export const workshopMessages = createTable(
     role: d.text("role").notNull().$type<WorkshopMessageRole>(),
     model: d.text("model"),
     content: d.text("content").notNull(),
+    referenceImages: d.json("reference_ids").$type<string[] | null>(),
     createdAt: d
       .timestamp("created_at", { withTimezone: true })
       .notNull()

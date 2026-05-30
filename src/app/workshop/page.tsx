@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type KeyboardEvent,
   type ReactElement,
 } from "react";
@@ -15,6 +16,7 @@ import {
   ChevronDown,
   ChevronUp,
   Folder,
+  ImagePlus,
   Loader2,
   MessagesSquare,
   Pencil,
@@ -25,6 +27,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -52,6 +55,7 @@ import {
 } from "src/components/ui/tooltip";
 import { useActiveProject } from "src/app/_hooks/use-active-project";
 import { useLocalStorage, type LocalStorageValue } from "src/lib/localStorage";
+import { useUploadThing } from "src/lib/uploadthing";
 import { cn } from "src/lib/utils";
 import {
   WORKSHOP_ACCEPTED_PROMPT_STORAGE_KEY,
@@ -109,11 +113,17 @@ const WORKSHOP_REASONING_EFFORTS = [
 ] as const;
 
 type WorkshopModel = (typeof WORKSHOP_MODELS)[number]["slug"];
-type WorkshopReasoningEffort = (typeof WORKSHOP_REASONING_EFFORTS)[number]["value"];
+type WorkshopReasoningEffort =
+  (typeof WORKSHOP_REASONING_EFFORTS)[number]["value"];
 type WorkshopMessage = RouterOutputs["workshop"]["list"][number];
 type WorkshopThread = RouterOutputs["workshop"]["listThreads"][number];
 type WorkshopSendResult = RouterOutputs["workshop"]["sendMessage"];
 type Project = RouterOutputs["project"]["list"][number];
+type PendingWorkshopAttachment = {
+  id: string;
+  url: string | null;
+  mimeType: string;
+};
 
 type WorkshopStreamEvent =
   | {
@@ -217,18 +227,20 @@ function ProjectSection({
 
   return (
     <Collapsible open={expanded} onOpenChange={setExpanded}>
-      <div className="group flex items-center gap-1 rounded-md px-1 py-1 hover:bg-muted/40">
-        <WorkshopTooltip label={expanded ? "Collapse project" : "Expand project"}>
+      <div className="group hover:bg-muted/40 flex items-center gap-1 rounded-md px-1 py-1">
+        <WorkshopTooltip
+          label={expanded ? "Collapse project" : "Expand project"}
+        >
           <CollapsibleTrigger
             aria-label={
               expanded ? `Collapse ${project.name}` : `Expand ${project.name}`
             }
             aria-expanded={expanded}
-            className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 transition-colors hover:bg-muted/60"
+            className="hover:bg-muted/60 flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 transition-colors"
           >
             <ChevronDown
               className={cn(
-                "size-3 text-muted-foreground transition-transform duration-150",
+                "text-muted-foreground size-3 transition-transform duration-150",
                 !expanded && "-rotate-90",
               )}
             />
@@ -237,9 +249,9 @@ function ProjectSection({
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-left transition-colors hover:bg-muted/60"
+          className="hover:bg-muted/60 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-left transition-colors"
         >
-          <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+          <Folder className="text-muted-foreground size-3.5 shrink-0" />
           <span className="min-w-0 flex-1 truncate text-sm font-semibold">
             {project.name}
           </span>
@@ -253,19 +265,19 @@ function ProjectSection({
               onNewThread(project.id);
             }}
             disabled={createIsPending}
-            className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted/60 disabled:cursor-not-allowed"
+            className="hover:bg-muted/60 flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 disabled:cursor-not-allowed"
           >
             {isCreatingForThis ? (
-              <Loader2 className="size-3 animate-spin text-muted-foreground" />
+              <Loader2 className="text-muted-foreground size-3 animate-spin" />
             ) : (
-              <Plus className="size-3 text-muted-foreground" />
+              <Plus className="text-muted-foreground size-3" />
             )}
           </button>
         </WorkshopTooltip>
       </div>
 
       <CollapsibleContent>
-        <div className="mb-1 ml-4 border-l border-border/40 pl-2">
+        <div className="border-border/40 mb-1 ml-4 border-l pl-2">
           {threadsQuery.isLoading ? (
             <div className="flex flex-col gap-1 py-1 pr-1">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -273,7 +285,7 @@ function ProjectSection({
               ))}
             </div>
           ) : visibleThreads.length === 0 ? (
-            <p className="py-1.5 pr-1 text-xs text-muted-foreground/60">
+            <p className="text-muted-foreground/60 py-1.5 pr-1 text-xs">
               No threads yet
             </p>
           ) : (
@@ -311,7 +323,7 @@ function ProjectSection({
                           <button
                             type="submit"
                             disabled={renameIsPending || !editingTitle.trim()}
-                            className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded hover:bg-muted/60 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="hover:bg-muted/60 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded disabled:cursor-not-allowed disabled:opacity-50"
                             aria-label="Save thread name"
                           >
                             <Check className="size-3" />
@@ -324,7 +336,7 @@ function ProjectSection({
                               setEditingThreadId(null);
                               setEditingTitle("");
                             }}
-                            className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded hover:bg-muted/60"
+                            className="hover:bg-muted/60 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded"
                             aria-label="Cancel rename"
                           >
                             <X className="size-3" />
@@ -347,7 +359,7 @@ function ProjectSection({
                           >
                             {thread.title}
                           </span>
-                          <span className="shrink-0 text-[10px] text-muted-foreground/60">
+                          <span className="text-muted-foreground/60 shrink-0 text-[10px]">
                             {formatRelativeTime(thread.updatedAt)}
                           </span>
                         </button>
@@ -359,7 +371,7 @@ function ProjectSection({
                                 setEditingThreadId(thread.id);
                                 setEditingTitle(thread.title);
                               }}
-                              className="flex size-6 cursor-pointer items-center justify-center rounded hover:bg-muted/60"
+                              className="hover:bg-muted/60 flex size-6 cursor-pointer items-center justify-center rounded"
                               aria-label={`Rename ${thread.title}`}
                             >
                               <Pencil className="size-3" />
@@ -370,7 +382,7 @@ function ProjectSection({
                               type="button"
                               onClick={() => onDeleteThread(thread)}
                               disabled={deleteIsPending}
-                              className="flex size-6 cursor-pointer items-center justify-center rounded hover:bg-destructive/15 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
+                              className="hover:bg-destructive/15 hover:text-destructive flex size-6 cursor-pointer items-center justify-center rounded disabled:cursor-not-allowed disabled:opacity-50"
                               aria-label={`Delete ${thread.title}`}
                             >
                               <Trash2 className="size-3" />
@@ -386,7 +398,7 @@ function ProjectSection({
                 <button
                   type="button"
                   onClick={() => setShowAll(true)}
-                  className="cursor-pointer px-2 py-1 text-left text-xs text-muted-foreground/50 hover:text-muted-foreground"
+                  className="text-muted-foreground/50 hover:text-muted-foreground cursor-pointer px-2 py-1 text-left text-xs"
                 >
                   Show more
                 </button>
@@ -429,7 +441,7 @@ function WorkshopProjectsSidebar({
   return (
     <aside className="bg-background/80 flex w-64 shrink-0 flex-col border-r border-(--border)">
       <div className="flex items-center gap-2 border-b border-(--border) px-4 py-3">
-        <span className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
+        <span className="text-muted-foreground text-[10px] font-semibold tracking-widest uppercase">
           Projects
         </span>
       </div>
@@ -441,9 +453,7 @@ function WorkshopProjectsSidebar({
             ))}
           </div>
         ) : !projects || projects.length === 0 ? (
-          <p className="px-4 py-3 text-xs text-muted-foreground">
-            No projects
-          </p>
+          <p className="text-muted-foreground px-4 py-3 text-xs">No projects</p>
         ) : (
           <div className="flex flex-col gap-0.5">
             {projects.map((project) => (
@@ -472,7 +482,11 @@ function WorkshopProjectsSidebar({
 type WorkshopComposerProps = {
   selectedProjectId: string | null;
   sendIsPending: boolean;
-  sendPrompt: (prompt: string) => void;
+  sendPrompt: (
+    prompt: string,
+    referenceImageIds: string[],
+    attachments: PendingWorkshopAttachment[],
+  ) => void;
   stopGeneration: () => void;
   selectedModel: WorkshopModel;
   setSelectedModel: (model: WorkshopModel) => void;
@@ -495,11 +509,95 @@ function WorkshopComposer(props: WorkshopComposerProps) {
   } = props;
 
   const [composer, setComposer] = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState<
+    PendingWorkshopAttachment[]
+  >([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { startUpload, isUploading } = useUploadThing("imageUploader");
+  const utils = api.useUtils();
+  const createRefImage = api.referenceImage.createReferenceImage.useMutation();
 
   const handleSend = () => {
     if (!canSend) return;
-    sendPrompt(trimmedComposer);
+    const attachments = pendingAttachments;
+    sendPrompt(
+      trimmedComposer,
+      attachments.map((attachment) => attachment.id),
+      attachments,
+    );
     setComposer("");
+    setPendingAttachments([]);
+  };
+
+  const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files?.length) return;
+
+    const filesToUpload = Array.from(files);
+    try {
+      const uploaded = await startUpload(filesToUpload);
+      if (!uploaded?.length) {
+        toast.error("Image attachment upload failed");
+        return;
+      }
+
+      const created = await Promise.allSettled(
+        uploaded.map((file, index) =>
+          createRefImage.mutateAsync({
+            url: file.ufsUrl,
+            mimeType: filesToUpload[index]?.type ?? undefined,
+          }),
+        ),
+      );
+      const attachments = created
+        .filter(
+          (
+            result,
+          ): result is PromiseFulfilledResult<
+            Awaited<ReturnType<typeof createRefImage.mutateAsync>>
+          > => result.status === "fulfilled",
+        )
+        .map((result) =>
+          result.value
+            ? {
+                id: result.value.id,
+                url: result.value.url,
+                mimeType: result.value.mimeType,
+              }
+            : undefined,
+        )
+        .filter(
+          (attachment): attachment is PendingWorkshopAttachment =>
+            attachment !== undefined,
+        );
+      const failedCount = created.filter(
+        (result) => result.status === "rejected",
+      ).length;
+
+      if (attachments.length > 0) {
+        setPendingAttachments((prev) => [
+          ...prev,
+          ...attachments.filter(
+            (attachment) => !prev.some((item) => item.id === attachment.id),
+          ),
+        ]);
+        void utils.referenceImage.getReferenceImages.invalidate();
+      }
+
+      if (failedCount > 0) {
+        toast.error(
+          failedCount === 1
+            ? "Failed to attach 1 image"
+            : `Failed to attach ${failedCount} images`,
+        );
+      }
+    } catch (error) {
+      console.error("Failed to upload workshop image attachment", error);
+      toast.error("Image attachment upload failed");
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -511,13 +609,27 @@ function WorkshopComposer(props: WorkshopComposerProps) {
 
   const trimmedComposer = composer.trim();
   const canSend =
-    trimmedComposer.length > 0 && selectedProjectId !== null && !sendIsPending;
+    (trimmedComposer.length > 0 || pendingAttachments.length > 0) &&
+    selectedProjectId !== null &&
+    !sendIsPending &&
+    !isUploading;
 
-  const textareaShouldBeDisabled = selectedProjectId === null || sendIsPending;
+  const textareaShouldBeDisabled =
+    selectedProjectId === null || sendIsPending || isUploading;
+  const controlsShouldBeDisabled =
+    selectedProjectId === null || sendIsPending || isUploading;
   const currentModel = WORKSHOP_MODELS.find((m) => m.slug === selectedModel);
   const currentReasoningEffort = WORKSHOP_REASONING_EFFORTS.find(
     (effort) => effort.value === selectedReasoningEffort,
   );
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 192)}px`;
+  }, [composer]);
 
   useEffect(() => {
     try {
@@ -533,8 +645,45 @@ function WorkshopComposer(props: WorkshopComposerProps) {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="relative">
+      <div className="border-input bg-background relative rounded-lg border transition-colors focus-within:border-blue-500">
+        {pendingAttachments.length > 0 && (
+          <div className="border-border/70 flex gap-2 overflow-x-auto border-b p-2">
+            {pendingAttachments.map((attachment) => (
+              <div
+                key={attachment.id}
+                className="group border-border bg-muted relative size-16 shrink-0 overflow-hidden rounded-md border"
+              >
+                {attachment.url ? (
+                  <Image
+                    src={attachment.url}
+                    alt="Pending image attachment"
+                    fill
+                    sizes="64px"
+                    className="object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center">
+                    <ImagePlus className="text-muted-foreground size-5" />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  aria-label="Remove image attachment"
+                  className="bg-background/90 text-foreground absolute top-1 right-1 flex size-5 cursor-pointer items-center justify-center rounded-full opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                  onClick={() =>
+                    setPendingAttachments((prev) =>
+                      prev.filter((item) => item.id !== attachment.id),
+                    )
+                  }
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <Textarea
+          ref={textareaRef}
           value={composer}
           onChange={(event) => setComposer(event.target.value)}
           onKeyDown={handleComposerKeyDown}
@@ -544,14 +693,40 @@ function WorkshopComposer(props: WorkshopComposerProps) {
               : "Select a project thread to start..."
           }
           disabled={textareaShouldBeDisabled}
-          className="max-h-48 min-h-24 resize-none pb-10"
+          className="max-h-48 min-h-24 resize-none overflow-y-auto rounded-none border-0 bg-transparent pb-10 focus:border-0 focus:ring-0"
         />
         <div className="absolute right-2 bottom-2 left-2 flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1">
+            <WorkshopTooltip label="Attach image">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-foreground h-6 w-6 cursor-pointer"
+                disabled={controlsShouldBeDisabled}
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Attach image"
+              >
+                {isUploading ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <ImagePlus className="size-3.5" />
+                )}
+              </Button>
+            </WorkshopTooltip>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+            <div className="bg-border/70 h-4 w-px shrink-0" />
             <Select
               value={selectedModel}
               onValueChange={(value) => setSelectedModel(value!)}
-              disabled={textareaShouldBeDisabled}
+              disabled={controlsShouldBeDisabled}
             >
               <SelectTrigger
                 size="sm"
@@ -606,7 +781,7 @@ function WorkshopComposer(props: WorkshopComposerProps) {
             <Select
               value={selectedReasoningEffort}
               onValueChange={(value) => setSelectedReasoningEffort(value!)}
-              disabled={textareaShouldBeDisabled}
+              disabled={controlsShouldBeDisabled}
             >
               <SelectTrigger
                 size="sm"
@@ -695,6 +870,7 @@ function ModelBadge({ slug }: { slug: string | null }) {
 
 function WorkshopMessageBubble({ message }: { message: WorkshopMessage }) {
   const isUser = message.role === "user";
+  const attachments = message.attachments ?? [];
 
   return (
     <div
@@ -716,72 +892,106 @@ function WorkshopMessageBubble({ message }: { message: WorkshopMessage }) {
             <ModelBadge slug={message.model} />
           </div>
         )}
-        <Markdown
-          components={{
-            blockquote({ children }) {
-              return (
-                <blockquote className="border-border/60 text-muted-foreground my-1 border-l-2 pl-3 italic">
-                  {children}
-                </blockquote>
-              );
-            },
-            h1({ children }) {
-              return (
-                <h1 className="mt-2 mb-1 text-lg font-bold">{children}</h1>
-              );
-            },
-            h2({ children }) {
-              return (
-                <h2 className="mt-2 mb-1 text-base font-bold">{children}</h2>
-              );
-            },
-            h3({ children }) {
-              return (
-                <h3 className="mt-2 mb-1 text-sm font-semibold">{children}</h3>
-              );
-            },
-            h4({ children }) {
-              return (
-                <h4 className="text-md pbs-2 pbe-2 font-bold">{children}</h4>
-              );
-            },
-            h5({ children }) {
-              return (
-                <h5 className="text-md pbs-2 pbe-2 font-bold">{children}</h5>
-              );
-            },
-            h6({ children }) {
-              return (
-                <h6 className="text-md pbs-2 pbe-2 font-bold">{children}</h6>
-              );
-            },
-            ol({ children }) {
-              return <ol className="my-1 ml-5 list-decimal">{children}</ol>;
-            },
-            ul({ children }) {
-              return <ul className="my-1 ml-5 list-disc">{children}</ul>;
-            },
-            pre({ children }) {
-              return (
-                <pre className="bg-background/60 border-border/60 my-1 overflow-x-auto rounded-md border p-2 text-xs">
-                  {children}
-                </pre>
-              );
-            },
-            code({ children }) {
-              return (
-                <code className="bg-background/60 border-border/60 rounded border px-1 py-0.5 font-mono text-xs">
-                  {children}
-                </code>
-              );
-            },
-            p({ children }) {
-              return <p className="mb-1 last:mb-0">{children}</p>;
-            },
-          }}
-        >
-          {message.content}
-        </Markdown>
+        {attachments.length > 0 && (
+          <div
+            className={cn(
+              "grid gap-2",
+              message.content && "mb-3",
+              attachments.length === 1
+                ? "max-w-[280px] grid-cols-1"
+                : attachments.length <= 4
+                  ? "grid-cols-2"
+                  : "grid-cols-3",
+            )}
+          >
+            {attachments.map((attachment) =>
+              attachment.url ? (
+                <div
+                  key={attachment.id}
+                  className="border-border/60 bg-muted relative aspect-square overflow-hidden rounded-md border"
+                >
+                  <Image
+                    src={attachment.url}
+                    alt="Workshop image attachment"
+                    fill
+                    sizes="(max-width: 768px) 40vw, 160px"
+                    className="object-cover"
+                  />
+                </div>
+              ) : null,
+            )}
+          </div>
+        )}
+        {message.content && (
+          <Markdown
+            components={{
+              blockquote({ children }) {
+                return (
+                  <blockquote className="border-border/60 text-muted-foreground my-1 border-l-2 pl-3 italic">
+                    {children}
+                  </blockquote>
+                );
+              },
+              h1({ children }) {
+                return (
+                  <h1 className="mt-2 mb-1 text-lg font-bold">{children}</h1>
+                );
+              },
+              h2({ children }) {
+                return (
+                  <h2 className="mt-2 mb-1 text-base font-bold">{children}</h2>
+                );
+              },
+              h3({ children }) {
+                return (
+                  <h3 className="mt-2 mb-1 text-sm font-semibold">
+                    {children}
+                  </h3>
+                );
+              },
+              h4({ children }) {
+                return (
+                  <h4 className="text-md pbs-2 pbe-2 font-bold">{children}</h4>
+                );
+              },
+              h5({ children }) {
+                return (
+                  <h5 className="text-md pbs-2 pbe-2 font-bold">{children}</h5>
+                );
+              },
+              h6({ children }) {
+                return (
+                  <h6 className="text-md pbs-2 pbe-2 font-bold">{children}</h6>
+                );
+              },
+              ol({ children }) {
+                return <ol className="my-1 ml-5 list-decimal">{children}</ol>;
+              },
+              ul({ children }) {
+                return <ul className="my-1 ml-5 list-disc">{children}</ul>;
+              },
+              pre({ children }) {
+                return (
+                  <pre className="bg-background/60 border-border/60 my-1 overflow-x-auto rounded-md border p-2 text-xs">
+                    {children}
+                  </pre>
+                );
+              },
+              code({ children }) {
+                return (
+                  <code className="bg-background/60 border-border/60 rounded border px-1 py-0.5 font-mono text-xs">
+                    {children}
+                  </code>
+                );
+              },
+              p({ children }) {
+                return <p className="mb-1 last:mb-0">{children}</p>;
+              },
+            }}
+          >
+            {message.content}
+          </Markdown>
+        )}
       </div>
     </div>
   );
@@ -990,8 +1200,7 @@ function parseWorkshopStreamBlock(block: string): WorkshopStreamEvent | null {
 }
 
 export default function WorkshopPage() {
-  const [selectedModel, setSelectedModel] =
-    useState<WorkshopModel>("gpt-5.4");
+  const [selectedModel, setSelectedModel] = useState<WorkshopModel>("gpt-5.4");
   const [selectedReasoningEffort, setSelectedReasoningEffort] =
     useState<WorkshopReasoningEffort>("medium");
   const [threadToDelete, setThreadToDelete] = useState<WorkshopThread | null>(
@@ -1247,6 +1456,7 @@ export default function WorkshopPage() {
     threadId: string,
     optimisticId: string,
     content: string,
+    attachments: PendingWorkshopAttachment[],
   ) => {
     utils.workshop.list.setData({ projectId, threadId }, (old) => [
       ...(old ?? []),
@@ -1258,6 +1468,12 @@ export default function WorkshopPage() {
         role: "user",
         model: null,
         content,
+        referenceImages:
+          attachments.length > 0
+            ? attachments.map((attachment) => attachment.id)
+            : null,
+        referenceImageIds: attachments.map((attachment) => attachment.id),
+        attachments,
         createdAt: new Date(),
       },
     ]);
@@ -1297,13 +1513,20 @@ export default function WorkshopPage() {
           role: "reasoning_summary",
           model,
           content: delta,
+          referenceImages: null,
+          referenceImageIds: [],
+          attachments: [],
           createdAt: new Date(),
         },
       ];
     });
   };
 
-  const sendPromptStream = async (prompt: string) => {
+  const sendPromptStream = async (
+    prompt: string,
+    referenceImageIds: string[],
+    attachments: PendingWorkshopAttachment[],
+  ) => {
     if (!selectedProjectId || isStreamingSend) return;
 
     const projectId = selectedProjectId;
@@ -1315,7 +1538,13 @@ export default function WorkshopPage() {
     let hasReceivedTerminalEvent = false;
 
     if (activeThreadId) {
-      addOptimisticUserMessage(projectId, activeThreadId, optimisticId, prompt);
+      addOptimisticUserMessage(
+        projectId,
+        activeThreadId,
+        optimisticId,
+        prompt,
+        attachments,
+      );
       hasAddedOptimisticUser = true;
     }
 
@@ -1334,6 +1563,7 @@ export default function WorkshopPage() {
           content: prompt,
           model,
           reasoningEffort: selectedReasoningEffort,
+          referenceImageIds,
         }),
       });
 
@@ -1372,7 +1602,13 @@ export default function WorkshopPage() {
             });
 
             if (!hasAddedOptimisticUser) {
-              addOptimisticUserMessage(projectId, thread.id, optimisticId, prompt);
+              addOptimisticUserMessage(
+                projectId,
+                thread.id,
+                optimisticId,
+                prompt,
+                attachments,
+              );
               hasAddedOptimisticUser = true;
             }
           } else if (streamEvent.event === "reasoning_delta") {
@@ -1389,7 +1625,8 @@ export default function WorkshopPage() {
           } else if (streamEvent.event === "error") {
             hasReceivedTerminalEvent = true;
             throw new Error(
-              streamEvent.data.message ?? "Failed to generate assistant response",
+              streamEvent.data.message ??
+                "Failed to generate assistant response",
             );
           }
         }
@@ -1446,12 +1683,21 @@ export default function WorkshopPage() {
     }
   };
 
-  const sendPrompt = (prompt: string) => {
+  const sendPrompt = (
+    prompt: string,
+    referenceImageIds: string[],
+    attachments: PendingWorkshopAttachment[],
+  ) => {
     const trimmedPrompt = prompt.trim();
-    if (!selectedProjectId || !trimmedPrompt || sendIsPending) return;
+    if (
+      !selectedProjectId ||
+      (trimmedPrompt.length === 0 && referenceImageIds.length === 0) ||
+      sendIsPending
+    )
+      return;
 
     if (isOpenAIWorkshopModel(selectedModel)) {
-      void sendPromptStream(trimmedPrompt);
+      void sendPromptStream(trimmedPrompt, referenceImageIds, attachments);
       return;
     }
 
@@ -1463,6 +1709,7 @@ export default function WorkshopPage() {
         selectedThreadId,
         optimisticId,
         trimmedPrompt,
+        attachments,
       );
     }
 
@@ -1472,6 +1719,7 @@ export default function WorkshopPage() {
       content: trimmedPrompt,
       model: selectedModel,
       reasoningEffort: selectedReasoningEffort,
+      referenceImageIds,
     });
   };
 
