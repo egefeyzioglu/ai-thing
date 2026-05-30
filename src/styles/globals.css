@@ -146,7 +146,7 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes refreshNotifyBounce {
+@keyframes refresh-notify-bounce {
   0%,
   12%,
   24%,
@@ -182,7 +182,7 @@
 }
 
 .refresh-notify-toast {
-  animation: refreshNotifyBounce 2.8s ease-in-out infinite;
+  animation: refresh-notify-bounce 2.8s ease-in-out infinite;
   will-change: transform;
 }
 
