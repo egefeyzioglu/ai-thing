@@ -78,7 +78,6 @@ export default function Home() {
   const [resolution, setResolution] = useState<ResolutionOption>("1K");
   const [aspect, setAspect] = useState("1:1");
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
-  const [hasPromptContent, setHasPromptContent] = useState(false);
   const [runs, setRuns] = useState(1);
   const [pushPermissionDialogOpen, setPushPermissionDialogOpen] =
     useState(false);
@@ -127,6 +126,16 @@ export default function Home() {
     }
   }, []);
 
+  useEffect(() => {
+    const composer = promptComposerRef.current;
+    if (!composer) return;
+    return composer.subscribeTextChange(() => {
+      if (generateButtonLockedRef.current) {
+        unlockGenerateButton();
+      }
+    });
+  }, []);
+
   const user = useUser();
   const canBypassLimits = user.user?.publicMetadata.canBypassLimits === true;
   const effectiveBypassMonthlyQuota = canBypassLimits && bypassMonthlyQuota;
@@ -155,7 +164,6 @@ export default function Home() {
   useEffect(() => {
     unlockGenerateButton();
   }, [
-    hasPromptContent,
     selectedModels,
     selectedReferenceImages,
     resolution,
@@ -552,12 +560,6 @@ export default function Home() {
   const hasOnlyOpenAIModelsSelected =
     selectedModels.length > 0 &&
     selectedModels.every((model) => OPENAI_MODEL_SLUGS.has(model));
-  const canGenerate =
-    hasPromptContent &&
-    selectedModels.length > 0 &&
-    Boolean(selectedProjectId) &&
-    (effectiveBypassMonthlyQuota || !usage?.isOverQuota) &&
-    !generateButtonLocked;
   const isGalleryLoading =
     isLoadingProjects || !selectedProjectId || promptsQuery.isLoading;
   const galleryErrorMessage =
@@ -653,11 +655,10 @@ export default function Home() {
         onAspectChange={setAspect}
         isMacOS={isMacOS}
         promptComposerRef={promptComposerRef}
-        onPromptHasContentChange={setHasPromptContent}
+        hasSelectedProject={Boolean(selectedProjectId)}
         runs={runs}
         onRunsChange={setRuns}
         generateButtonLocked={generateButtonLocked}
-        canGenerate={canGenerate}
         onGenerate={handleGenerate}
         fileInputRef={fileInputRef}
         onFileUpload={handleFileUpload}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type Ref, type RefObject } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
 import { UserButton } from "@clerk/nextjs";
@@ -28,6 +28,7 @@ import { Field, FieldLabel } from "src/components/ui/field";
 import { Label } from "src/components/ui/label";
 import { Skeleton } from "src/components/ui/skeleton";
 import type { RouterInputs, RouterOutputs } from "src/trpc/react";
+import { GenerateButton } from "./generate-button";
 import {
   PromptComposer,
   type PromptComposerHandle,
@@ -232,12 +233,11 @@ type SidebarProps = {
   aspect: string;
   onAspectChange: (aspect: string) => void;
   isMacOS: boolean | null;
-  promptComposerRef: Ref<PromptComposerHandle>;
-  onPromptHasContentChange: (hasContent: boolean) => void;
+  promptComposerRef: RefObject<PromptComposerHandle | null>;
+  hasSelectedProject: boolean;
   runs: number;
   onRunsChange: (runs: number) => void;
   generateButtonLocked: boolean;
-  canGenerate: boolean;
   onGenerate: () => void;
   fileInputRef: RefObject<HTMLInputElement | null>;
   onFileUpload: (event: React.ChangeEvent<HTMLInputElement>) => void;
@@ -275,11 +275,10 @@ export function Sidebar({
   onAspectChange,
   isMacOS,
   promptComposerRef,
-  onPromptHasContentChange,
+  hasSelectedProject,
   runs,
   onRunsChange,
   generateButtonLocked,
-  canGenerate,
   onGenerate,
   fileInputRef,
   onFileUpload,
@@ -331,7 +330,6 @@ export function Sidebar({
           ref={promptComposerRef}
           isMacOS={isMacOS}
           onSubmit={onGenerate}
-          onHasContentChange={onPromptHasContentChange}
         />
         <Collapsible
           open={referenceImagesOpen}
@@ -634,23 +632,15 @@ export function Sidebar({
             </div>
           </div>
         )}
-        <button
-          aria-busy={generateButtonLocked}
-          className={clsx(
-            "w-2/3 cursor-pointer rounded-md border border-1 px-4 py-2",
-            canGenerate
-              ? "hover:bg-gray-900 active:bg-gray-500"
-              : "cursor-not-allowed opacity-50",
-          )}
-          disabled={!canGenerate}
-          onClick={onGenerate}
-        >
-          {generateButtonLocked
-            ? "Generating..."
-            : usage?.isOverQuota && !bypassMonthlyQuota
-              ? "Out of credits"
-              : "Generate"}
-        </button>
+        <GenerateButton
+          promptComposerRef={promptComposerRef}
+          selectedModelsCount={selectedModels.length}
+          hasSelectedProject={hasSelectedProject}
+          isOverQuota={Boolean(usage?.isOverQuota)}
+          bypassMonthlyQuota={bypassMonthlyQuota}
+          generateButtonLocked={generateButtonLocked}
+          onGenerate={onGenerate}
+        />
         <br />
         <div className="flex w-full flex-row items-center-safe justify-start gap-4 px-4">
           <UserButton>
@@ -664,7 +654,7 @@ export function Sidebar({
           </UserButton>
           {userFullName}
         </div>
-        <UsageModal
+        {usageOpen ? <UsageModal
           open={usageOpen}
           onOpenChange={setUsageOpen}
           usage={usage}
@@ -673,7 +663,7 @@ export function Sidebar({
           canBypassLimits={canBypassLimits}
           bypassMonthlyQuota={bypassMonthlyQuota}
           onBypassMonthlyQuotaChange={onBypassMonthlyQuotaChange}
-        />
+        /> : <></>}
       </div>
       {previewImage && (
         <ReferenceImageLightbox
