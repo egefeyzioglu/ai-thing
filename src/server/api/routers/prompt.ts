@@ -266,6 +266,49 @@ export const promptRouter = createTRPCRouter({
       return { success: true };
     }),
 
+  movePrompt: protectedProcedure
+    .input(z.object({ id: z.string().min(1), projectId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const [prompt] = await db
+        .select()
+        .from(prompts)
+        .where(and(eq(prompts.id, input.id), eq(prompts.userId, ctx.user)))
+        .limit(1);
+
+      if (!prompt) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Prompt not found",
+        });
+      }
+
+      const [project] = await db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(
+          and(eq(projects.id, input.projectId), eq(projects.userId, ctx.user)),
+        )
+        .limit(1);
+
+      if (!project) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Project not found",
+        });
+      }
+
+      if (prompt.projectId === input.projectId) return prompt;
+
+      const [updatedPrompt] = await db
+        .update(prompts)
+        .set({ projectId: input.projectId })
+        .where(and(eq(prompts.id, input.id), eq(prompts.userId, ctx.user)))
+        .returning();
+
+      if (!updatedPrompt) throw new Error("Failed to move prompt");
+      return updatedPrompt;
+    }),
+
   list: protectedProcedure
     .input(z.object({ projectId: z.string().min(1) }))
     .query(async ({ ctx, input }) => {

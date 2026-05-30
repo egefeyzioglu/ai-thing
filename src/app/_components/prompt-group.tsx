@@ -6,7 +6,12 @@ import { createPortal } from "react-dom";
 
 import { Card } from "src/components/ui/card";
 import { Button } from "src/components/ui/button";
-import { Trash2 } from "lucide-react";
+import { FolderInput, MoreHorizontal, Trash2 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "src/components/ui/popover";
 import { cn } from "src/lib/utils";
 import { toast } from "sonner";
 
@@ -16,6 +21,11 @@ import type { LocalStorageSetter, LocalStorageValue } from "src/lib/localStorage
 import type { IMAGE_STATUSES } from "src/server/db/schema";
 
 export type ModelInfo = { slug: string; name: string; provider: string };
+
+type ProjectInfo = {
+  id: string;
+  name: string;
+};
 
 type ImageShape = {
   id: string;
@@ -39,7 +49,10 @@ export type PromptGroupProps = {
   images: ImageShape[];
   referenceImages: { url?: string; id: string }[];
   models: ModelInfo[];
+  projects?: ProjectInfo[];
+  currentProjectId?: string | null;
   onDeletePrompt?: () => void;
+  onMovePrompt?: (projectId: string) => void;
   onDeleteImage?: (imageId: string) => void;
   onRetryImage?: (imageId: string) => void;
   onReuseAsReference?: (imageId: string) => Promise<void>;
@@ -659,6 +672,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
 
 export default function PromptGroup(props: PromptGroupProps) {
   const [referenceModalImage, setReferenceModalImage] = useState<string | null>(null);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const modelOrder: string[] = [];
   const byModel: Record<string, ImageShape[]> = {};
   for (const img of props.images) {
@@ -670,6 +684,10 @@ export default function PromptGroup(props: PromptGroupProps) {
   }
 
   const refImages = props.referenceImages.filter((r) => r.url);
+  const destinationProjects =
+    props.projects?.filter((project) => project.id !== props.currentProjectId) ??
+    [];
+  const hasPromptActions = Boolean(props.onDeletePrompt ?? props.onMovePrompt);
 
   return (
     <div
@@ -707,13 +725,62 @@ export default function PromptGroup(props: PromptGroupProps) {
             )}
           </div>
         </div>
-        {props.onDeletePrompt && (
-          <button
-            onClick={props.onDeletePrompt}
-            className="px-2.5 py-1 text-[11px] bg-transparent border border-border rounded-md text-muted-foreground cursor-pointer hover:border-destructive hover:text-destructive transition-colors shrink-0 opacity-0 group-hover/prompt:opacity-100 group-focus-within/prompt:opacity-100"
-          >
-            Delete
-          </button>
+        {hasPromptActions && (
+          <Popover open={actionsOpen} onOpenChange={setActionsOpen}>
+            <PopoverTrigger
+              render={
+                <button
+                  type="button"
+                  className="border-border text-muted-foreground hover:text-foreground hover:border-foreground/40 focus-visible:ring-ring/50 size-7 shrink-0 cursor-pointer rounded-md border bg-transparent opacity-0 transition-colors group-hover/prompt:opacity-100 group-focus-within/prompt:opacity-100 focus-visible:opacity-100 focus-visible:ring-3"
+                  aria-label="Generation actions"
+                />
+              }
+            >
+              <MoreHorizontal className="mx-auto size-4" />
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-56 gap-1 p-1.5">
+              {props.onMovePrompt && (
+                <div className="flex flex-col gap-1">
+                  <p className="text-muted-foreground px-2 py-1 text-[11px] font-medium">
+                    Move to project
+                  </p>
+                  {destinationProjects.length > 0 ? (
+                    destinationProjects.map((project) => (
+                      <button
+                        key={project.id}
+                        type="button"
+                        className="hover:bg-muted focus-visible:bg-muted focus-visible:ring-ring/50 flex min-h-8 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs outline-none focus-visible:ring-3"
+                        onClick={() => {
+                          props.onMovePrompt?.(project.id);
+                          setActionsOpen(false);
+                        }}
+                      >
+                        <FolderInput className="size-3.5 shrink-0" />
+                        <span className="truncate">{project.name}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="text-muted-foreground px-2 py-1.5 text-xs">
+                      No other projects
+                    </p>
+                  )}
+                </div>
+              )}
+              {props.onDeletePrompt && (
+                <button
+                  type="button"
+                  className="hover:bg-destructive/10 text-destructive focus-visible:bg-destructive/10 focus-visible:ring-ring/50 flex min-h-8 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs outline-none focus-visible:ring-3"
+                  onClick={() => {
+                    setActionsOpen(false);
+                    props.onDeletePrompt?.();
+                  }}
+                >
+                  <Trash2 className="size-3.5 shrink-0" />
+                  Delete
+                </button>
+              )}
+            </PopoverContent>
+          </Popover>
         )}
       </div>
 
