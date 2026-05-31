@@ -106,19 +106,34 @@ export const referenceImageRouter = createTRPCRouter({
         .optional(),
     )
     .query(async ({ ctx, input }) => {
-      return await db
-        .select()
-        .from(referenceImages)
-        .where(
-          input?.ids?.length
-            ? and(
-                eq(referenceImages.userId, ctx.user),
-                inArray(referenceImages.id, input.ids),
-              )
-            : eq(referenceImages.userId, ctx.user),
-        )
-        .orderBy(referenceImages.uploadedAt);
-    }),
+        const ret = await db
+          .select()
+          .from(referenceImages)
+          .where(
+            input?.ids?.length
+              ? and(
+                  eq(referenceImages.userId, ctx.user),
+                  inArray(referenceImages.id, input.ids),
+                )
+              : eq(referenceImages.userId, ctx.user),
+          )
+          .orderBy(referenceImages.uploadedAt);
+        return Promise.all(ret.map(async (img) => {
+          if(img.url !== null) {
+            const key = extractFileKey(img.url);
+            if(!key) {
+              console.log(`[getReferenceImages] could not extract file key from url: ${img.url}`);
+              throw new TRPCError({
+                code: "INTERNAL_SERVER_ERROR",
+                message: `Could not extract file key from URL even though URL was not null: ${img.url}`
+              });
+            }
+            img.url = (await utapi.generateSignedURL(key)).ufsUrl;
+          }
+          return img;
+        }));
+      }
+    ),
   createReferenceImageFromGenerated: protectedProcedure
     .input(
       z.object({

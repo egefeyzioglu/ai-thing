@@ -12,7 +12,7 @@ import {
   prompts,
   referenceImages,
 } from "src/server/db/schema";
-import { utapi } from "src/server/uploadthing";
+import { extractFileKey, utapi } from "src/server/uploadthing";
 import {
   calculateUsageRowCredits,
   getUsedCredits,
@@ -327,7 +327,7 @@ export const promptRouter = createTRPCRouter({
         });
       }
 
-      return db.query.prompts.findMany({
+      const results = await db.query.prompts.findMany({
         where: and(
           eq(prompts.userId, ctx.user),
           eq(prompts.projectId, input.projectId),
@@ -339,5 +339,29 @@ export const promptRouter = createTRPCRouter({
           },
         },
       });
+
+      return Promise.all(
+        results.map(async (prompt) => ({
+          ...prompt,
+          images: await Promise.all(
+            prompt.images.map(async (image) => {
+              if (image.url !== null) {
+                const key = extractFileKey(image.url);
+                if (!key) {
+                  console.log(
+                    `[prompts.list] could not extract file key from url: ${image.url}`,
+                  );
+                  throw new TRPCError({
+                    code: "INTERNAL_SERVER_ERROR",
+                    message: `Could not extract file key from URL even though URL was not null: ${image.url}`,
+                  });
+                }
+                image.url = (await utapi.generateSignedURL(key)).ufsUrl;
+              }
+              return image;
+            }),
+          ),
+        })),
+      );
     }),
 });
