@@ -12,7 +12,7 @@ import {
   prompts,
   referenceImages,
 } from "src/server/db/schema";
-import { utapi } from "src/server/uploadthing";
+import { signUploadThingUrl, utapi } from "src/server/uploadthing";
 import {
   calculateUsageRowCredits,
   getUsedCredits,
@@ -327,7 +327,7 @@ export const promptRouter = createTRPCRouter({
         });
       }
 
-      return db.query.prompts.findMany({
+      const results = await db.query.prompts.findMany({
         where: and(
           eq(prompts.userId, ctx.user),
           eq(prompts.projectId, input.projectId),
@@ -339,5 +339,29 @@ export const promptRouter = createTRPCRouter({
           },
         },
       });
+
+      return Promise.all(
+        results.map(async (prompt) => ({
+          ...prompt,
+          images: await Promise.all(
+            prompt.images.map(async (image) => {
+              if (image.url !== null) {
+                try {
+                  image.url = await signUploadThingUrl(image.url);
+                } catch {
+                  console.log(
+                    `[prompts.list] could not sign upload URL for image ${image.id}`,
+                  );
+                  throw new TRPCError({
+                    code: "INTERNAL_SERVER_ERROR",
+                    message: "Could not sign upload URL",
+                  });
+                }
+              }
+              return image;
+            }),
+          ),
+        })),
+      );
     }),
 });

@@ -4,8 +4,21 @@ import { z } from "zod";
 
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
-import { extractFileKey, utapi } from "src/server/uploadthing";
+import {
+  extractFileKey,
+  signUploadThingUrl,
+  utapi,
+} from "src/server/uploadthing";
 import { images, referenceImages } from "src/server/db/schema";
+
+async function signReferenceImageRow<T extends { url: string | null }>(
+  row: T,
+): Promise<T> {
+  return {
+    ...row,
+    url: row.url ? await signUploadThingUrl(row.url) : row.url,
+  };
+}
 
 export const referenceImageRouter = createTRPCRouter({
   createReferenceImage: protectedProcedure
@@ -40,6 +53,21 @@ export const referenceImageRouter = createTRPCRouter({
         });
       }
 
+      if (!extractFileKey(input.url)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Reference image URL must be an UploadThing file URL",
+        });
+      }
+
+      const signedUrl = await signUploadThingUrl(input.url).catch((error) => {
+        console.error("[createReferenceImage] failed to sign upload URL", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Could not sign upload URL",
+        });
+      });
+
       const [referenceImageRow] = await db
         .insert(referenceImages)
         .values({
@@ -50,7 +78,14 @@ export const referenceImageRouter = createTRPCRouter({
         })
         .returning();
 
-      return referenceImageRow;
+      if (!referenceImageRow) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to create reference image",
+        });
+      }
+
+      return { ...referenceImageRow, url: signedUrl };
     }),
   deleteReferenceImage: protectedProcedure
     .input(z.object({ id: z.string().min(1) }))
@@ -106,19 +141,34 @@ export const referenceImageRouter = createTRPCRouter({
         .optional(),
     )
     .query(async ({ ctx, input }) => {
-      return await db
-        .select()
-        .from(referenceImages)
-        .where(
-          input?.ids?.length
-            ? and(
-                eq(referenceImages.userId, ctx.user),
-                inArray(referenceImages.id, input.ids),
-              )
-            : eq(referenceImages.userId, ctx.user),
-        )
-        .orderBy(referenceImages.uploadedAt);
-    }),
+        const ret = await db
+          .select()
+          .from(referenceImages)
+          .where(
+            input?.ids?.length
+              ? and(
+                  eq(referenceImages.userId, ctx.user),
+                  inArray(referenceImages.id, input.ids),
+                )
+              : eq(referenceImages.userId, ctx.user),
+          )
+          .orderBy(referenceImages.uploadedAt);
+        return Promise.all(ret.map(async (img) => {
+          if(img.url !== null) {
+            try {
+              return await signReferenceImageRow(img);
+            } catch (error) {
+              console.error(
+                `[getReferenceImages] could not sign upload URL for reference image ${img.id}`,
+                error,
+              );
+              return { ...img, url: null };
+            }
+          }
+          return img;
+        }));
+      }
+    ),
   createReferenceImageFromGenerated: protectedProcedure
     .input(
       z.object({
@@ -164,7 +214,7 @@ export const referenceImageRouter = createTRPCRouter({
         });
       }
       return {
-        referenceImageRow: referenceImageRow,
+        referenceImageRow: await signReferenceImageRow(referenceImageRow),
         existing: referenceImageRow.id !== newId,
       };
     }),
