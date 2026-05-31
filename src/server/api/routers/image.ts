@@ -19,7 +19,7 @@ import {
 } from "src/server/db/schema";
 import { recordGenerationCostEvent } from "src/server/generation-costs";
 import { currentUserCanBypassLimits } from "src/server/limits";
-import { utapi, UTFile } from "src/server/uploadthing";
+import { signUploadThingUrl, utapi, UTFile } from "src/server/uploadthing";
 import {
   createReservedUsage,
   getUsedCredits,
@@ -304,7 +304,12 @@ async function loadOwnedReferenceImages(
     });
   }
 
-  return ownedReferenceImages;
+  return Promise.all(
+    ownedReferenceImages.map(async (image) => ({
+      ...image,
+      url: image.url ? await signUploadThingUrl(image.url) : image.url,
+    })),
+  );
 }
 
 async function generateImageOpenAIResponses(
@@ -681,7 +686,7 @@ async function uploadGeneratedImage(args: {
     { type: args.generated.mimeType },
   );
 
-  const uploaded = await utapi.uploadFiles(file);
+  const uploaded = await utapi.uploadFiles(file, { acl: "private" });
 
   if (uploaded.error || !uploaded.data) {
     throw new Error(

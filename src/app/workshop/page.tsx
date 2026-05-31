@@ -560,11 +560,11 @@ function WorkshopComposer(props: WorkshopComposerProps) {
             Awaited<ReturnType<typeof createRefImage.mutateAsync>>
           > => result.status === "fulfilled",
         )
-        .map((result) =>
+        .map((result): PendingWorkshopAttachment | undefined =>
           result.value
             ? {
                 id: result.value.id,
-                url: result.value.url,
+                url: result.value.url ?? null,
                 mimeType: result.value.mimeType,
               }
             : undefined,

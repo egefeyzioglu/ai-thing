@@ -12,7 +12,7 @@ import {
   prompts,
   referenceImages,
 } from "src/server/db/schema";
-import { extractFileKey, utapi } from "src/server/uploadthing";
+import { signUploadThingUrl, utapi } from "src/server/uploadthing";
 import {
   calculateUsageRowCredits,
   getUsedCredits,
@@ -346,8 +346,9 @@ export const promptRouter = createTRPCRouter({
           images: await Promise.all(
             prompt.images.map(async (image) => {
               if (image.url !== null) {
-                const key = extractFileKey(image.url);
-                if (!key) {
+                try {
+                  image.url = await signUploadThingUrl(image.url);
+                } catch {
                   console.log(
                     `[prompts.list] could not extract file key from url: ${image.url}`,
                   );
@@ -356,7 +357,6 @@ export const promptRouter = createTRPCRouter({
                     message: `Could not extract file key from URL even though URL was not null: ${image.url}`,
                   });
                 }
-                image.url = (await utapi.generateSignedURL(key)).ufsUrl;
               }
               return image;
             }),

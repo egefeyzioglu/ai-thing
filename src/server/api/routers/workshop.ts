@@ -23,6 +23,7 @@ import {
   lockUserUsage,
   markUsageStatus,
 } from "src/server/usage";
+import { signUploadThingUrl } from "src/server/uploadthing";
 
 const WORKSHOP_MODELS = ["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"] as const;
 type WorkshopModel = (typeof WORKSHOP_MODELS)[number];
@@ -354,7 +355,14 @@ async function hydrateWorkshopMessages(
           .where(inArray(referenceImages.id, referenceImageIds))
       : [];
   const attachmentsById = new Map(
-    attachments.map((image) => [image.id, image]),
+    (
+      await Promise.all(
+        attachments.map(async (image) => ({
+          ...image,
+          url: image.url ? await signUploadThingUrl(image.url) : image.url,
+        })),
+      )
+    ).map((image) => [image.id, image]),
   );
 
   return messages.map((message) => {

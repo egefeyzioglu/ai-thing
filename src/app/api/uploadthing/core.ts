@@ -12,6 +12,7 @@ export const fileRouter = {
     image: {
       maxFileSize: "16MB",
       maxFileCount: 8,
+      acl: "private",
     },
   })
     .middleware(async () => {
