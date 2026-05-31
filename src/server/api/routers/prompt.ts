@@ -350,11 +350,11 @@ export const promptRouter = createTRPCRouter({
                   image.url = await signUploadThingUrl(image.url);
                 } catch {
                   console.log(
-                    `[prompts.list] could not extract file key from url: ${image.url}`,
+                    `[prompts.list] could not sign upload URL for image ${image.id}`,
                   );
                   throw new TRPCError({
                     code: "INTERNAL_SERVER_ERROR",
-                    message: `Could not extract file key from URL even though URL was not null: ${image.url}`,
+                    message: "Could not sign upload URL",
                   });
                 }
               }

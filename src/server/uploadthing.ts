@@ -17,6 +17,14 @@ export { UTFile };
 
 export const UPLOADTHING_SIGNED_URL_EXPIRES_IN = "7 days";
 
+function isUploadThingHost(hostname: string): boolean {
+  return (
+    hostname === "utfs.io" ||
+    hostname === "ufs.sh" ||
+    hostname.endsWith(".ufs.sh")
+  );
+}
+
 /**
  * Extract the UploadThing file key from a `ufsUrl`.
  *
@@ -27,7 +35,10 @@ export const UPLOADTHING_SIGNED_URL_EXPIRES_IN = "7 days";
  */
 export function extractFileKey(url: string): string | null {
   try {
-    const pathname = new URL(url).pathname;
+    const parsedUrl = new URL(url);
+    if (!isUploadThingHost(parsedUrl.hostname)) return null;
+
+    const pathname = parsedUrl.pathname;
     const fPathMatch = /\/f\/(.+)/.exec(pathname);
     if (fPathMatch?.[1]) return fPathMatch[1];
 

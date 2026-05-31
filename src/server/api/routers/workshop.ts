@@ -357,10 +357,19 @@ async function hydrateWorkshopMessages(
   const attachmentsById = new Map(
     (
       await Promise.all(
-        attachments.map(async (image) => ({
-          ...image,
-          url: image.url ? await signUploadThingUrl(image.url) : image.url,
-        })),
+        attachments.map(async (image) => {
+          if (!image.url) return image;
+
+          try {
+            return { ...image, url: await signUploadThingUrl(image.url) };
+          } catch (error) {
+            console.log(
+              `[hydrateWorkshopMessages] could not sign upload URL for reference image ${image.id}`,
+              error,
+            );
+            return { ...image, url: null };
+          }
+        }),
       )
     ).map((image) => [image.id, image]),
   );

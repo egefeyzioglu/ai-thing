@@ -53,10 +53,18 @@ export const referenceImageRouter = createTRPCRouter({
         });
       }
 
-      const signedUrl = await signUploadThingUrl(input.url).catch(() => {
+      if (!extractFileKey(input.url)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Reference image URL must be an UploadThing file URL",
+        });
+      }
+
+      const signedUrl = await signUploadThingUrl(input.url).catch((error) => {
+        console.error("[createReferenceImage] failed to sign upload URL", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Could not sign upload URL",
         });
       });
 
@@ -149,12 +157,12 @@ export const referenceImageRouter = createTRPCRouter({
           if(img.url !== null) {
             try {
               return await signReferenceImageRow(img);
-            } catch {
-              console.log(`[getReferenceImages] could not extract file key from url: ${img.url}`);
-              throw new TRPCError({
-                code: "INTERNAL_SERVER_ERROR",
-                message: `Could not extract file key from URL even though URL was not null: ${img.url}`
-              });
+            } catch (error) {
+              console.log(
+                `[getReferenceImages] could not sign upload URL for reference image ${img.id}`,
+                error,
+              );
+              return { ...img, url: null };
             }
           }
           return img;
