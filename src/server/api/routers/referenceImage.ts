@@ -158,7 +158,7 @@ export const referenceImageRouter = createTRPCRouter({
             try {
               return await signReferenceImageRow(img);
             } catch (error) {
-              console.log(
+              console.error(
                 `[getReferenceImages] could not sign upload URL for reference image ${img.id}`,
                 error,
               );
