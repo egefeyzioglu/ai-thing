@@ -1,12 +1,12 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Card } from "src/components/ui/card";
 import { Button } from "src/components/ui/button";
-import { FolderInput, MoreHorizontal, Trash2 } from "lucide-react";
+import { FolderInput, MoreHorizontal, Play, Trash2, Video } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -18,20 +18,28 @@ import { toast } from "sonner";
 import { extensionFor } from "src/lib/utils";
 import type { LocalStorageSetter, LocalStorageValue } from "src/lib/localStorage";
 
-import type { MEDIA_STATUSES } from "src/server/db/schema";
+import type { MEDIA_STATUSES, MEDIA_TYPES } from "src/server/db/schema";
 
-export type ModelInfo = { slug: string; name: string; provider: string };
+export type ModelInfo = {
+  slug: string;
+  name: string;
+  provider: string;
+  kind: "image" | "video";
+};
 
 type ProjectInfo = {
   id: string;
   name: string;
 };
 
-type ImageShape = {
+type MediaShape = {
   id: string;
   url: string;
   modelSlug: string;
   status: (typeof MEDIA_STATUSES)[number];
+  mediaType: (typeof MEDIA_TYPES)[number];
+  mimeType: string;
+  durationMs: number | null;
   key: string;
   error?: string;
   createdAt: Date;
@@ -46,16 +54,16 @@ export type PromptGroupProps = {
   prompt: string;
   aspectRatio?: string;
   createdAt: Date;
-  images: ImageShape[];
+  images: MediaShape[];
   referenceImages: { url?: string; id: string }[];
   models: ModelInfo[];
   projects?: ProjectInfo[];
   currentProjectId?: string | null;
   onDeletePrompt?: () => void;
   onMovePrompt?: (projectId: string) => void;
-  onDeleteImage?: (imageId: string) => void;
-  onRetryImage?: (imageId: string) => void;
-  onReuseAsReference?: (imageId: string) => Promise<void>;
+  onDeleteMedia?: (mediaId: string) => void;
+  onRetryMedia?: (mediaId: string) => void;
+  onReuseAsReference?: (mediaId: string) => Promise<void>;
   pinnedImages: PinnedImages;
   onPinnedImagesChange: SetPinnedImages;
 };
@@ -161,8 +169,102 @@ async function downloadImage(url: string, expectedMimeType?: string) {
   URL.revokeObjectURL(blobUrl);
 }
 
+// The signed UploadThing URL is regenerated on every prompt.list response, so
+// naive rendering would swap the <video> src each refetch and the browser
+// would reload + reset playback. The underlying file `mediaKey` is stable, so
+// we memoize on mediaKey + ar — once a stable URL has been handed to the
+// browser, re-signs of the same file are ignored at the React layer and the
+// <video> element keeps its state.
+const VideoPreview = memo(
+  function VideoPreview({
+    src,
+    ar,
+  }: {
+    src: string;
+    mediaKey: string;
+    ar: string;
+  }) {
+    const videoRef = useRef<HTMLVideoElement>(null);
+    return (
+      <div
+        className="relative w-full"
+        style={{ aspectRatio: parseAspectRatio(ar) }}
+        onMouseEnter={() => {
+          const el = videoRef.current;
+          if (!el) return;
+          void el.play().catch((err) => {
+            console.debug("video hover-play interrupted:", err);
+          });
+        }}
+        onMouseLeave={() => {
+          const el = videoRef.current;
+          if (!el) return;
+          el.pause();
+          el.currentTime = 0;
+        }}
+      >
+        <video
+          ref={videoRef}
+          src={src}
+          className="absolute inset-0 size-full object-cover"
+          muted
+          playsInline
+          loop
+          preload="metadata"
+        />
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 transition-opacity group-hover/cell:opacity-0">
+          <div className="flex size-12 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm">
+            <Play className="ml-0.5 size-5 fill-white text-white" strokeWidth={0} />
+          </div>
+        </div>
+      </div>
+    );
+  },
+  (prev, next) =>
+    prev.mediaKey === next.mediaKey && prev.ar === next.ar,
+);
+
+function VideoRenderingState({
+  ar,
+  createdAt,
+}: {
+  ar: string;
+  createdAt: Date;
+}) {
+  const [progress, setProgress] = useState(0);
+  useEffect(() => {
+    const estimatedMs = 45_000;
+    const tick = () => {
+      const elapsed = Date.now() - createdAt.getTime();
+      setProgress(Math.min(95, (elapsed / estimatedMs) * 95));
+    };
+    tick();
+    const interval = setInterval(tick, 500);
+    return () => clearInterval(interval);
+  }, [createdAt]);
+  return (
+    <div
+      className="relative w-full bg-muted"
+      style={{ aspectRatio: parseAspectRatio(ar) }}
+    >
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6">
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-(--border)">
+          <div
+            className="h-full bg-blue-500 transition-all duration-500"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <div className="flex w-full justify-between text-xs text-muted-foreground">
+          <span className="animate-pulse">Rendering video…</span>
+          <span>{Math.round(progress)}%</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type ImageCellProps = {
-  image: ImageShape;
+  image: MediaShape;
   ar: string;
   isPinned: boolean;
   pinIndex: number;
@@ -279,6 +381,7 @@ function ImageCell({
   onReuseAsReference,
   onOpen,
 }: ImageCellProps) {
+  const isVideo = image.mediaType === "video";
   const canOpen = image.status === "succeeded" && Boolean(onOpen);
 
   const handleRootClick = () => {
@@ -287,7 +390,9 @@ function ImageCell({
 
   let body: React.ReactNode;
   if (image.status === "pending" || image.status === "running") {
-    body = (
+    body = isVideo ? (
+      <VideoRenderingState ar={ar} createdAt={image.createdAt} />
+    ) : (
       <div className="relative w-full bg-muted" style={{ aspectRatio: parseAspectRatio(ar) }}>
         <div className="absolute inset-0 flex items-center justify-center gap-2">
           <Spinner />
@@ -309,7 +414,9 @@ function ImageCell({
       </div>
     );
   } else {
-    body = (
+    body = isVideo ? (
+      <VideoPreview src={image.url} mediaKey={image.key} ar={ar} />
+    ) : (
       <div className="relative w-full" style={{ aspectRatio: parseAspectRatio(ar) }}>
         <Image
           src={image.url}
@@ -343,6 +450,24 @@ function ImageCell({
       )}
     >
       {body}
+      {isVideo && image.status === "succeeded" && (
+        <div
+          className={cn(
+            "absolute left-1.5 z-10 flex items-center gap-1 rounded-full bg-black/55 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-white backdrop-blur-sm",
+            isPinned ? "top-8" : "top-1.5",
+          )}
+        >
+          <Video className="size-2.5" strokeWidth={2.5} />
+          VIDEO
+        </div>
+      )}
+      {isVideo &&
+        image.status === "succeeded" &&
+        image.durationMs != null && (
+          <div className="absolute right-1.5 bottom-1.5 z-10 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+            {Math.round(image.durationMs / 1000)}s
+          </div>
+        )}
       {isPinned && totalPinned > 1 && (
         <div className="absolute top-1.5 left-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-500 text-white flex items-center gap-1 shadow-md">
           <PinIcon size={9} filled />
@@ -361,11 +486,72 @@ function ImageCell({
             onTogglePin={onTogglePin}
             onDownload={onDownload}
             onDelete={onDelete}
-            onReuseAsReference={onReuseAsReference}
+            onReuseAsReference={isVideo ? undefined : onReuseAsReference}
           />
         </div>
       )}
     </div>
+  );
+}
+
+function VideoModal({
+  src,
+  actions,
+  onClose,
+}: {
+  src: string;
+  actions?: React.ReactNode;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Expanded video preview"
+      onClick={onClose}
+    >
+      <button
+        onClick={(event) => {
+          event.stopPropagation();
+          onClose();
+        }}
+        aria-label="Close video preview"
+        className="absolute right-4 top-4 z-10 size-9 rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm cursor-pointer"
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="mx-auto">
+          <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </button>
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+      <div className="relative z-10 flex h-[90vh] w-full items-center justify-center">
+        <div
+          className="relative overflow-hidden rounded-lg border border-white/10 bg-black/30 shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <video
+            src={src}
+            controls
+            autoPlay
+            playsInline
+            className="block max-h-[90vh] max-w-full"
+          />
+          {actions && (
+            <div className="absolute top-3 right-3 z-10">{actions}</div>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -435,20 +621,22 @@ function ImageModal({
 
 type ModelAlbumProps = {
   modelId: string;
-  images: ImageShape[];
+  images: MediaShape[];
   ar: string;
   models: ModelInfo[];
-  onDeleteImage?: (imageId: string) => void;
-  onRetryImage?: (imageId: string) => void;
-  onReuseAsReference?: (imageId: string) => Promise<void>;
+  onDeleteMedia?: (mediaId: string) => void;
+  onRetryMedia?: (mediaId: string) => void;
+  onReuseAsReference?: (mediaId: string) => Promise<void>;
   pinnedImages: PinnedImages;
   onPinnedImagesChange: SetPinnedImages;
 };
 
-function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, onReuseAsReference, pinnedImages, onPinnedImagesChange }: ModelAlbumProps) {
+function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, onReuseAsReference, pinnedImages, onPinnedImagesChange }: ModelAlbumProps) {
   const model = models.find((m) => m.slug === modelId);
+  const isVideoAlbum = model?.kind === "video";
+  const itemNoun = isVideoAlbum ? "clip" : "image";
   const [expanded, setExpanded] = useState(false);
-  const [modalImage, setModalImage] = useState<ImageShape | null>(null);
+  const [modalImage, setModalImage] = useState<MediaShape | null>(null);
   const imageIds = useMemo(() => new Set(images.map((image) => image.id)), [images]);
   // map of imageId to timestamp when pinned (higher = more recently pinned = on top)
   const pinnedMap = useMemo(
@@ -485,7 +673,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
   const hiddenStackCount = Math.max(0, coverStack.length - visibleStack.length);
   const canExpand = images.length > 1;
 
-  const handleDownload = (img: ImageShape) => {
+  const handleDownload = (img: MediaShape) => {
     void downloadImage(img.url).catch((err) => {
       console.error("Failed to download image", err);
       toast.error("Image download failed");
@@ -516,10 +704,19 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
           <div className="text-xs font-semibold">{model?.name ?? modelId}</div>
           <div className="flex items-center gap-1.5 mt-px text-[10px] text-muted-foreground">
             <span>{model?.provider}</span>
+            {isVideoAlbum && (
+              <>
+                <span className="opacity-50">·</span>
+                <span className="text-blue-400">video</span>
+              </>
+            )}
             {successCount > 0 && (
               <>
                 <span className="opacity-50">·</span>
-                <span>{successCount} image{successCount !== 1 ? "s" : ""}</span>
+                <span>
+                  {successCount} {itemNoun}
+                  {successCount !== 1 ? "s" : ""}
+                </span>
               </>
             )}
             {pinned.length > 0 && (
@@ -602,8 +799,8 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
                         totalPinned={pinned.length}
                         onTogglePin={() => togglePin(img.id)}
                         onDownload={() => handleDownload(img)}
-                        onDelete={() => onDeleteImage?.(img.id)}
-                        onRetry={onRetryImage ? () => onRetryImage(img.id) : undefined}
+                        onDelete={() => onDeleteMedia?.(img.id)}
+                        onRetry={onRetryMedia ? () => onRetryMedia(img.id) : undefined}
                         onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(img.id) : undefined}
                         onOpen={images.length === 1 ? () => setModalImage(img) : undefined}
                       />
@@ -639,8 +836,8 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
                   totalPinned={pinned.length}
                   onTogglePin={() => togglePin(img.id)}
                   onDownload={() => handleDownload(img)}
-                  onDelete={() => onDeleteImage?.(img.id)}
-                  onRetry={onRetryImage ? () => onRetryImage(img.id) : undefined}
+                  onDelete={() => onDeleteMedia?.(img.id)}
+                  onRetry={onRetryMedia ? () => onRetryMedia(img.id) : undefined}
                   onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(img.id) : undefined}
                   onOpen={() => setModalImage(img)}
                 />
@@ -649,23 +846,42 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteImage, onRetryImage, 
           </div>
         )}
       </div>
-      {modalImage && (
-        <ImageModal
-          src={modalImage.url}
-          alt="Expanded generated image"
-          onClose={() => setModalImage(null)}
-          actions={
-            <GeneratedImageActions
-              onDownload={() => handleDownload(modalImage)}
-              onDelete={() => {
-                setModalImage(null);
-                onDeleteImage?.(modalImage.id);
-              }}
-              onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(modalImage.id) : undefined}
-            />
-          }
-        />
-      )}
+      {modalImage &&
+        (modalImage.mediaType === "video" ? (
+          <VideoModal
+            src={modalImage.url}
+            onClose={() => setModalImage(null)}
+            actions={
+              <GeneratedImageActions
+                onDownload={() => handleDownload(modalImage)}
+                onDelete={() => {
+                  setModalImage(null);
+                  onDeleteMedia?.(modalImage.id);
+                }}
+              />
+            }
+          />
+        ) : (
+          <ImageModal
+            src={modalImage.url}
+            alt="Expanded generated image"
+            onClose={() => setModalImage(null)}
+            actions={
+              <GeneratedImageActions
+                onDownload={() => handleDownload(modalImage)}
+                onDelete={() => {
+                  setModalImage(null);
+                  onDeleteMedia?.(modalImage.id);
+                }}
+                onReuseAsReference={
+                  onReuseAsReference
+                    ? () => onReuseAsReference(modalImage.id)
+                    : undefined
+                }
+              />
+            }
+          />
+        ))}
     </Card>
   );
 }
@@ -720,7 +936,7 @@ export default function PromptGroup(props: PromptGroupProps) {
   const [referenceModalImage, setReferenceModalImage] = useState<string | null>(null);
   const [actionsOpen, setActionsOpen] = useState(false);
   const modelOrder: string[] = [];
-  const byModel: Record<string, ImageShape[]> = {};
+  const byModel: Record<string, MediaShape[]> = {};
   for (const img of props.images) {
     if (!byModel[img.modelSlug]) {
       byModel[img.modelSlug] = [];
@@ -839,8 +1055,8 @@ export default function PromptGroup(props: PromptGroupProps) {
             images={byModel[modelId]!}
             ar={props.aspectRatio ?? "1:1"}
             models={props.models}
-            onDeleteImage={props.onDeleteImage}
-            onRetryImage={props.onRetryImage}
+            onDeleteMedia={props.onDeleteMedia}
+            onRetryMedia={props.onRetryMedia}
             onReuseAsReference={props.onReuseAsReference}
             pinnedImages={props.pinnedImages}
             onPinnedImagesChange={props.onPinnedImagesChange}

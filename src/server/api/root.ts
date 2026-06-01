@@ -1,4 +1,4 @@
-import { imageRouter } from "src/server/api/routers/image";
+import { mediaRouter } from "src/server/api/routers/media";
 import { promptRouter } from "src/server/api/routers/prompt";
 import { projectRouter } from "src/server/api/routers/project";
 import { usageRouter } from "src/server/api/routers/usage";
@@ -12,7 +12,7 @@ import { referenceImageRouter } from "./routers/referenceImage";
  * All routers added in /api/routers should be manually added here.
  */
 export const appRouter = createTRPCRouter({
-  image: imageRouter,
+  media: mediaRouter,
   prompt: promptRouter,
   project: projectRouter,
   referenceImage: referenceImageRouter,

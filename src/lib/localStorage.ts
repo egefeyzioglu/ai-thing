@@ -56,6 +56,12 @@ export const localStorageSchema = {
     defaultValue: [],
     version: 1,
   }),
+  outputMode: defineLocalStorageItem({
+    schema: z.enum(["image", "video"]),
+    key: "ai-thing.outputMode",
+    defaultValue: "image" as const,
+    version: 1,
+  }),
 };
 
 export type LocalStorageKey = keyof typeof localStorageSchema;

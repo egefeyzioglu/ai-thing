@@ -23,12 +23,14 @@ import { api } from "src/trpc/react";
 
 import posthog from "posthog-js";
 
-import { ImageGallery } from "./_components/image-gallery";
+import { MediaGallery } from "./_components/media-gallery";
 import type { PromptComposerHandle } from "./_components/prompt-composer";
 import {
   Sidebar,
   type PromptModelSlug,
   type ResolutionOption,
+  type VideoDuration,
+  type VideoResolution,
 } from "./_components/sidebar";
 import { useActiveProject } from "./_hooks/use-active-project";
 import { useLocalStorage } from "src/lib/localStorage";
@@ -37,7 +39,7 @@ import { useSessionStorage } from "src/lib/sessionStorage";
 type PendingDelete =
   | { type: "referenceImage"; id: string }
   | { type: "prompt"; id: string }
-  | { type: "image"; id: string };
+  | { type: "media"; id: string };
 
 const PUSH_PERMISSION_PROMPT_STORAGE_KEY = "ai-thing.pushPermissionPrompt";
 const OPENAI_MODEL_SLUGS = new Set<PromptModelSlug>([
@@ -48,6 +50,9 @@ const GEMINI_MODEL_SLUGS = new Set<PromptModelSlug>([
   "gemini-2.5-flash-image",
   "gemini-3.1-flash-image-preview",
   "gemini-3-pro-image-preview",
+]);
+const SEEDANCE_FAST_SLUGS = new Set<PromptModelSlug>([
+  "dreamina-seedance-2-0-fast",
 ]);
 
 function hasDismissedPushPermissionPrompt() {
@@ -83,10 +88,17 @@ export default function Home() {
     string[]
   >([]);
   const [selectedModels, setSelectedModels] = useState<PromptModelSlug[]>([]);
+  const [mode, setMode] = useLocalStorage("outputMode");
   const [resolution, setResolution] = useState<ResolutionOption>("1K");
+  const [videoResolution, setVideoResolution] =
+    useState<VideoResolution>("720p");
+  const [duration, setDuration] = useState<VideoDuration>(5);
   const [aspect, setAspect] = useState("1:1");
   const [advanced, setAdvanced] = useSessionStorage(
     "imageGenerationAdvanced",
+  );
+  const [videoAdvanced, setVideoAdvanced] = useSessionStorage(
+    "videoGenerationAdvanced",
   );
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
   const [runs, setRuns] = useState(1);
@@ -177,11 +189,20 @@ export default function Home() {
   }, [
     selectedModels,
     selectedReferenceImages,
+    mode,
     resolution,
+    videoResolution,
+    duration,
     aspect,
     runs,
     selectedProjectId,
   ]);
+
+  useEffect(() => {
+    if (mode === "video" && selectedReferenceImages.length > 1) {
+      setSelectedReferenceImages((prev) => prev.slice(0, 1));
+    }
+  }, [mode, selectedReferenceImages]);
 
   useEffect(() => {
     if (user.isLoaded && !canBypassLimits && bypassMonthlyQuota) {
@@ -219,7 +240,7 @@ export default function Home() {
   const { startUpload } = useUploadThing("imageUploader");
 
   const createPrompt = api.prompt.createWithGenerations.useMutation();
-  const runGeneration = api.image.runGeneration.useMutation();
+  const runGeneration = api.media.runGeneration.useMutation();
   const deletePromptMutation = api.prompt.deletePrompt.useMutation({
     onSuccess: () => {
       toast.success("Generation deleted");
@@ -238,13 +259,13 @@ export default function Home() {
       toast.error("Failed to move generation");
     },
   });
-  const deleteImageMutation = api.image.deleteImage.useMutation({
+  const deleteMediaMutation = api.media.deleteMedia.useMutation({
     onSuccess: () => {
-      toast.success("Image deleted");
+      toast.success("Deleted");
       void utils.prompt.list.invalidate();
     },
     onError: () => {
-      toast.error("Failed to delete image");
+      toast.error("Failed to delete");
     },
   });
   const reuseAsReference =
@@ -293,7 +314,7 @@ export default function Home() {
     } else if (pendingDelete.type === "prompt") {
       deletePromptMutation.mutate({ id: pendingDelete.id });
     } else {
-      deleteImageMutation.mutate({ id: pendingDelete.id });
+      deleteMediaMutation.mutate({ id: pendingDelete.id });
     }
 
     setPendingDelete(null);
@@ -397,19 +418,25 @@ export default function Home() {
       result = await createPrompt.mutateAsync({
         projectId: selectedProjectId,
         text: trimmedPrompt,
+        mode,
         models: selectedModels,
         repeatCount: runs,
         referenceImages:
           selectedReferenceImages.length > 0
             ? selectedReferenceImages
             : undefined,
-        resolution,
+        resolution: mode === "image" ? resolution : undefined,
+        videoResolution: mode === "video" ? videoResolution : undefined,
+        duration: mode === "video" ? duration : undefined,
         aspectRatio: aspect,
-        quality: advanced.quality,
-        background: advanced.background,
-        negativePrompt: advanced.negativePrompt || undefined,
-        seed: advanced.seed || undefined,
-        thinking: advanced.thinking,
+        quality: mode === "image" ? advanced.quality : undefined,
+        background: mode === "image" ? advanced.background : undefined,
+        negativePrompt:
+          mode === "image" ? advanced.negativePrompt || undefined : undefined,
+        seed: mode === "image" ? advanced.seed || undefined : undefined,
+        thinking: mode === "image" ? advanced.thinking : undefined,
+        motion: mode === "video" ? videoAdvanced.motion : undefined,
+        cameraFixed: mode === "video" ? videoAdvanced.cameraFixed : undefined,
         requestQuotaBypass: effectiveBypassMonthlyQuota,
       });
     } catch (reason) {
@@ -448,7 +475,7 @@ export default function Home() {
         result.media.map((img) =>
           runGeneration.mutateAsync(
             {
-              imageId: img.id,
+              mediaId: img.id,
               requestQuotaBypass: effectiveBypassMonthlyQuota,
             },
             {
@@ -552,7 +579,7 @@ export default function Home() {
     );
     console.log("[retry] optimistic update applied, calling runGeneration");
     runGeneration.mutate(
-      { imageId, retry: true, requestQuotaBypass: effectiveBypassMonthlyQuota },
+      { mediaId: imageId, retry: true, requestQuotaBypass: effectiveBypassMonthlyQuota },
       {
         onSuccess: (data) => console.log("[retry] succeeded, result:", data),
         onError: (err) => {
@@ -580,16 +607,18 @@ export default function Home() {
     setIsMacOS(navigator?.userAgent.toLowerCase().includes("mac"));
   }, []);
 
-  const [hasInitializedModels, setHasInitializedModels] = useState(false);
+  const lastInitializedModeRef = useRef<typeof mode | null>(null);
 
   useEffect(() => {
-    if (models && !hasInitializedModels) {
-      setSelectedModels(
-        models.filter((model) => !model.isArchived).map((model) => model.slug),
-      );
-      setHasInitializedModels(true);
-    }
-  }, [models, hasInitializedModels]);
+    if (!models) return;
+    if (lastInitializedModeRef.current === mode) return;
+    lastInitializedModeRef.current = mode;
+    setSelectedModels(
+      models
+        .filter((model) => !model.isArchived && model.kind === mode)
+        .map((model) => model.slug),
+    );
+  }, [models, mode]);
 
   const totalGenerations = runs * selectedModels.length;
   const currentRequestCost = selectedModels.reduce(
@@ -600,11 +629,15 @@ export default function Home() {
           model,
           resolution,
           aspectRatio: aspect,
+          videoResolution,
+          duration,
         }),
     0,
   );
-  const activeModels = models?.filter((model) => !model.isArchived) ?? [];
-  const archivedModels = models?.filter((model) => model.isArchived) ?? [];
+  const activeModels =
+    models?.filter((model) => !model.isArchived && model.kind === mode) ?? [];
+  const archivedModels =
+    models?.filter((model) => model.isArchived && model.kind === mode) ?? [];
   const hasOnlyOpenAIModelsSelected =
     selectedModels.length > 0 &&
     selectedModels.every((model) => OPENAI_MODEL_SLUGS.has(model));
@@ -614,6 +647,10 @@ export default function Home() {
   const hasGeminiModelSelected = selectedModels.some((model) =>
     GEMINI_MODEL_SLUGS.has(model),
   );
+  const hasOnlySeedanceFastSelected =
+    mode === "video" &&
+    selectedModels.length > 0 &&
+    selectedModels.every((model) => SEEDANCE_FAST_SLUGS.has(model));
   const isGalleryLoading =
     isLoadingProjects || !selectedProjectId || promptsQuery.isLoading;
   const galleryErrorMessage =
@@ -626,6 +663,19 @@ export default function Home() {
       setResolution("1K");
     }
   }, [hasOnlyOpenAIModelsSelected, resolution]);
+
+  useEffect(() => {
+    if (hasOnlySeedanceFastSelected && videoResolution === "1080p") {
+      setVideoResolution("720p");
+    }
+  }, [hasOnlySeedanceFastSelected, videoResolution]);
+
+  useEffect(() => {
+    const IMAGE_ASPECTS = new Set(["1:1", "4:3", "3:4", "16:9", "9:16"]);
+    if (mode === "image" && !IMAGE_ASPECTS.has(aspect)) {
+      setAspect("1:1");
+    }
+  }, [mode, aspect]);
 
   useEffect(() => {
     if (promptsQuery.error?.data?.code !== "NOT_FOUND" || !projects?.length) {
@@ -703,8 +753,22 @@ export default function Home() {
         onSelectedReferenceImagesChange={setSelectedReferenceImages}
         selectedModels={selectedModels}
         onToggleSelectedModel={toggleSelectedModel}
+        mode={mode}
+        onModeChange={setMode}
         resolution={resolution}
         onResolutionChange={setResolution}
+        videoResolution={videoResolution}
+        onVideoResolutionChange={setVideoResolution}
+        duration={duration}
+        onDurationChange={setDuration}
+        motion={videoAdvanced.motion}
+        onMotionChange={(value) =>
+          setVideoAdvanced((s) => ({ ...s, motion: value }))
+        }
+        cameraFixed={videoAdvanced.cameraFixed}
+        onCameraFixedChange={(value) =>
+          setVideoAdvanced((s) => ({ ...s, cameraFixed: value }))
+        }
         aspect={aspect}
         onAspectChange={setAspect}
         advancedOpen={advanced.advancedOpen}
@@ -733,6 +797,7 @@ export default function Home() {
         }
         hasOpenAIModelSelected={hasOpenAIModelSelected}
         hasGeminiModelSelected={hasGeminiModelSelected}
+        hasOnlySeedanceFastSelected={hasOnlySeedanceFastSelected}
         isMacOS={isMacOS}
         promptComposerRef={promptComposerRef}
         hasSelectedProject={Boolean(selectedProjectId)}
@@ -760,7 +825,7 @@ export default function Home() {
         bypassMonthlyQuota={effectiveBypassMonthlyQuota}
         onBypassMonthlyQuotaChange={setBypassMonthlyQuota}
       />
-      <ImageGallery
+      <MediaGallery
         projects={projects}
         project={selectedProject}
         selectedProjectId={selectedProjectId}
@@ -775,9 +840,9 @@ export default function Home() {
         onMovePrompt={(id, projectId) =>
           movePromptMutation.mutate({ id, projectId })
         }
-        onDeleteImage={(id) => setPendingDelete({ type: "image", id })}
+        onDeleteMedia={(id) => setPendingDelete({ type: "media", id })}
         onReuseAsReference={handleReuseAsReference}
-        onRetryImage={handleRetryImage}
+        onRetryMedia={handleRetryImage}
       />
     </main>
   );

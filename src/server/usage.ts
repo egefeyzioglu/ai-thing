@@ -257,6 +257,8 @@ export function calculateUsageRowCredits(args: {
   model: string;
   resolution?: string | null;
   aspectRatio?: string | null;
+  videoResolution?: string | null;
+  duration?: number | null;
 }) {
   return calculateGenerationCredits(args);
 }
@@ -267,6 +269,8 @@ export async function createReservedUsage(tx: UsageDb, args: {
   model: string;
   resolution?: string | null;
   aspectRatio?: string | null;
+  videoResolution?: string | null;
+  duration?: number | null;
   credits?: number;
   usageType?: GenerationUsage["usageType"];
 }): Promise<GenerationUsage> {
@@ -278,7 +282,7 @@ export async function createReservedUsage(tx: UsageDb, args: {
       userId: args.userId,
       mediaId: args.mediaId,
       model: args.model,
-      resolution: args.resolution,
+      resolution: args.videoResolution ?? args.resolution,
       aspectRatio: args.aspectRatio,
       credits,
       usageType: args.usageType,

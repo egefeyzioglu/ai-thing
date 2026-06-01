@@ -58,7 +58,55 @@ const GEMINI_PRICING = {
   },
 } as const;
 
-type Provider = "openai" | "gemini";
+// Modelark Seedance pricing is per million output tokens, varying by output
+// resolution and whether the input includes a reference video. Our current
+// flows never send a reference_video, so we only use the "withoutVideoInput"
+// rate (kept "withVideoInput" inline for when video refs are added).
+//
+// Numbers below are USD micros per million completion tokens — derived from
+// Modelark's USD/M-tokens prices (e.g. $7.00/M -> 7_000_000 micros/M).
+const MODELARK_PRICING = {
+  "dreamina-seedance-2-0": {
+    "480p": {
+      withoutVideoInputUsdMicrosPerMillion: 7_000_000,
+      withVideoInputUsdMicrosPerMillion: 4_300_000,
+    },
+    "720p": {
+      withoutVideoInputUsdMicrosPerMillion: 7_000_000,
+      withVideoInputUsdMicrosPerMillion: 4_300_000,
+    },
+    "1080p": {
+      withoutVideoInputUsdMicrosPerMillion: 7_700_000,
+      withVideoInputUsdMicrosPerMillion: 4_700_000,
+    },
+  },
+  "dreamina-seedance-2-0-fast": {
+    "480p": {
+      withoutVideoInputUsdMicrosPerMillion: 5_600_000,
+      withVideoInputUsdMicrosPerMillion: 3_300_000,
+    },
+    "720p": {
+      withoutVideoInputUsdMicrosPerMillion: 5_600_000,
+      withVideoInputUsdMicrosPerMillion: 3_300_000,
+    },
+    // 1080p not supported by Seedance 2.0 Fast — UI also blocks this.
+  },
+} as const;
+
+type ModelarkUsage = {
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
+function normalizeModelarkUsage(value: unknown): ModelarkUsage | null {
+  if (!isRecord(value)) return null;
+  return {
+    completion_tokens: readNumber(value, "completion_tokens"),
+    total_tokens: readNumber(value, "total_tokens"),
+  };
+}
+
+type Provider = "openai" | "gemini" | "modelark";
 
 type CostFields = {
   status: GenerationCostEventStatus;
@@ -73,6 +121,7 @@ type CostFields = {
   reasoningTokens?: number | null;
   totalTokens?: number | null;
   outputImageCount?: number | null;
+  outputDurationMs?: number | null;
   fallbackReason?: string | null;
   costCalculationRaw: Record<string, unknown>;
 };
@@ -87,6 +136,8 @@ type CostFallbackContext = {
   negativePrompt?: string | null;
   seed?: string | null;
   thinking?: string | null;
+  videoResolution?: string | null;
+  duration?: number | null;
 };
 
 function pricingContext(context: CostFallbackContext): Record<string, unknown> {
@@ -862,6 +913,88 @@ function calculateGeminiCost(args: {
   };
 }
 
+function calculateModelarkVideoCost(args: {
+  model: string;
+  usageRaw: unknown;
+  fallbackContext: CostFallbackContext;
+}): CostFields {
+  const pricing =
+    MODELARK_PRICING[args.model as keyof typeof MODELARK_PRICING];
+  if (!pricing) return unsupportedModelCost(args.model);
+
+  const requestedResolutionRaw = args.fallbackContext.videoResolution;
+  const requestedResolution = requestedResolutionRaw ?? "720p";
+  const tier = pricing[requestedResolution as keyof typeof pricing];
+
+  if (!tier && requestedResolutionRaw !== undefined) {
+    return {
+      status: "estimated",
+      costUsdMicros: 0,
+      fallbackReason: `unsupported_modelark_resolution:${requestedResolutionRaw}`,
+      costCalculationRaw: {
+        pricingVersion: COST_PRICING_VERSION,
+        provider: "modelark",
+        model: args.model,
+        fallbackReason: `unsupported_modelark_resolution:${requestedResolutionRaw}`,
+      },
+    };
+  }
+
+  // We never send reference_video on input, so always use the
+  // "withoutVideoInput" rate. When reference_video lands, thread an
+  // inputHasVideo flag through CostFallbackContext.
+  const usdMicrosPerMillion = tier.withoutVideoInputUsdMicrosPerMillion;
+
+  const usage = normalizeModelarkUsage(args.usageRaw);
+  const completionTokens = usage?.completion_tokens;
+  const durationMs = args.fallbackContext.duration
+    ? args.fallbackContext.duration * 1000
+    : null;
+
+  if (!completionTokens) {
+    return {
+      status: "estimated",
+      costUsdMicros: 0,
+      outputDurationMs: durationMs,
+      fallbackReason: "missing_modelark_completion_tokens",
+      costCalculationRaw: {
+        pricingVersion: COST_PRICING_VERSION,
+        provider: "modelark",
+        model: args.model,
+        fallbackReason: "missing_modelark_completion_tokens",
+        pricingContext: {
+          videoResolution: requestedResolution,
+          aspectRatio: args.fallbackContext.aspectRatio,
+          duration: args.fallbackContext.duration,
+        },
+      },
+    };
+  }
+
+  const costUsdMicros = microsForTokens(completionTokens, usdMicrosPerMillion);
+
+  return {
+    status: "recorded",
+    costUsdMicros,
+    outputTokens: completionTokens,
+    totalTokens: usage?.total_tokens,
+    outputDurationMs: durationMs,
+    fallbackReason: null,
+    costCalculationRaw: {
+      pricingVersion: COST_PRICING_VERSION,
+      provider: "modelark",
+      model: args.model,
+      pricingContext: {
+        videoResolution: requestedResolution,
+        aspectRatio: args.fallbackContext.aspectRatio,
+        duration: args.fallbackContext.duration,
+        usdMicrosPerMillion,
+      },
+      lineItems: { videoOutputCost: costUsdMicros },
+    },
+  };
+}
+
 function calculateCost(args: {
   provider: Provider;
   model: string;
@@ -869,6 +1002,14 @@ function calculateCost(args: {
   usageRaw: unknown;
   fallbackContext: CostFallbackContext;
 }): CostFields {
+  if (args.provider === "modelark") {
+    return calculateModelarkVideoCost({
+      model: args.model,
+      usageRaw: args.usageRaw,
+      fallbackContext: args.fallbackContext,
+    });
+  }
+
   if (args.provider === "openai") {
     if (
       args.operation === "responses_image_generation" ||
@@ -953,6 +1094,7 @@ export async function recordGenerationCostEvent(args: {
       reasoningTokens: cost.reasoningTokens,
       totalTokens: cost.totalTokens,
       outputCount: cost.outputImageCount,
+      outputDurationMs: cost.outputDurationMs,
       fallbackReason: cost.fallbackReason,
       usageRaw: args.usageRaw,
       costCalculationRaw: cost.costCalculationRaw,

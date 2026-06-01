@@ -38,6 +38,18 @@ export const sessionStorageSchema = {
     },
     version: 1,
   }),
+  videoGenerationAdvanced: defineSessionStorageItem({
+    schema: z.object({
+      motion: z.enum(["auto", "low", "high"]),
+      cameraFixed: z.boolean(),
+    }),
+    key: "ai-thing.videoGenerationAdvanced",
+    defaultValue: {
+      motion: "auto",
+      cameraFixed: false,
+    },
+    version: 1,
+  }),
 };
 
 export type SessionStorageKey = keyof typeof sessionStorageSchema;

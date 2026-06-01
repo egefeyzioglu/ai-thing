@@ -2,6 +2,7 @@
 
 import PromptGroup from "./prompt-group";
 import { ProjectSwitcher } from "./project-switcher";
+import { VideoPoller } from "./video-poller";
 
 import { Skeleton } from "src/components/ui/skeleton";
 import { useLocalStorage } from "src/lib/localStorage";
@@ -12,7 +13,7 @@ type ProjectList = RouterOutputs["project"]["list"];
 type ModelList = RouterOutputs["prompt"]["getModels"];
 type ReferenceImageList = RouterOutputs["referenceImage"]["getReferenceImages"];
 
-type ImageGalleryProps = {
+type MediaGalleryProps = {
   projects: ProjectList | undefined;
   project: ProjectList[number] | undefined;
   selectedProjectId: string | null;
@@ -25,9 +26,9 @@ type ImageGalleryProps = {
   referenceImages: ReferenceImageList | undefined;
   onDeletePrompt: (promptId: string) => void;
   onMovePrompt: (promptId: string, projectId: string) => void;
-  onDeleteImage: (imageId: string) => void;
-  onReuseAsReference: (imageId: string) => Promise<void>;
-  onRetryImage: (imageId: string) => void;
+  onDeleteMedia: (mediaId: string) => void;
+  onReuseAsReference: (mediaId: string) => Promise<void>;
+  onRetryMedia: (mediaId: string) => void;
 };
 
 function PromptGroupSkeleton() {
@@ -64,7 +65,7 @@ function PromptGroupSkeleton() {
   );
 }
 
-export function ImageGallery({
+export function MediaGallery({
   projects,
   project,
   selectedProjectId,
@@ -77,10 +78,10 @@ export function ImageGallery({
   referenceImages,
   onDeletePrompt,
   onMovePrompt,
-  onDeleteImage,
+  onDeleteMedia,
   onReuseAsReference,
-  onRetryImage,
-}: ImageGalleryProps) {
+  onRetryMedia,
+}: MediaGalleryProps) {
   const promptCount = prompts?.length ?? 0;
   const [pinnedImages, setPinnedImages] = useLocalStorage("pinnedImages");
 
@@ -176,15 +177,18 @@ export function ImageGallery({
               models={models ?? []}
               projects={projects}
               currentProjectId={selectedProjectId}
-              images={prompt.media.map((image) => ({
-                id: image.id,
-                url: image.url ?? "",
-                modelSlug: image.model,
-                status: image.status,
-                key: image.key ?? "",
-                error: image.error ?? undefined,
-                createdAt: image.createdAt,
-                updatedAt: image.updatedAt,
+              images={prompt.media.map((mediaItem) => ({
+                id: mediaItem.id,
+                url: mediaItem.url ?? "",
+                modelSlug: mediaItem.model,
+                status: mediaItem.status,
+                mediaType: mediaItem.type,
+                mimeType: mediaItem.mimeType,
+                durationMs: mediaItem.durationMs,
+                key: mediaItem.key ?? "",
+                error: mediaItem.error ?? undefined,
+                createdAt: mediaItem.createdAt,
+                updatedAt: mediaItem.updatedAt,
               }))}
               referenceImages={
                 (prompt.referenceImages as string[])?.length > 0
@@ -198,15 +202,29 @@ export function ImageGallery({
               }
               onDeletePrompt={() => onDeletePrompt(prompt.id)}
               onMovePrompt={(projectId) => onMovePrompt(prompt.id, projectId)}
-              onDeleteImage={onDeleteImage}
+              onDeleteMedia={onDeleteMedia}
               onReuseAsReference={onReuseAsReference}
-              onRetryImage={onRetryImage}
+              onRetryMedia={onRetryMedia}
               pinnedImages={pinnedImages}
               onPinnedImagesChange={setPinnedImages}
             />
           ))}
         </div>
       )}
+      {selectedProjectId &&
+        (prompts ?? []).flatMap((prompt) =>
+          prompt.media
+            .filter(
+              (m) => m.type === "video" && m.status === "running",
+            )
+            .map((m) => (
+              <VideoPoller
+                key={m.id}
+                mediaId={m.id}
+                projectId={selectedProjectId}
+              />
+            )),
+        )}
     </div>
   );
 }
