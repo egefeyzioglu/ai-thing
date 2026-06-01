@@ -23,12 +23,14 @@ import { api } from "src/trpc/react";
 
 import posthog from "posthog-js";
 
-import { ImageGallery } from "./_components/image-gallery";
+import { MediaGallery } from "./_components/media-gallery";
 import type { PromptComposerHandle } from "./_components/prompt-composer";
 import {
   Sidebar,
   type PromptModelSlug,
   type ResolutionOption,
+  type VideoDuration,
+  type VideoResolution,
 } from "./_components/sidebar";
 import { useActiveProject } from "./_hooks/use-active-project";
 import { useLocalStorage } from "src/lib/localStorage";
@@ -83,10 +85,17 @@ export default function Home() {
     string[]
   >([]);
   const [selectedModels, setSelectedModels] = useState<PromptModelSlug[]>([]);
+  const [mode, setMode] = useLocalStorage("outputMode");
   const [resolution, setResolution] = useState<ResolutionOption>("1K");
+  const [videoResolution, setVideoResolution] =
+    useState<VideoResolution>("720p");
+  const [duration, setDuration] = useState<VideoDuration>(5);
   const [aspect, setAspect] = useState("1:1");
   const [advanced, setAdvanced] = useSessionStorage(
     "imageGenerationAdvanced",
+  );
+  const [videoAdvanced, setVideoAdvanced] = useSessionStorage(
+    "videoGenerationAdvanced",
   );
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
   const [runs, setRuns] = useState(1);
@@ -177,11 +186,20 @@ export default function Home() {
   }, [
     selectedModels,
     selectedReferenceImages,
+    mode,
     resolution,
+    videoResolution,
+    duration,
     aspect,
     runs,
     selectedProjectId,
   ]);
+
+  useEffect(() => {
+    if (mode === "video" && selectedReferenceImages.length > 1) {
+      setSelectedReferenceImages((prev) => prev.slice(0, 1));
+    }
+  }, [mode, selectedReferenceImages]);
 
   useEffect(() => {
     if (user.isLoaded && !canBypassLimits && bypassMonthlyQuota) {
@@ -397,19 +415,25 @@ export default function Home() {
       result = await createPrompt.mutateAsync({
         projectId: selectedProjectId,
         text: trimmedPrompt,
+        mode,
         models: selectedModels,
         repeatCount: runs,
         referenceImages:
           selectedReferenceImages.length > 0
             ? selectedReferenceImages
             : undefined,
-        resolution,
+        resolution: mode === "image" ? resolution : undefined,
+        videoResolution: mode === "video" ? videoResolution : undefined,
+        duration: mode === "video" ? duration : undefined,
         aspectRatio: aspect,
-        quality: advanced.quality,
-        background: advanced.background,
-        negativePrompt: advanced.negativePrompt || undefined,
-        seed: advanced.seed || undefined,
-        thinking: advanced.thinking,
+        quality: mode === "image" ? advanced.quality : undefined,
+        background: mode === "image" ? advanced.background : undefined,
+        negativePrompt:
+          mode === "image" ? advanced.negativePrompt || undefined : undefined,
+        seed: mode === "image" ? advanced.seed || undefined : undefined,
+        thinking: mode === "image" ? advanced.thinking : undefined,
+        motion: mode === "video" ? videoAdvanced.motion : undefined,
+        cameraFixed: mode === "video" ? videoAdvanced.cameraFixed : undefined,
         requestQuotaBypass: effectiveBypassMonthlyQuota,
       });
     } catch (reason) {
@@ -580,16 +604,18 @@ export default function Home() {
     setIsMacOS(navigator?.userAgent.toLowerCase().includes("mac"));
   }, []);
 
-  const [hasInitializedModels, setHasInitializedModels] = useState(false);
+  const lastInitializedModeRef = useRef<typeof mode | null>(null);
 
   useEffect(() => {
-    if (models && !hasInitializedModels) {
-      setSelectedModels(
-        models.filter((model) => !model.isArchived).map((model) => model.slug),
-      );
-      setHasInitializedModels(true);
-    }
-  }, [models, hasInitializedModels]);
+    if (!models) return;
+    if (lastInitializedModeRef.current === mode) return;
+    lastInitializedModeRef.current = mode;
+    setSelectedModels(
+      models
+        .filter((model) => !model.isArchived && model.kind === mode)
+        .map((model) => model.slug),
+    );
+  }, [models, mode]);
 
   const totalGenerations = runs * selectedModels.length;
   const currentRequestCost = selectedModels.reduce(
@@ -600,11 +626,15 @@ export default function Home() {
           model,
           resolution,
           aspectRatio: aspect,
+          videoResolution,
+          duration,
         }),
     0,
   );
-  const activeModels = models?.filter((model) => !model.isArchived) ?? [];
-  const archivedModels = models?.filter((model) => model.isArchived) ?? [];
+  const activeModels =
+    models?.filter((model) => !model.isArchived && model.kind === mode) ?? [];
+  const archivedModels =
+    models?.filter((model) => model.isArchived && model.kind === mode) ?? [];
   const hasOnlyOpenAIModelsSelected =
     selectedModels.length > 0 &&
     selectedModels.every((model) => OPENAI_MODEL_SLUGS.has(model));
@@ -703,8 +733,22 @@ export default function Home() {
         onSelectedReferenceImagesChange={setSelectedReferenceImages}
         selectedModels={selectedModels}
         onToggleSelectedModel={toggleSelectedModel}
+        mode={mode}
+        onModeChange={setMode}
         resolution={resolution}
         onResolutionChange={setResolution}
+        videoResolution={videoResolution}
+        onVideoResolutionChange={setVideoResolution}
+        duration={duration}
+        onDurationChange={setDuration}
+        motion={videoAdvanced.motion}
+        onMotionChange={(value) =>
+          setVideoAdvanced((s) => ({ ...s, motion: value }))
+        }
+        cameraFixed={videoAdvanced.cameraFixed}
+        onCameraFixedChange={(value) =>
+          setVideoAdvanced((s) => ({ ...s, cameraFixed: value }))
+        }
         aspect={aspect}
         onAspectChange={setAspect}
         advancedOpen={advanced.advancedOpen}
@@ -760,7 +804,7 @@ export default function Home() {
         bypassMonthlyQuota={effectiveBypassMonthlyQuota}
         onBypassMonthlyQuotaChange={setBypassMonthlyQuota}
       />
-      <ImageGallery
+      <MediaGallery
         projects={projects}
         project={selectedProject}
         selectedProjectId={selectedProjectId}
@@ -775,9 +819,9 @@ export default function Home() {
         onMovePrompt={(id, projectId) =>
           movePromptMutation.mutate({ id, projectId })
         }
-        onDeleteImage={(id) => setPendingDelete({ type: "image", id })}
+        onDeleteMedia={(id) => setPendingDelete({ type: "image", id })}
         onReuseAsReference={handleReuseAsReference}
-        onRetryImage={handleRetryImage}
+        onRetryMedia={handleRetryImage}
       />
     </main>
   );

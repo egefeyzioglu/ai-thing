@@ -257,6 +257,8 @@ export function calculateUsageRowCredits(args: {
   model: string;
   resolution?: string | null;
   aspectRatio?: string | null;
+  videoResolution?: string | null;
+  duration?: number | null;
 }) {
   return calculateGenerationCredits(args);
 }

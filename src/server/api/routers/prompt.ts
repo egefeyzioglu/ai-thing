@@ -11,6 +11,7 @@ import {
   projects,
   prompts,
   referenceImages,
+  type MediaType,
 } from "src/server/db/schema";
 import { signUploadThingUrl, utapi } from "src/server/uploadthing";
 import {
@@ -24,6 +25,7 @@ export type SupportedModel = {
   slug: string;
   humanName: string;
   provider: string;
+  kind: MediaType;
   isArchived: boolean;
 };
 
@@ -32,40 +34,72 @@ export const SUPPORTED_MODELS = [
     slug: "gpt-image-2",
     humanName: "GPT Image 2",
     provider: "Open AI",
+    kind: "image",
     isArchived: false,
   },
   {
     slug: "gpt-5.4-mini",
     humanName: "GPT 5.4 Mini",
     provider: "Open AI",
+    kind: "image",
     isArchived: true,
   },
   {
     slug: "gemini-2.5-flash-image",
     humanName: "Nano Banana",
     provider: "Google",
+    kind: "image",
     isArchived: true,
   },
   {
     slug: "gemini-3.1-flash-image-preview",
     humanName: "Nano Banana 2",
     provider: "Google",
+    kind: "image",
     isArchived: false,
   },
   {
     slug: "gemini-3-pro-image-preview",
     humanName: "Nano Banana Pro",
     provider: "Google",
+    kind: "image",
+    isArchived: false,
+  },
+  {
+    slug: "dreamina-seedance-2-0",
+    humanName: "Seedance 2.0",
+    provider: "Dreamina",
+    kind: "video",
+    isArchived: false,
+  },
+  {
+    slug: "dreamina-seedance-2-0-fast",
+    humanName: "Seedance 2.0 Fast",
+    provider: "Dreamina",
+    kind: "video",
     isArchived: false,
   },
 ] as const satisfies SupportedModel[];
 
 type ModelSlug = (typeof SUPPORTED_MODELS)[number]["slug"];
 
+const SUPPORTED_MODEL_BY_SLUG = Object.fromEntries(
+  SUPPORTED_MODELS.map((model) => [model.slug, model]),
+) as Record<ModelSlug, (typeof SUPPORTED_MODELS)[number]>;
+
 const supportedModelSlugs = SUPPORTED_MODELS.map((m) => m.slug) as unknown as [
   ModelSlug,
   ...ModelSlug[],
 ];
+
+export const VIDEO_DURATION_OPTIONS = [5, 10] as const;
+export type VideoDuration = (typeof VIDEO_DURATION_OPTIONS)[number];
+
+export const VIDEO_RESOLUTION_OPTIONS = ["480p", "720p", "1080p"] as const;
+export type VideoResolution = (typeof VIDEO_RESOLUTION_OPTIONS)[number];
+
+export const VIDEO_MOTION_OPTIONS = ["auto", "low", "high"] as const;
+export type VideoMotion = (typeof VIDEO_MOTION_OPTIONS)[number];
 
 export const promptRouter = createTRPCRouter({
   getModels: protectedProcedure.query(() => {
@@ -73,6 +107,7 @@ export const promptRouter = createTRPCRouter({
       slug: model.slug,
       name: model.humanName,
       provider: model.provider,
+      kind: model.kind,
       isArchived: model.isArchived,
     }));
   }),
@@ -82,11 +117,13 @@ export const promptRouter = createTRPCRouter({
       z.object({
         projectId: z.string().min(1),
         text: z.string().min(1).max(10_1000),
+        mode: z.enum(["image", "video"]),
         models: z.array(z.enum(supportedModelSlugs)).min(1),
         repeatCount: z.number().int().min(1).max(8),
         referenceImages: z.array(z.string()).optional(),
         resolution: z.string().optional(),
         aspectRatio: z.string().optional(),
+        // image-only
         quality: z.enum(["auto", "low", "medium", "high"]).optional(),
         background: z.enum(["auto", "opaque", "transparent"]).optional(),
         negativePrompt: z.string().max(2000).optional(),
@@ -96,6 +133,18 @@ export const promptRouter = createTRPCRouter({
           .max(20)
           .optional(),
         thinking: z.enum(["auto", "off", "low", "high"]).optional(),
+        // video-only
+        duration: z
+          .number()
+          .int()
+          .refine(
+            (v): v is VideoDuration =>
+              (VIDEO_DURATION_OPTIONS as readonly number[]).includes(v),
+          )
+          .optional(),
+        videoResolution: z.enum(VIDEO_RESOLUTION_OPTIONS).optional(),
+        motion: z.enum(VIDEO_MOTION_OPTIONS).optional(),
+        cameraFixed: z.boolean().optional(),
         requestQuotaBypass: z.boolean().optional(),
       }),
     )
@@ -105,6 +154,33 @@ export const promptRouter = createTRPCRouter({
       const referenceImageIds = Array.from(
         new Set(input.referenceImages ?? []),
       );
+
+      const inconsistentModels = models.filter(
+        (slug) => SUPPORTED_MODEL_BY_SLUG[slug]?.kind !== input.mode,
+      );
+      if (inconsistentModels.length > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Selected models do not match output type "${input.mode}": ${inconsistentModels.join(", ")}`,
+        });
+      }
+
+      if (input.mode === "video") {
+        if (input.duration === undefined || input.videoResolution === undefined) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Video generation requires both duration and videoResolution",
+          });
+        }
+        if (referenceImageIds.length > 1) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Video generation accepts at most one reference image (used as the first frame)",
+          });
+        }
+      }
 
       const [project] = await db
         .select({ id: projects.id })
@@ -155,6 +231,11 @@ export const promptRouter = createTRPCRouter({
           });
         }
 
+        const isVideo = input.mode === "video";
+        const persistedResolution = isVideo
+          ? input.videoResolution
+          : input.resolution;
+
         const promptId = crypto.randomUUID();
         const [promptRow] = await tx
           .insert(prompts)
@@ -164,7 +245,7 @@ export const promptRouter = createTRPCRouter({
             projectId: input.projectId,
             text: input.text,
             referenceImages: referenceImageIds,
-            resolution: input.resolution,
+            resolution: persistedResolution,
             aspectRatio: input.aspectRatio,
             quality:
               input.quality && input.quality !== "auto" ? input.quality : null,
@@ -188,10 +269,11 @@ export const promptRouter = createTRPCRouter({
             id: crypto.randomUUID(),
             userId: ctx.user,
             promptId,
-            type: "image" as const,
+            type: input.mode,
             model,
-            mimeType: "image/png",
+            mimeType: isVideo ? "video/mp4" : "image/png",
             status: "pending" as const,
+            durationMs: isVideo ? input.duration! * 1000 : null,
           })),
         ).flat();
         const mediaRows = await tx
@@ -205,13 +287,18 @@ export const promptRouter = createTRPCRouter({
             userId: ctx.user,
             mediaId: mediaRow.id,
             model: mediaRow.model,
-            resolution: input.resolution,
+            resolution: persistedResolution,
             aspectRatio: input.aspectRatio,
             credits: calculateUsageRowCredits({
               model: mediaRow.model,
               resolution: input.resolution,
               aspectRatio: input.aspectRatio,
+              videoResolution: input.videoResolution,
+              duration: input.duration,
             }),
+            usageType: isVideo
+              ? ("video_generation" as const)
+              : ("image_generation" as const),
             status: "reserved" as const,
           })),
         );

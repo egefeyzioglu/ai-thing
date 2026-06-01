@@ -847,6 +847,39 @@ export const imageRouter = createTRPCRouter({
         return signMediaRow(imageRow);
       }
 
+      if (imageRow.type === "video") {
+        const [existingUsage] = await db
+          .select({ id: generationUsage.id })
+          .from(generationUsage)
+          .where(
+            and(
+              eq(generationUsage.userId, ctx.user),
+              eq(generationUsage.mediaId, imageRow.id),
+              eq(generationUsage.status, "reserved"),
+            ),
+          )
+          .orderBy(desc(generationUsage.createdAt))
+          .limit(1);
+        if (existingUsage) {
+          await markUsageStatus(existingUsage.id, "refunded").catch((err) =>
+            console.error(
+              "[runGeneration] failed to refund video usage:",
+              err,
+            ),
+          );
+        }
+        const [updated] = await db
+          .update(media)
+          .set({
+            status: "failed",
+            error: "Video generation not yet implemented",
+            updatedAt: new Date(),
+          })
+          .where(and(eq(media.id, imageRow.id), eq(media.userId, ctx.user)))
+          .returning();
+        return signMediaRow(updated ?? imageRow);
+      }
+
       const [promptRow] = await db
         .select({
           text: prompts.text,

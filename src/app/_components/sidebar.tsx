@@ -10,9 +10,11 @@ import {
   ChevronUp,
   Gauge,
   HelpCircle,
+  Image as ImageIcon,
   Maximize2,
   Trash2,
   Upload,
+  Video as VideoIcon,
   AlertTriangle,
   X,
 } from "lucide-react";
@@ -52,13 +54,29 @@ import { UsageModal } from "./usage-modal";
 
 export type PromptModelSlug =
   RouterInputs["prompt"]["createWithGenerations"]["models"][number];
+export type OutputMode = "image" | "video";
 export type ResolutionOption = "512" | "1K" | "2K" | "4K";
+export type VideoResolution = "480p" | "720p" | "1080p";
+export type VideoDuration = 5 | 10;
+export type VideoMotion = "auto" | "low" | "high";
 
 export const RESOLUTION_OPTIONS: ResolutionOption[] = ["512", "1K", "2K", "4K"];
+export const VIDEO_RESOLUTION_OPTIONS: VideoResolution[] = [
+  "480p",
+  "720p",
+  "1080p",
+];
+export const VIDEO_DURATION_OPTIONS: VideoDuration[] = [5, 10];
 
 export type QualityOption = "auto" | "low" | "medium" | "high";
 export type BackgroundOption = "auto" | "opaque" | "transparent";
 export type ThinkingOption = "auto" | "off" | "low" | "high";
+
+export const VIDEO_MOTION_OPTIONS: { value: VideoMotion; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "low", label: "Subtle" },
+  { value: "high", label: "Dynamic" },
+];
 
 export const QUALITY_OPTIONS: { value: QualityOption; label: string }[] = [
   { value: "auto", label: "Auto" },
@@ -80,6 +98,67 @@ export const THINKING_OPTIONS: { value: ThinkingOption; label: string }[] = [
   { value: "low", label: "Low" },
   { value: "high", label: "High" },
 ];
+
+function ModelCard({
+  slug,
+  name,
+  kind,
+  isSelected,
+  onToggle,
+}: {
+  slug: string;
+  name: string;
+  kind: OutputMode;
+  isSelected: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div
+      role="checkbox"
+      aria-checked={isSelected}
+      aria-labelledby={`model-select-${slug}-label`}
+      tabIndex={0}
+      className={clsx(
+        "flex cursor-pointer flex-row items-center gap-4 rounded-md border border-1 px-4 py-2 text-(--foreground)",
+        isSelected ? "border-blue-500 bg-gray-800" : "hover:bg-gray-900",
+      )}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+    >
+      <Checkbox
+        id={`model-select-${slug}`}
+        accentColor="blue-500"
+        checked={isSelected}
+        tabIndex={-1}
+        className="pointer-events-none"
+      />
+      <Label
+        id={`model-select-${slug}-label`}
+        className="pointer-events-none min-w-0 grow cursor-pointer flex-col items-start"
+      >
+        <span className="truncate">{name}</span>
+        <span className="truncate text-xs text-(--muted-foreground)">
+          {slug}
+        </span>
+      </Label>
+      <span
+        className={clsx(
+          "shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold tracking-wider uppercase",
+          kind === "video"
+            ? "border-blue-500/40 bg-blue-500/10 text-blue-400"
+            : "border-(--border) text-(--muted-foreground)",
+        )}
+      >
+        {kind}
+      </span>
+    </div>
+  );
+}
 
 function AdvancedControlLabel({
   label,
@@ -296,8 +375,18 @@ type SidebarProps = {
   onSelectedReferenceImagesChange: (ids: string[]) => void;
   selectedModels: PromptModelSlug[];
   onToggleSelectedModel: (slug: PromptModelSlug) => void;
+  mode: OutputMode;
+  onModeChange: (mode: OutputMode) => void;
   resolution: ResolutionOption;
   onResolutionChange: (resolution: ResolutionOption) => void;
+  videoResolution: VideoResolution;
+  onVideoResolutionChange: (videoResolution: VideoResolution) => void;
+  duration: VideoDuration;
+  onDurationChange: (duration: VideoDuration) => void;
+  motion: VideoMotion;
+  onMotionChange: (motion: VideoMotion) => void;
+  cameraFixed: boolean;
+  onCameraFixedChange: (cameraFixed: boolean) => void;
   aspect: string;
   onAspectChange: (aspect: string) => void;
   advancedOpen: boolean;
@@ -351,8 +440,18 @@ export function Sidebar({
   onSelectedReferenceImagesChange,
   selectedModels,
   onToggleSelectedModel,
+  mode,
+  onModeChange,
   resolution,
   onResolutionChange,
+  videoResolution,
+  onVideoResolutionChange,
+  duration,
+  onDurationChange,
+  motion,
+  onMotionChange,
+  cameraFixed,
+  onCameraFixedChange,
   aspect,
   onAspectChange,
   advancedOpen,
@@ -401,6 +500,12 @@ export function Sidebar({
   } | null>(null);
 
   const toggleSelected = (id: string) => {
+    if (mode === "video") {
+      onSelectedReferenceImagesChange(
+        selectedReferenceImages.includes(id) ? [] : [id],
+      );
+      return;
+    }
     if (selectedReferenceImages.includes(id)) {
       onSelectedReferenceImagesChange(
         selectedReferenceImages.filter((e) => e !== id),
@@ -410,8 +515,13 @@ export function Sidebar({
     }
   };
 
+  const firstFrameRefImage =
+    mode === "video" && selectedReferenceImages.length > 0
+      ? referenceImages?.find((img) => img.id === selectedReferenceImages[0])
+      : undefined;
+
   return (
-    <aside className="flex h-screen w-1/5 flex-col border border-x border-(--border)">
+    <aside className="flex h-screen w-1/5 shrink-0 flex-col border border-x border-(--border)">
       <div className="flex flex-row items-center gap-4 border-y border-(--border) p-5">
         <div className="h-8 w-8 rounded-md bg-blue-400"></div>
         <div>
@@ -421,7 +531,7 @@ export function Sidebar({
           </p>
         </div>
       </div>
-      <div className="flex grow flex-col gap-3 overflow-y-scroll p-5">
+      <div className="flex min-w-0 grow flex-col gap-3 overflow-y-scroll p-5">
         <PromptComposer
           ref={promptComposerRef}
           isMacOS={isMacOS}
@@ -488,6 +598,41 @@ export function Sidebar({
         </Collapsible>
         <Field>
           <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
+            Output Type
+          </FieldLabel>
+          <div className="flex flex-row gap-2">
+            <button
+              type="button"
+              aria-pressed={mode === "image"}
+              onClick={() => onModeChange("image")}
+              className={clsx(
+                "flex grow cursor-pointer items-center justify-center gap-1.5 rounded-md border border-1 px-2 py-1.5 text-sm transition-colors",
+                mode === "image"
+                  ? "border-blue-500 bg-blue-500/15 text-(--foreground)"
+                  : "text-(--muted-foreground) hover:bg-gray-900",
+              )}
+            >
+              <ImageIcon size={14} />
+              Image
+            </button>
+            <button
+              type="button"
+              aria-pressed={mode === "video"}
+              onClick={() => onModeChange("video")}
+              className={clsx(
+                "flex grow cursor-pointer items-center justify-center gap-1.5 rounded-md border border-1 px-2 py-1.5 text-sm transition-colors",
+                mode === "video"
+                  ? "border-blue-500 bg-blue-500/15 text-(--foreground)"
+                  : "text-(--muted-foreground) hover:bg-gray-900",
+              )}
+            >
+              <VideoIcon size={14} />
+              Video
+            </button>
+          </div>
+        </Field>
+        <Field>
+          <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
             Models
           </FieldLabel>
           {isLoadingModels ? (
@@ -498,44 +643,15 @@ export function Sidebar({
             </div>
           ) : (
             <div className="flex flex-col gap-2">
-              {activeModels.map(({ slug, name }) => (
-                <div
+              {activeModels.map(({ slug, name, kind }) => (
+                <ModelCard
                   key={slug}
-                  role="checkbox"
-                  aria-checked={selectedModels.includes(slug)}
-                  aria-labelledby={`model-select-${slug}-label`}
-                  tabIndex={0}
-                  className={clsx(
-                    "flex cursor-pointer flex-row items-center gap-4 rounded-md border border-1 px-4 py-2 text-(--foreground)",
-                    selectedModels.includes(slug)
-                      ? "border-blue-500 bg-gray-800"
-                      : "hover:bg-gray-900",
-                  )}
-                  onClick={() => onToggleSelectedModel(slug)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onToggleSelectedModel(slug);
-                    }
-                  }}
-                >
-                  <Checkbox
-                    id={`model-select-${slug}`}
-                    accentColor="blue-500"
-                    checked={selectedModels.includes(slug)}
-                    tabIndex={-1}
-                    className="pointer-events-none"
-                  />
-                  <Label
-                    id={`model-select-${slug}-label`}
-                    className="pointer-events-none cursor-pointer flex-col items-start"
-                  >
-                    <span>{name}</span>
-                    <span className="text-xs text-(--muted-foreground)">
-                      {slug}
-                    </span>
-                  </Label>
-                </div>
+                  slug={slug}
+                  name={name}
+                  kind={kind}
+                  isSelected={selectedModels.includes(slug)}
+                  onToggle={() => onToggleSelectedModel(slug)}
+                />
               ))}
               {archivedModels.length > 0 && (
                 <Collapsible
@@ -553,44 +669,15 @@ export function Sidebar({
                     )}
                   </CollapsibleTrigger>
                   <CollapsibleContent className="mt-2 flex flex-col gap-2">
-                    {archivedModels.map(({ slug, name }) => (
-                      <div
+                    {archivedModels.map(({ slug, name, kind }) => (
+                      <ModelCard
                         key={slug}
-                        role="checkbox"
-                        aria-checked={selectedModels.includes(slug)}
-                        aria-labelledby={`model-select-${slug}-label`}
-                        tabIndex={0}
-                        className={clsx(
-                          "flex cursor-pointer flex-row items-center gap-4 rounded-md border border-1 px-4 py-2 text-(--foreground)",
-                          selectedModels.includes(slug)
-                            ? "border-blue-500 bg-gray-800"
-                            : "hover:bg-gray-900",
-                        )}
-                        onClick={() => onToggleSelectedModel(slug)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            onToggleSelectedModel(slug);
-                          }
-                        }}
-                      >
-                        <Checkbox
-                          id={`model-select-${slug}`}
-                          accentColor="blue-500"
-                          checked={selectedModels.includes(slug)}
-                          tabIndex={-1}
-                          className="pointer-events-none"
-                        />
-                        <Label
-                          id={`model-select-${slug}-label`}
-                          className="pointer-events-none cursor-pointer flex-col items-start"
-                        >
-                          <span>{name}</span>
-                          <span className="text-xs text-(--muted-foreground)">
-                            {slug}
-                          </span>
-                        </Label>
-                      </div>
+                        slug={slug}
+                        name={name}
+                        kind={kind}
+                        isSelected={selectedModels.includes(slug)}
+                        onToggle={() => onToggleSelectedModel(slug)}
+                      />
                     ))}
                   </CollapsibleContent>
                 </Collapsible>
@@ -598,41 +685,122 @@ export function Sidebar({
             </div>
           )}
         </Field>
-        <Field className="w-full">
-          <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
-            Resolution
-          </FieldLabel>
-          <div className="flex flex-row gap-2">
-            {RESOLUTION_OPTIONS.map((resolutionOption) => {
-              const isDisabled =
-                resolutionOption === "512" && hasOnlyOpenAIModelsSelected;
+        {mode === "image" && (
+          <Field className="w-full">
+            <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
+              Resolution
+            </FieldLabel>
+            <div className="flex flex-row gap-2">
+              {RESOLUTION_OPTIONS.map((resolutionOption) => {
+                const isDisabled =
+                  resolutionOption === "512" && hasOnlyOpenAIModelsSelected;
 
-              return (
-                <button
-                  key={resolutionOption}
-                  disabled={isDisabled}
-                  aria-disabled={isDisabled}
-                  className={clsx(
-                    "grow rounded-md border border-1 px-2 py-1 text-sm",
-                    resolution === resolutionOption
-                      ? "bg-blue-500 text-(--foreground)"
-                      : "text-(--muted-foreground)",
-                    isDisabled
-                      ? "cursor-not-allowed opacity-40"
-                      : "cursor-pointer hover:bg-gray-900",
-                  )}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (isDisabled) return;
-                    onResolutionChange(resolutionOption);
-                  }}
-                >
-                  {resolutionOption}
-                </button>
-              );
-            })}
+                return (
+                  <button
+                    key={resolutionOption}
+                    disabled={isDisabled}
+                    aria-disabled={isDisabled}
+                    className={clsx(
+                      "grow rounded-md border border-1 px-2 py-1 text-sm",
+                      resolution === resolutionOption
+                        ? "bg-blue-500 text-(--foreground)"
+                        : "text-(--muted-foreground)",
+                      isDisabled
+                        ? "cursor-not-allowed opacity-40"
+                        : "cursor-pointer hover:bg-gray-900",
+                    )}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (isDisabled) return;
+                      onResolutionChange(resolutionOption);
+                    }}
+                  >
+                    {resolutionOption}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+        )}
+        {mode === "video" && (
+          <div className="flex flex-col gap-3 rounded-md border border-blue-500/30 bg-blue-500/5 p-3">
+            <div className="flex items-center gap-1.5">
+              <VideoIcon size={13} className="text-blue-400" />
+              <span className="text-[10px] font-medium tracking-wider text-blue-400 uppercase">
+                Video · Seedance
+              </span>
+            </div>
+            <Field className="w-full">
+              <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
+                Duration
+              </FieldLabel>
+              <div className="flex flex-row gap-2">
+                {VIDEO_DURATION_OPTIONS.map((durationOption) => (
+                  <button
+                    key={durationOption}
+                    type="button"
+                    className={clsx(
+                      "grow cursor-pointer rounded-md border border-1 px-2 py-1 text-sm",
+                      duration === durationOption
+                        ? "bg-blue-500 text-(--foreground)"
+                        : "text-(--muted-foreground) hover:bg-gray-900",
+                    )}
+                    onClick={() => onDurationChange(durationOption)}
+                  >
+                    {durationOption}s
+                  </button>
+                ))}
+              </div>
+            </Field>
+            <Field className="w-full">
+              <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
+                Video Resolution
+              </FieldLabel>
+              <div className="flex flex-row gap-2">
+                {VIDEO_RESOLUTION_OPTIONS.map((videoResolutionOption) => (
+                  <button
+                    key={videoResolutionOption}
+                    type="button"
+                    className={clsx(
+                      "grow cursor-pointer rounded-md border border-1 px-2 py-1 text-sm",
+                      videoResolution === videoResolutionOption
+                        ? "bg-blue-500 text-(--foreground)"
+                        : "text-(--muted-foreground) hover:bg-gray-900",
+                    )}
+                    onClick={() => onVideoResolutionChange(videoResolutionOption)}
+                  >
+                    {videoResolutionOption}
+                  </button>
+                ))}
+              </div>
+            </Field>
+            <div className="flex items-start gap-2 text-xs text-(--muted-foreground)">
+              {firstFrameRefImage?.url ? (
+                <>
+                  <div className="relative size-7 shrink-0 overflow-hidden rounded border border-(--border)">
+                    <Image
+                      src={firstFrameRefImage.url}
+                      alt="First frame reference"
+                      fill
+                      sizes="28px"
+                      className="object-cover"
+                    />
+                  </div>
+                  <span>
+                    <b className="text-(--foreground)">Image-to-video</b> — your
+                    reference image becomes the starting frame.
+                  </span>
+                </>
+              ) : (
+                <span>
+                  Select a reference image above to use{" "}
+                  <b className="text-(--foreground)">image-to-video</b> (first
+                  frame). Otherwise text-to-video.
+                </span>
+              )}
+            </div>
           </div>
-        </Field>
+        )}
         <Field className="w-full">
           <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
             Aspect Ratio
@@ -667,7 +835,9 @@ export function Sidebar({
                 background !== "auto" ||
                 negativePrompt.trim().length > 0 ||
                 seed.trim().length > 0 ||
-                thinking !== "auto") && (
+                thinking !== "auto" ||
+                motion !== "auto" ||
+                cameraFixed) && (
                 <span className="text-xs text-(--muted-foreground)">
                   (modified)
                 </span>
@@ -681,22 +851,24 @@ export function Sidebar({
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="mt-3 flex flex-col gap-4">
-              <div
-                className={clsx(
-                  "flex flex-col gap-2 transition-opacity",
-                  !hasOpenAIModelSelected && "opacity-50",
-                )}
-              >
-                <div className="flex items-baseline justify-between">
-                  <span className="text-[10px] font-medium tracking-wide text-(--muted-foreground) uppercase">
-                    OpenAI
-                  </span>
-                  {!hasOpenAIModelSelected && (
-                    <span className="text-[10px] text-(--muted-foreground)/70 italic">
-                      no OpenAI model selected
-                    </span>
+              {mode === "image" && (
+                <>
+                <div
+                  className={clsx(
+                    "flex flex-col gap-2 transition-opacity",
+                    !hasOpenAIModelSelected && "opacity-50",
                   )}
-                </div>
+                >
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-[10px] font-medium tracking-wide text-(--muted-foreground) uppercase">
+                      OpenAI
+                    </span>
+                    {!hasOpenAIModelSelected && (
+                      <span className="text-[10px] text-(--muted-foreground)/70 italic">
+                        no OpenAI model selected
+                      </span>
+                    )}
+                  </div>
                 <div className="grid grid-cols-2 gap-2">
                   <Field>
                     <AdvancedControlLabel
@@ -831,6 +1003,65 @@ export function Sidebar({
                   </Field>
                 </div>
               </div>
+              </>
+              )}
+              {mode === "video" && (
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-[10px] font-medium tracking-wide text-blue-400 uppercase">
+                      Dreamina · Seedance
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field>
+                      <AdvancedControlLabel
+                        label="Motion"
+                        help="How much motion the video should have. Subtle keeps things calm; Dynamic adds more movement."
+                      />
+                      <Select
+                        value={motion}
+                        onValueChange={(value) =>
+                          onMotionChange((value as VideoMotion) ?? "auto")
+                        }
+                      >
+                        <SelectTrigger size="sm" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {VIDEO_MOTION_OPTIONS.map((option) => (
+                            <SelectItem
+                              key={option.value}
+                              value={option.value}
+                              className="cursor-pointer"
+                            >
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field>
+                      <AdvancedControlLabel
+                        label="Camera"
+                        help="Fixed locks the camera in place. Free move lets the model add camera motion."
+                      />
+                      <button
+                        type="button"
+                        aria-pressed={cameraFixed}
+                        onClick={() => onCameraFixedChange(!cameraFixed)}
+                        className={clsx(
+                          "h-8 cursor-pointer rounded-md border border-1 px-2 text-sm",
+                          cameraFixed
+                            ? "border-blue-500 bg-blue-500/15 text-(--foreground)"
+                            : "text-(--muted-foreground) hover:bg-gray-900",
+                        )}
+                      >
+                        {cameraFixed ? "Fixed" : "Free move"}
+                      </button>
+                    </Field>
+                  </div>
+                </div>
+              )}
             </div>
           </CollapsibleContent>
         </Collapsible>
