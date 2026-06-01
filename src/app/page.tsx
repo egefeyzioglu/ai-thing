@@ -445,7 +445,7 @@ export default function Home() {
     let generationResults;
     try {
       generationResults = await Promise.allSettled(
-        result.images.map((img) =>
+        result.media.map((img) =>
           runGeneration.mutateAsync(
             {
               imageId: img.id,
@@ -507,7 +507,7 @@ export default function Home() {
   const handleReuseAsReference = async (imageId: string) => {
     let result;
     try {
-      result = await reuseAsReference.mutateAsync({ imageId });
+      result = await reuseAsReference.mutateAsync({ mediaId: imageId });
     } catch (err) {
       console.error("Failed to reuse image as reference", err);
       toast.error("Failed to reuse image as reference");
@@ -539,7 +539,7 @@ export default function Home() {
     utils.prompt.list.setData({ projectId: selectedProjectId }, (old) =>
       old?.map((p) => ({
         ...p,
-        images: p.images.map((img) =>
+        media: p.media.map((img) =>
           img.id === imageId
             ? {
                 ...img,

@@ -18,7 +18,7 @@ import { toast } from "sonner";
 import { extensionFor } from "src/lib/utils";
 import type { LocalStorageSetter, LocalStorageValue } from "src/lib/localStorage";
 
-import type { IMAGE_STATUSES } from "src/server/db/schema";
+import type { MEDIA_STATUSES } from "src/server/db/schema";
 
 export type ModelInfo = { slug: string; name: string; provider: string };
 
@@ -31,7 +31,7 @@ type ImageShape = {
   id: string;
   url: string;
   modelSlug: string;
-  status: (typeof IMAGE_STATUSES)[number];
+  status: (typeof MEDIA_STATUSES)[number];
   key: string;
   error?: string;
   createdAt: Date;

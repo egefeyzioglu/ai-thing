@@ -64,13 +64,16 @@ export const prompts = createTable(
   ],
 );
 
-export const IMAGE_STATUSES = [
+export const MEDIA_TYPES = ["image", "video"] as const;
+export type MediaType = (typeof MEDIA_TYPES)[number];
+
+export const MEDIA_STATUSES = [
   "pending",
   "running",
   "succeeded",
   "failed",
 ] as const;
-export type ImageStatus = (typeof IMAGE_STATUSES)[number];
+export type MediaStatus = (typeof MEDIA_STATUSES)[number];
 
 export const GENERATION_USAGE_STATUSES = [
   "reserved",
@@ -81,6 +84,7 @@ export type GenerationUsageStatus = (typeof GENERATION_USAGE_STATUSES)[number];
 
 export const GENERATION_USAGE_TYPES = [
   "image_generation",
+  "video_generation",
   "workshop_message",
 ] as const;
 export type GenerationUsageType = (typeof GENERATION_USAGE_TYPES)[number];
@@ -97,6 +101,7 @@ export const GENERATION_COST_EVENT_OPERATIONS = [
   "image_generation",
   "image_edit",
   "responses_image_generation",
+  "video_generation",
   "workshop_message",
 ] as const;
 export type GenerationCostEventOperation =
@@ -110,8 +115,8 @@ export const WORKSHOP_MESSAGE_ROLES = [
 ] as const;
 export type WorkshopMessageRole = (typeof WORKSHOP_MESSAGE_ROLES)[number];
 
-export const images = createTable(
-  "image",
+export const media = createTable(
+  "media",
   (d) => ({
     id: d.text("id").primaryKey(),
     userId: d.text("user_id"),
@@ -119,11 +124,14 @@ export const images = createTable(
       .text("prompt_id")
       .notNull()
       .references(() => prompts.id, { onDelete: "cascade" }),
+    type: d.text("type").notNull().$type<MediaType>(),
     model: d.text("model").notNull(),
-    status: d.text("status").notNull().default("pending").$type<ImageStatus>(),
+    status: d.text("status").notNull().default("pending").$type<MediaStatus>(),
+    providerStatus: d.text("provider_status"),
     url: d.text("url"),
     key: d.text("key"),
-    mimeType: d.text("mime_type").notNull().default("image/png"),
+    mimeType: d.text("mime_type").notNull(),
+    durationMs: d.integer("duration_ms"),
     error: d.text("error"),
     createdAt: d
       .timestamp("created_at", { withTimezone: true })
@@ -135,9 +143,9 @@ export const images = createTable(
       .defaultNow(),
   }),
   (t) => [
-    index("image_created_at_idx").on(t.createdAt),
-    index("image_prompt_id_idx").on(t.promptId),
-    index("image_user_id_idx").on(t.userId),
+    index("media_created_at_idx").on(t.createdAt),
+    index("media_prompt_id_idx").on(t.promptId),
+    index("media_user_type_created_idx").on(t.userId, t.type, t.createdAt),
   ],
 );
 
@@ -152,14 +160,14 @@ export const referenceImages = createTable(
       .timestamp("uploaded_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
-    reusedFrom: d
-      .text("reused_from_image_id")
-      .references(() => images.id, { onDelete: "set null" })
+    reusedFromMediaId: d
+      .text("reused_from_media_id")
+      .references(() => media.id, { onDelete: "set null" })
       .unique(),
   }),
   (t) => [
     index("reference_user_id_idx").on(t.userId),
-    index("reference_reused_from_idx").on(t.reusedFrom),
+    index("reference_reused_from_media_idx").on(t.reusedFromMediaId),
   ],
 );
 
@@ -168,9 +176,9 @@ export const generationUsage = createTable(
   (d) => ({
     id: d.text("id").primaryKey(),
     userId: d.text("user_id").notNull(),
-    imageId: d
-      .text("image_id")
-      .references(() => images.id, { onDelete: "set null" }),
+    mediaId: d
+      .text("media_id")
+      .references(() => media.id, { onDelete: "set null" }),
     model: d.text("model").notNull(),
     resolution: d.text("resolution"),
     aspectRatio: d.text("aspect_ratio"),
@@ -201,7 +209,7 @@ export const generationUsage = createTable(
       t.status,
       t.createdAt,
     ),
-    index("generation_usage_image_idx").on(t.imageId),
+    index("generation_usage_media_idx").on(t.mediaId),
   ],
 );
 
@@ -210,9 +218,9 @@ export const generationCostEvents = createTable(
   (d) => ({
     id: d.text("id").primaryKey(),
     userId: d.text("user_id").notNull(),
-    imageId: d
-      .text("image_id")
-      .references(() => images.id, { onDelete: "set null" }),
+    mediaId: d
+      .text("media_id")
+      .references(() => media.id, { onDelete: "set null" }),
     usageId: d
       .text("usage_id")
       .references(() => generationUsage.id, { onDelete: "set null" }),
@@ -241,7 +249,8 @@ export const generationCostEvents = createTable(
     outputTokens: d.integer("output_tokens"),
     reasoningTokens: d.integer("reasoning_tokens"),
     totalTokens: d.integer("total_tokens"),
-    outputImageCount: d.integer("output_image_count"),
+    outputCount: d.integer("output_count"),
+    outputDurationMs: d.integer("output_duration_ms"),
     fallbackReason: d.text("fallback_reason"),
     usageRaw: d.json("usage_raw"),
     costCalculationRaw: d.json("cost_calculation_raw"),
@@ -252,7 +261,7 @@ export const generationCostEvents = createTable(
   }),
   (t) => [
     index("generation_cost_event_user_created_idx").on(t.userId, t.createdAt),
-    index("generation_cost_event_image_idx").on(t.imageId),
+    index("generation_cost_event_media_idx").on(t.mediaId),
     index("generation_cost_event_usage_idx").on(t.usageId),
     index("generation_cost_event_provider_created_idx").on(
       t.provider,
@@ -330,16 +339,16 @@ export const projectsRelations = relations(projects, ({ many }) => ({
 }));
 
 export const promptsRelations = relations(prompts, ({ many, one }) => ({
-  images: many(images),
+  media: many(media),
   project: one(projects, {
     fields: [prompts.projectId],
     references: [projects.id],
   }),
 }));
 
-export const imagesRelations = relations(images, ({ one }) => ({
+export const mediaRelations = relations(media, ({ one }) => ({
   prompt: one(prompts, {
-    fields: [images.promptId],
+    fields: [media.promptId],
     references: [prompts.id],
   }),
 }));
@@ -348,18 +357,18 @@ export const referenceImageRelations = relations(referenceImages, () => ({}));
 export const generationUsageRelations = relations(
   generationUsage,
   ({ one }) => ({
-    image: one(images, {
-      fields: [generationUsage.imageId],
-      references: [images.id],
+    media: one(media, {
+      fields: [generationUsage.mediaId],
+      references: [media.id],
     }),
   }),
 );
 export const generationCostEventsRelations = relations(
   generationCostEvents,
   ({ one }) => ({
-    image: one(images, {
-      fields: [generationCostEvents.imageId],
-      references: [images.id],
+    media: one(media, {
+      fields: [generationCostEvents.mediaId],
+      references: [media.id],
     }),
     usage: one(generationUsage, {
       fields: [generationCostEvents.usageId],
@@ -392,7 +401,9 @@ export const workshopThreadsRelations = relations(
 );
 
 export type Prompt = typeof prompts.$inferSelect;
-export type Image = typeof images.$inferSelect;
+export type Media = typeof media.$inferSelect;
+export type ImageMedia = Media & { type: "image" };
+export type VideoMedia = Media & { type: "video" };
 export type ReferenceImage = typeof referenceImages.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type GenerationUsage = typeof generationUsage.$inferSelect;

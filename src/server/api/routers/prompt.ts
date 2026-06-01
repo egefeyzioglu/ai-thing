@@ -6,7 +6,7 @@ import { MONTHLY_CREDIT_LIMIT } from "src/lib/credits";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import {
-  images,
+  media,
   generationUsage,
   projects,
   prompts,
@@ -183,30 +183,32 @@ export const promptRouter = createTRPCRouter({
           .returning();
         if (!promptRow) throw new Error("Failed to insert prompt");
 
-        const imageValues = Array.from({ length: input.repeatCount }, () =>
+        const mediaValues = Array.from({ length: input.repeatCount }, () =>
           models.map((model) => ({
             id: crypto.randomUUID(),
             userId: ctx.user,
             promptId,
+            type: "image" as const,
             model,
+            mimeType: "image/png",
             status: "pending" as const,
           })),
         ).flat();
-        const imageRows = await tx
-          .insert(images)
-          .values(imageValues)
+        const mediaRows = await tx
+          .insert(media)
+          .values(mediaValues)
           .returning();
 
         await tx.insert(generationUsage).values(
-          imageRows.map((image) => ({
+          mediaRows.map((mediaRow) => ({
             id: crypto.randomUUID(),
             userId: ctx.user,
-            imageId: image.id,
-            model: image.model,
+            mediaId: mediaRow.id,
+            model: mediaRow.model,
             resolution: input.resolution,
             aspectRatio: input.aspectRatio,
             credits: calculateUsageRowCredits({
-              model: image.model,
+              model: mediaRow.model,
               resolution: input.resolution,
               aspectRatio: input.aspectRatio,
             }),
@@ -214,7 +216,7 @@ export const promptRouter = createTRPCRouter({
           })),
         );
 
-        return { ...promptRow, images: imageRows };
+        return { ...promptRow, media: mediaRows };
       });
     }),
 
@@ -234,15 +236,15 @@ export const promptRouter = createTRPCRouter({
         });
       }
 
-      // Collect UploadThing keys for every generated image that isn't reused
+      // Collect UploadThing keys for every generated media item that isn't reused
       // so we can remove the files before the cascade-delete wipes the rows.
-      const imageRows = await db
-        .select({ key: images.key, reusedBy: referenceImages.reusedFrom })
-        .from(images)
-        .leftJoin(referenceImages, eq(images.id, referenceImages.reusedFrom))
-        .where(and(eq(images.promptId, input.id), eq(images.userId, ctx.user)));
+      const mediaRows = await db
+        .select({ key: media.key, reusedBy: referenceImages.reusedFromMediaId })
+        .from(media)
+        .leftJoin(referenceImages, eq(media.id, referenceImages.reusedFromMediaId))
+        .where(and(eq(media.promptId, input.id), eq(media.userId, ctx.user)));
 
-      const keys = imageRows
+      const keys = mediaRows
         .filter((r) => !r.reusedBy)
         .map((r) => r.key)
         .filter((k): k is string => !!k);
@@ -334,8 +336,8 @@ export const promptRouter = createTRPCRouter({
         ),
         orderBy: [desc(prompts.createdAt)],
         with: {
-          images: {
-            where: eq(images.userId, ctx.user),
+          media: {
+            where: eq(media.userId, ctx.user),
           },
         },
       });
@@ -343,14 +345,14 @@ export const promptRouter = createTRPCRouter({
       return Promise.all(
         results.map(async (prompt) => ({
           ...prompt,
-          images: await Promise.all(
-            prompt.images.map(async (image) => {
-              if (image.url !== null) {
+          media: await Promise.all(
+            prompt.media.map(async (mediaItem) => {
+              if (mediaItem.url !== null) {
                 try {
-                  image.url = await signUploadThingUrl(image.url);
+                  mediaItem.url = await signUploadThingUrl(mediaItem.url);
                 } catch {
                   console.log(
-                    `[prompts.list] could not sign upload URL for image ${image.id}`,
+                    `[prompts.list] could not sign upload URL for media ${mediaItem.id}`,
                   );
                   throw new TRPCError({
                     code: "INTERNAL_SERVER_ERROR",
@@ -358,7 +360,7 @@ export const promptRouter = createTRPCRouter({
                   });
                 }
               }
-              return image;
+              return mediaItem;
             }),
           ),
         })),

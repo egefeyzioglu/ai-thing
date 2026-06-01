@@ -84,7 +84,7 @@ export async function getCurrentUsage(userId: string) {
   const recent = await db
     .select({
       id: generationUsage.id,
-      imageId: generationUsage.imageId,
+      mediaId: generationUsage.mediaId,
       model: generationUsage.model,
       resolution: generationUsage.resolution,
       aspectRatio: generationUsage.aspectRatio,
@@ -104,15 +104,15 @@ export async function getCurrentUsage(userId: string) {
     )
     .orderBy(desc(generationUsage.createdAt))
     .limit(20);
-  const recentImageIds = recent
-    .map((row) => row.imageId)
-    .filter((imageId): imageId is string => !!imageId);
+  const recentMediaIds = recent
+    .map((row) => row.mediaId)
+    .filter((mediaId): mediaId is string => !!mediaId);
   const recentUsageIds = recent.map((row) => row.id);
   const costRows = recentUsageIds.length
     ? await db
         .select({
           usageId: generationCostEvents.usageId,
-          imageId: generationCostEvents.imageId,
+          mediaId: generationCostEvents.mediaId,
           costUsdMicros: generationCostEvents.costUsdMicros,
           costStatus: generationCostEvents.status,
           costPricingVersion: generationCostEvents.pricingVersion,
@@ -122,17 +122,17 @@ export async function getCurrentUsage(userId: string) {
         .where(
           and(
             eq(generationCostEvents.userId, userId),
-            recentImageIds.length
+            recentMediaIds.length
               ? or(
                   inArray(generationCostEvents.usageId, recentUsageIds),
-                  inArray(generationCostEvents.imageId, recentImageIds),
+                  inArray(generationCostEvents.mediaId, recentMediaIds),
                 )
               : inArray(generationCostEvents.usageId, recentUsageIds),
           ),
         )
         .orderBy(desc(generationCostEvents.createdAt))
     : [];
-  const latestCostByImageId = new Map<
+  const latestCostByMediaId = new Map<
     string,
     {
       costUsdMicros: number;
@@ -157,8 +157,8 @@ export async function getCurrentUsage(userId: string) {
         costPricingVersion: row.costPricingVersion,
       });
     }
-    if (!row.imageId || latestCostByImageId.has(row.imageId)) continue;
-    latestCostByImageId.set(row.imageId, {
+    if (!row.mediaId || latestCostByMediaId.has(row.mediaId)) continue;
+    latestCostByMediaId.set(row.mediaId, {
       costUsdMicros: row.costUsdMicros,
       costStatus: row.costStatus,
       costPricingVersion: row.costPricingVersion,
@@ -167,13 +167,15 @@ export async function getCurrentUsage(userId: string) {
   const recentWithCosts = recent.map((row) => {
     const cost =
       latestCostByUsageId.get(row.id) ??
-      (row.imageId ? latestCostByImageId.get(row.imageId) : undefined);
+      (row.mediaId ? latestCostByMediaId.get(row.mediaId) : undefined);
     return {
       ...row,
       kind:
         row.usageType === "workshop_message"
           ? ("workshop" as const)
-          : ("image" as const),
+          : row.usageType === "video_generation"
+            ? ("video" as const)
+            : ("image" as const),
       count: 1,
       costUsdMicros: cost?.costUsdMicros ?? null,
       costStatus: cost?.costStatus ?? null,
@@ -201,7 +203,7 @@ export async function getCurrentUsage(userId: string) {
 function groupAdjacentWorkshopUsage<
   T extends {
     id: string;
-    imageId: string | null;
+    mediaId: string | null;
     model: string;
     resolution: string | null;
     aspectRatio: string | null;
@@ -210,7 +212,7 @@ function groupAdjacentWorkshopUsage<
     createdAt: Date;
     updatedAt: Date;
     status: GenerationUsage["status"];
-    kind: "image" | "workshop";
+    kind: "image" | "video" | "workshop";
     count: number;
     costUsdMicros: number | null;
     costStatus: "recorded" | "estimated" | "missing_usage" | null;
@@ -261,7 +263,7 @@ export function calculateUsageRowCredits(args: {
 
 export async function createReservedUsage(tx: UsageDb, args: {
   userId: string;
-  imageId?: string | null;
+  mediaId?: string | null;
   model: string;
   resolution?: string | null;
   aspectRatio?: string | null;
@@ -274,7 +276,7 @@ export async function createReservedUsage(tx: UsageDb, args: {
     .values({
       id: crypto.randomUUID(),
       userId: args.userId,
-      imageId: args.imageId,
+      mediaId: args.mediaId,
       model: args.model,
       resolution: args.resolution,
       aspectRatio: args.aspectRatio,

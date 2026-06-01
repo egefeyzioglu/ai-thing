@@ -9,7 +9,7 @@ import {
   signUploadThingUrl,
   utapi,
 } from "src/server/uploadthing";
-import { images, referenceImages } from "src/server/db/schema";
+import { media, referenceImages } from "src/server/db/schema";
 
 async function signReferenceImageRow<T extends { url: string | null }>(
   row: T,
@@ -109,7 +109,7 @@ export const referenceImageRouter = createTRPCRouter({
       }
 
       // Clean up the file from UploadThing before removing the DB row.
-      if (row.url && !row.reusedFrom) {
+      if (row.url && !row.reusedFromMediaId) {
         const key = extractFileKey(row.url);
         if (key) {
           try {
@@ -172,24 +172,30 @@ export const referenceImageRouter = createTRPCRouter({
   createReferenceImageFromGenerated: protectedProcedure
     .input(
       z.object({
-        imageId: z.string().min(1),
+        mediaId: z.string().min(1),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const [generatedImageRow] = await db
         .select()
-        .from(images)
-        .where(eq(images.id, input.imageId));
+        .from(media)
+        .where(eq(media.id, input.mediaId));
       if (generatedImageRow?.userId !== ctx.user) {
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: `No image with id ${input.imageId} exists, or you do not have access`,
+          message: `No media with id ${input.mediaId} exists, or you do not have access`,
         });
       }
       if (!generatedImageRow.url) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `Image ${input.imageId} does not have a URL (is it in progress/has it failed?)`,
+          message: `Media ${input.mediaId} does not have a URL (is it in progress/has it failed?)`,
+        });
+      }
+      if (!generatedImageRow.mimeType.startsWith("image/")) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Media ${input.mediaId} is not an image and cannot be used as a reference image`,
         });
       }
       const newId = crypto.randomUUID();
@@ -197,13 +203,13 @@ export const referenceImageRouter = createTRPCRouter({
         .insert(referenceImages)
         .values({
           id: newId,
-          reusedFrom: input.imageId,
+          reusedFromMediaId: input.mediaId,
           url: generatedImageRow.url,
           mimeType: generatedImageRow.mimeType,
           userId: ctx.user,
         })
         .onConflictDoUpdate({
-          target: referenceImages.reusedFrom,
+          target: referenceImages.reusedFromMediaId,
           set: { id: sql`${referenceImages.id}` }, // NO-OP update to get the conflicting row
         })
         .returning();
