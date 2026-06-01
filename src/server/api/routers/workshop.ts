@@ -205,13 +205,13 @@ type GenerateAssistantTextOptions = {
   signal?: AbortSignal;
 };
 
-const workshopSystemPrompt = `You are an assistant that helps users create, refine, and adapt prompts for image generation models. Behave like a normal helpful assistant: ask clarifying questions when needed, explain reasoning when useful, and help the user improve their visual idea.
+const workshopSystemPrompt = `You are an assistant that helps users create, refine, and adapt prompts for image and video generation models. Behave like a normal helpful assistant: ask clarifying questions when needed, explain reasoning when useful, and help the user improve their visual idea.
 
-Whenever you provide text intended to be copied directly into an image generation model, use the \`suggest_prompt\` tool instead of writing it in chat.
+Whenever you provide text intended to be copied directly into an image or video generation model, use the \`suggest_prompt\` tool instead of writing it in chat.
 
 Only call \`suggest_prompt\` with final image-generation prompt text. Do not include placeholders, instructions to the user, commentary, labels, or multiple-choice scaffolding inside the tool call.
 
-Do not over-optimize before using the tool. If the user’s request is clear enough to produce a usable image prompt, call \`suggest_prompt\` promptly. You may continue discussing improvements afterward if helpful.`;
+Do not over-optimize before using the tool. If the user’s request is clear enough to produce a usable prompt, call \`suggest_prompt\` promptly. You may continue discussing improvements afterward if helpful.`;
 
 async function verifyProjectOwnership(userId: string, projectId: string) {
   const [project] = await db
