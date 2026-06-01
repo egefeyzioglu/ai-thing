@@ -176,7 +176,7 @@ export function ImageGallery({
               models={models ?? []}
               projects={projects}
               currentProjectId={selectedProjectId}
-              images={prompt.images.map((image) => ({
+              images={prompt.media.map((image) => ({
                 id: image.id,
                 url: image.url ?? "",
                 modelSlug: image.model,
