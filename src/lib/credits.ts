@@ -8,22 +8,32 @@ export const MODEL_CREDIT_BASE = {
   "gemini-3-pro-image-preview": 25,
 } as const;
 
-export const VIDEO_MODEL_CREDIT_PER_SECOND = {
-  "dreamina-seedance-2-0": 9,
-  "dreamina-seedance-2-0-fast": 5,
+// USD per video at 16:9, 5s output, no reference-video input — sourced from
+// Modelark's "Price examples" table. We treat 1 credit ≈ 1 USD cent (so
+// $0.76 → 76 credits for a 5s 720p Seedance 2.0 video), scale linearly with
+// duration, and ignore aspect-ratio variance (the table only gives 16:9
+// numbers; using them across aspects gives a conservative upper bound).
+const VIDEO_BASE_USD_PER_5S_SEGMENT = {
+  "dreamina-seedance-2-0": {
+    "480p": 0.35,
+    "720p": 0.76,
+    "1080p": 1.87,
+  },
+  "dreamina-seedance-2-0-fast": {
+    "480p": 0.28,
+    "720p": 0.6,
+    // 1080p not supported by 2.0 Fast.
+  },
 } as const;
+
+const CREDITS_PER_USD = 100;
+const BASE_SEGMENT_SECONDS = 5;
 
 export const RESOLUTION_CREDIT_MULTIPLIER = {
   "512": 0.5,
   "1K": 1,
   "2K": 2,
   "4K": 4,
-} as const;
-
-export const VIDEO_RESOLUTION_CREDIT_MULTIPLIER = {
-  "480p": 1,
-  "720p": 1.8,
-  "1080p": 3,
 } as const;
 
 export const ASPECT_RATIO_CREDIT_MULTIPLIER = {
@@ -41,7 +51,7 @@ export function calculateGenerationCredits(args: {
   videoResolution?: string | null;
   duration?: number | null;
 }): number {
-  if (args.model in VIDEO_MODEL_CREDIT_PER_SECOND) {
+  if (args.model in VIDEO_BASE_USD_PER_5S_SEGMENT) {
     return calculateVideoGenerationCredits({
       model: args.model,
       videoResolution: args.videoResolution,
@@ -95,27 +105,24 @@ function calculateVideoGenerationCredits(args: {
   videoResolution?: string | null;
   duration?: number | null;
 }): number {
-  const perSecond =
-    VIDEO_MODEL_CREDIT_PER_SECOND[
-      args.model as keyof typeof VIDEO_MODEL_CREDIT_PER_SECOND
+  const pricing =
+    VIDEO_BASE_USD_PER_5S_SEGMENT[
+      args.model as keyof typeof VIDEO_BASE_USD_PER_5S_SEGMENT
     ];
-  if (perSecond === undefined) {
+  if (!pricing) {
     throw new Error(`Unknown video model credit cost: ${args.model}`);
   }
 
-  const duration = args.duration ?? 5;
   const videoResolution = args.videoResolution ?? "720p";
-  if (!(videoResolution in VIDEO_RESOLUTION_CREDIT_MULTIPLIER)) {
+  const baseUsd = pricing[videoResolution as keyof typeof pricing];
+  if (baseUsd === undefined) {
     throw new Error(
-      `Unknown video resolution credit multiplier: ${videoResolution}`,
+      `Unsupported video resolution for ${args.model}: ${videoResolution}`,
     );
   }
-  const resolutionMultiplier =
-    VIDEO_RESOLUTION_CREDIT_MULTIPLIER[
-      videoResolution as keyof typeof VIDEO_RESOLUTION_CREDIT_MULTIPLIER
-    ];
 
-  return Math.ceil(perSecond * duration * resolutionMultiplier);
+  const duration = args.duration ?? BASE_SEGMENT_SECONDS;
+  return Math.ceil((baseUsd * CREDITS_PER_USD * duration) / BASE_SEGMENT_SECONDS);
 }
 
 export function getMonthlyUsageWindow(now = new Date()): {

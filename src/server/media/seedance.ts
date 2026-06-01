@@ -35,6 +35,7 @@ export type SeedanceTaskResult = {
   providerModel: string;
   status: SeedanceTaskStatus;
   videoUrl?: string;
+  resolution?: string;
   error?: { code?: string; message?: string };
   usageRaw: unknown;
   raw: unknown;
@@ -104,6 +105,7 @@ function normalize(data: ModelarkTaskResponse): SeedanceTaskResult {
     providerModel: data.model ?? "",
     status: parseStatus(data.status),
     videoUrl: data.content?.video_url,
+    resolution: data.resolution,
     error: data.error,
     usageRaw: data.usage ?? null,
     raw: data,

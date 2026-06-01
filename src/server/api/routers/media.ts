@@ -1473,6 +1473,7 @@ export const mediaRouter = createTRPCRouter({
           usageRaw: task.usageRaw,
           fallbackContext: {
             duration: durationSeconds,
+            videoResolution: task.resolution,
           },
         }).catch((err) =>
           console.error(
