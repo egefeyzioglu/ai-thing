@@ -512,7 +512,7 @@ function ModelChecklist({
             role="checkbox"
             aria-checked={checked}
             className={cn(
-              "flex items-center gap-3 rounded-md border px-3 py-2 text-left text-sm",
+              "flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-left text-sm",
               checked
                 ? "border-blue-500 bg-blue-500/10"
                 : "border-(--border) hover:bg-(--muted)/40",
@@ -693,6 +693,7 @@ function DefaultsTabPanel({ models }: { models: Model[] }) {
             rows={2}
             placeholder="e.g. blurry, low quality, text"
             value={negativePrompt}
+            className="cursor-text"
             onChange={(event) => setNegativePrompt(event.target.value)}
           />
         </label>
@@ -705,6 +706,7 @@ function DefaultsTabPanel({ models }: { models: Model[] }) {
               inputMode="numeric"
               placeholder="Random"
               value={seed}
+              className="cursor-text"
               onChange={(event) =>
                 setSeed(event.target.value.replace(/[^0-9]/g, ""))
               }
@@ -808,7 +810,7 @@ function Segmented({
           key={optionValue}
           type="button"
           className={cn(
-            "rounded-sm px-2 py-1 text-xs font-medium",
+            "cursor-pointer rounded-sm px-2 py-1 text-xs font-medium",
             value === optionValue
               ? "bg-blue-500 text-white"
               : "text-(--muted-foreground) hover:bg-(--muted)/60",
@@ -855,7 +857,7 @@ function LabeledSelect({
   return (
     <SettingBox label={label}>
       <Select value={value} onValueChange={(next) => onChange(next ?? value)}>
-        <SelectTrigger className="w-full">
+        <SelectTrigger className="w-full cursor-pointer">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -913,7 +915,7 @@ function NumberStepper({
       <div className="grid grid-cols-[2rem_1fr_2rem] rounded-md border border-(--border)">
         <button
           type="button"
-          className="flex items-center justify-center text-sm hover:bg-(--muted)/60 disabled:opacity-40"
+          className="flex cursor-pointer items-center justify-center text-sm hover:bg-(--muted)/60 disabled:cursor-not-allowed disabled:opacity-40"
           disabled={value <= 1}
           onClick={() => onChange(Math.max(1, value - 1))}
         >
@@ -922,11 +924,11 @@ function NumberStepper({
         <input
           disabled
           value={value}
-          className="min-w-0 border-x border-(--border) bg-transparent text-center text-sm"
+          className="min-w-0 cursor-default border-x border-(--border) bg-transparent text-center text-sm"
         />
         <button
           type="button"
-          className="flex items-center justify-center text-sm hover:bg-(--muted)/60 disabled:opacity-40"
+          className="flex cursor-pointer items-center justify-center text-sm hover:bg-(--muted)/60 disabled:cursor-not-allowed disabled:opacity-40"
           disabled={value >= 8}
           onClick={() => onChange(Math.min(8, value + 1))}
         >
@@ -1010,7 +1012,7 @@ function SpendAlertsTabPanel({ email }: { email?: string | null }) {
                     inputMode="numeric"
                     value={tier}
                     disabled={!enabled}
-                    className="min-w-0 flex-1 bg-transparent text-right text-sm outline-none"
+                    className="min-w-0 flex-1 cursor-text bg-transparent text-right text-sm outline-none disabled:cursor-not-allowed"
                     onChange={(event) => {
                       const next = [...tiers];
                       next[index] = event.target.value.replace(/[^0-9]/g, "");
@@ -1046,7 +1048,7 @@ function SpendAlertsTabPanel({ email }: { email?: string | null }) {
                   inputMode="numeric"
                   value={hardCap}
                   disabled={!enabled || !hardCapEnabled}
-                  className="min-w-0 flex-1 bg-transparent text-right text-sm outline-none"
+                  className="min-w-0 flex-1 cursor-text bg-transparent text-right text-sm outline-none disabled:cursor-not-allowed"
                   onChange={(event) =>
                     setHardCap(event.target.value.replace(/[^0-9]/g, ""))
                   }
@@ -1175,7 +1177,7 @@ export function AccountModal({
                     key={id}
                     type="button"
                     className={cn(
-                      "relative flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors",
+                      "relative flex w-full cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors",
                       active
                         ? "bg-blue-500/15 text-(--foreground)"
                         : "text-(--muted-foreground) hover:bg-(--muted)/50 hover:text-(--foreground)",
@@ -1207,7 +1209,7 @@ export function AccountModal({
           <div className="border-t border-(--border) p-3">
             <button
               type="button"
-              className="flex w-full items-center gap-2 rounded-md border border-(--border) px-3 py-2 text-left text-sm text-(--muted-foreground) hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-300"
+              className="flex w-full cursor-pointer items-center gap-2 rounded-md border border-(--border) px-3 py-2 text-left text-sm text-(--muted-foreground) hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-300"
               onClick={onSignOut}
             >
               <LogOut className="size-4" />
