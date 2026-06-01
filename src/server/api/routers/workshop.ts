@@ -969,7 +969,7 @@ export async function sendWorkshopMessage(args: {
 
     return createReservedUsage(tx, {
       userId,
-      imageId: null,
+      mediaId: null,
       model: input.model,
       credits: WORKSHOP_MESSAGE_CREDITS,
       usageType: "workshop_message",
@@ -1154,7 +1154,7 @@ export async function sendWorkshopMessage(args: {
   await recordGenerationCostEvent({
     userId,
     usageId: usageRow.id,
-    imageId: null,
+    mediaId: null,
     provider,
     providerRequestId,
     model: input.model,

@@ -917,7 +917,7 @@ function calculateCost(args: {
 
 export async function recordGenerationCostEvent(args: {
   userId: string;
-  imageId?: string | null;
+  mediaId?: string | null;
   usageId?: string | null;
   provider: Provider;
   model: string;
@@ -933,7 +933,7 @@ export async function recordGenerationCostEvent(args: {
     .values({
       id: crypto.randomUUID(),
       userId: args.userId,
-      imageId: args.imageId,
+      mediaId: args.mediaId,
       usageId: args.usageId,
       provider: args.provider,
       providerRequestId: args.providerRequestId,
@@ -952,7 +952,7 @@ export async function recordGenerationCostEvent(args: {
       outputTokens: cost.outputTokens,
       reasoningTokens: cost.reasoningTokens,
       totalTokens: cost.totalTokens,
-      outputImageCount: cost.outputImageCount,
+      outputCount: cost.outputImageCount,
       fallbackReason: cost.fallbackReason,
       usageRaw: args.usageRaw,
       costCalculationRaw: cost.costCalculationRaw,
