@@ -116,9 +116,12 @@ function calculateVideoGenerationCredits(args: {
   const videoResolution = args.videoResolution ?? "720p";
   const baseUsd = pricing[videoResolution as keyof typeof pricing];
   if (baseUsd === undefined) {
-    throw new Error(
-      `Unsupported video resolution for ${args.model}: ${videoResolution}`,
-    );
+    // Known model, but this resolution isn't supported by it (e.g. 1080p on
+    // Seedance 2.0 Fast). Return 0 rather than throw — mixed-model
+    // selections like 2.0 + 2.0 Fast at 1080p shouldn't crash the credit
+    // estimate or block prompt creation; the request will fail at the
+    // provider and its reserved 0 credits get refunded.
+    return 0;
   }
 
   const duration = args.duration ?? BASE_SEGMENT_SECONDS;
