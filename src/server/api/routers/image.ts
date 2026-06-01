@@ -255,6 +255,15 @@ const GEMINI_ALLOWED_ASPECT_RATIOS = new Set([
   "21:9",
 ]);
 
+async function signImageRow<T extends { url: string | null }>(
+  image: T,
+): Promise<T> {
+  return {
+    ...image,
+    url: image.url ? await signUploadThingUrl(image.url) : image.url,
+  };
+}
+
 function parseReferenceImageIds(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((value): value is string => typeof value === "string");
@@ -305,10 +314,7 @@ async function loadOwnedReferenceImages(
   }
 
   return Promise.all(
-    ownedReferenceImages.map(async (image) => ({
-      ...image,
-      url: image.url ? await signUploadThingUrl(image.url) : image.url,
-    })),
+    ownedReferenceImages.map((image) => signImageRow(image)),
   );
 }
 
@@ -834,11 +840,11 @@ export const imageRouter = createTRPCRouter({
 
       if (imageRow.status === "succeeded") {
         console.log("[runGeneration] already succeeded, returning early");
-        return imageRow;
+        return signImageRow(imageRow);
       }
       if (imageRow.status === "failed" && !input.retry) {
         console.log("[runGeneration] status=failed but retry not set, returning early");
-        return imageRow;
+        return signImageRow(imageRow);
       }
 
       const [promptRow] = await db
@@ -968,7 +974,7 @@ export const imageRouter = createTRPCRouter({
           .from(images)
           .where(and(eq(images.id, imageRow.id), eq(images.userId, ctx.user)))
           .limit(1);
-        return current ?? imageRow;
+        return signImageRow(current ?? imageRow);
       }
 
       console.log("[runGeneration] starting generation for model:", imageRow.model);
@@ -1056,7 +1062,7 @@ export const imageRouter = createTRPCRouter({
           },
         });
         console.log("[runGeneration] done, status: succeeded");
-        return updated;
+        return signImageRow(updated);
       } catch (err) {
         console.error("[runGeneration] generation/upload failed:", err);
         const message = err instanceof Error ? err.message : String(err);
@@ -1096,7 +1102,7 @@ export const imageRouter = createTRPCRouter({
           },
         });
         console.log("[runGeneration] done, status: failed, error:", message);
-        return updated;
+        return signImageRow(updated);
       }
     }),
 });
