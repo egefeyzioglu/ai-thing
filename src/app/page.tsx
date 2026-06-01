@@ -39,7 +39,7 @@ import { useSessionStorage } from "src/lib/sessionStorage";
 type PendingDelete =
   | { type: "referenceImage"; id: string }
   | { type: "prompt"; id: string }
-  | { type: "image"; id: string };
+  | { type: "media"; id: string };
 
 const PUSH_PERMISSION_PROMPT_STORAGE_KEY = "ai-thing.pushPermissionPrompt";
 const OPENAI_MODEL_SLUGS = new Set<PromptModelSlug>([
@@ -237,7 +237,7 @@ export default function Home() {
   const { startUpload } = useUploadThing("imageUploader");
 
   const createPrompt = api.prompt.createWithGenerations.useMutation();
-  const runGeneration = api.image.runGeneration.useMutation();
+  const runGeneration = api.media.runGeneration.useMutation();
   const deletePromptMutation = api.prompt.deletePrompt.useMutation({
     onSuccess: () => {
       toast.success("Generation deleted");
@@ -256,13 +256,13 @@ export default function Home() {
       toast.error("Failed to move generation");
     },
   });
-  const deleteImageMutation = api.image.deleteImage.useMutation({
+  const deleteMediaMutation = api.media.deleteMedia.useMutation({
     onSuccess: () => {
-      toast.success("Image deleted");
+      toast.success("Deleted");
       void utils.prompt.list.invalidate();
     },
     onError: () => {
-      toast.error("Failed to delete image");
+      toast.error("Failed to delete");
     },
   });
   const reuseAsReference =
@@ -311,7 +311,7 @@ export default function Home() {
     } else if (pendingDelete.type === "prompt") {
       deletePromptMutation.mutate({ id: pendingDelete.id });
     } else {
-      deleteImageMutation.mutate({ id: pendingDelete.id });
+      deleteMediaMutation.mutate({ id: pendingDelete.id });
     }
 
     setPendingDelete(null);
@@ -472,7 +472,7 @@ export default function Home() {
         result.media.map((img) =>
           runGeneration.mutateAsync(
             {
-              imageId: img.id,
+              mediaId: img.id,
               requestQuotaBypass: effectiveBypassMonthlyQuota,
             },
             {
@@ -576,7 +576,7 @@ export default function Home() {
     );
     console.log("[retry] optimistic update applied, calling runGeneration");
     runGeneration.mutate(
-      { imageId, retry: true, requestQuotaBypass: effectiveBypassMonthlyQuota },
+      { mediaId: imageId, retry: true, requestQuotaBypass: effectiveBypassMonthlyQuota },
       {
         onSuccess: (data) => console.log("[retry] succeeded, result:", data),
         onError: (err) => {
@@ -819,7 +819,7 @@ export default function Home() {
         onMovePrompt={(id, projectId) =>
           movePromptMutation.mutate({ id, projectId })
         }
-        onDeleteMedia={(id) => setPendingDelete({ type: "image", id })}
+        onDeleteMedia={(id) => setPendingDelete({ type: "media", id })}
         onReuseAsReference={handleReuseAsReference}
         onRetryMedia={handleRetryImage}
       />

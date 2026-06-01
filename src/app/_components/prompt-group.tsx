@@ -61,9 +61,9 @@ export type PromptGroupProps = {
   currentProjectId?: string | null;
   onDeletePrompt?: () => void;
   onMovePrompt?: (projectId: string) => void;
-  onDeleteMedia?: (imageId: string) => void;
-  onRetryMedia?: (imageId: string) => void;
-  onReuseAsReference?: (imageId: string) => Promise<void>;
+  onDeleteMedia?: (mediaId: string) => void;
+  onRetryMedia?: (mediaId: string) => void;
+  onReuseAsReference?: (mediaId: string) => Promise<void>;
   pinnedImages: PinnedImages;
   onPinnedImagesChange: SetPinnedImages;
 };
@@ -605,9 +605,9 @@ type ModelAlbumProps = {
   images: MediaShape[];
   ar: string;
   models: ModelInfo[];
-  onDeleteMedia?: (imageId: string) => void;
-  onRetryMedia?: (imageId: string) => void;
-  onReuseAsReference?: (imageId: string) => Promise<void>;
+  onDeleteMedia?: (mediaId: string) => void;
+  onRetryMedia?: (mediaId: string) => void;
+  onReuseAsReference?: (mediaId: string) => Promise<void>;
   pinnedImages: PinnedImages;
   onPinnedImagesChange: SetPinnedImages;
 };

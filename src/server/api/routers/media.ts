@@ -756,13 +756,13 @@ async function generateForModel(
   }
 }
 
-export const imageRouter = createTRPCRouter({
+export const mediaRouter = createTRPCRouter({
   /**
-   * Delete a single generated image. Removes the file from UploadThing (if
-   * one was uploaded) and then deletes the database row. Only the owning
-   * user may delete.
+   * Delete a single generated media item. Removes the file from UploadThing (if
+   * one was uploaded) and then deletes the database row. Only the owning user
+   * may delete.
    */
-  deleteImage: protectedProcedure
+  deleteMedia: protectedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       let fileKey = undefined;
@@ -779,7 +779,7 @@ export const imageRouter = createTRPCRouter({
           if (!row) {
             throw new TRPCError({
               code: "NOT_FOUND",
-              message: "Image not found",
+              message: "Media not found",
             });
           }
 
@@ -791,14 +791,14 @@ export const imageRouter = createTRPCRouter({
         })
       } catch (err) {
         if(err instanceof TRPCError) throw err;
-        console.error(`Error deleting image with id ${input.id}`, err);
+        console.error(`Error deleting media with id ${input.id}`, err);
         return { success: false }
       }
 
       if (fileKey){
         await utapi.deleteFiles(fileKey).catch((r)=>{
           console.error(
-            `Failed to delete image with key ${fileKey} from UploadThing`,
+            `Failed to delete media with key ${fileKey} from UploadThing`,
             r
           );
         });
@@ -808,53 +808,54 @@ export const imageRouter = createTRPCRouter({
 
 
   /**
-   * Run the generation for a pending image row. Resolves the row to either
-   * `succeeded` (with url/key) or `failed` (with an error message). Always
-   * returns the final row; only throws on input/lookup problems.
+   * Run the generation for a pending media row (image or video). Resolves the
+   * row to either `succeeded` (with url/key) or `failed` (with an error
+   * message), and returns the final row. Throws on input/lookup problems and
+   * for unimplemented kinds (e.g. video, which currently surfaces a 500).
    */
   runGeneration: protectedProcedure
     .input(
       z.object({
-        imageId: z.string().min(1),
+        mediaId: z.string().min(1),
         retry: z.boolean().optional(),
         requestQuotaBypass: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }): Promise<Media> => {
-      console.log("[runGeneration] input:", { imageId: input.imageId, retry: input.retry });
+      console.log("[runGeneration] input:", { mediaId: input.mediaId, retry: input.retry });
 
-      const [imageRow] = await db
+      const [mediaRow] = await db
         .select()
         .from(media)
-        .where(and(eq(media.id, input.imageId), eq(media.userId, ctx.user)))
+        .where(and(eq(media.id, input.mediaId), eq(media.userId, ctx.user)))
         .limit(1);
-      if (!imageRow) {
-        console.error("[runGeneration] image row not found:", input.imageId);
+      if (!mediaRow) {
+        console.error("[runGeneration] media row not found:", input.mediaId);
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "Image row not found",
+          message: "Media row not found",
         });
       }
 
-      console.log("[runGeneration] image row found:", { status: imageRow.status, model: imageRow.model, error: imageRow.error });
+      console.log("[runGeneration] media row found:", { status: mediaRow.status, model: mediaRow.model, error: mediaRow.error });
 
-      if (imageRow.status === "succeeded") {
+      if (mediaRow.status === "succeeded") {
         console.log("[runGeneration] already succeeded, returning early");
-        return signMediaRow(imageRow);
+        return signMediaRow(mediaRow);
       }
-      if (imageRow.status === "failed" && !input.retry) {
+      if (mediaRow.status === "failed" && !input.retry) {
         console.log("[runGeneration] status=failed but retry not set, returning early");
-        return signMediaRow(imageRow);
+        return signMediaRow(mediaRow);
       }
 
-      if (imageRow.type === "video") {
+      if (mediaRow.type === "video") {
         const [existingUsage] = await db
           .select({ id: generationUsage.id })
           .from(generationUsage)
           .where(
             and(
               eq(generationUsage.userId, ctx.user),
-              eq(generationUsage.mediaId, imageRow.id),
+              eq(generationUsage.mediaId, mediaRow.id),
               eq(generationUsage.status, "reserved"),
             ),
           )
@@ -868,16 +869,18 @@ export const imageRouter = createTRPCRouter({
             ),
           );
         }
-        const [updated] = await db
+        await db
           .update(media)
           .set({
             status: "failed",
             error: "Video generation not yet implemented",
             updatedAt: new Date(),
           })
-          .where(and(eq(media.id, imageRow.id), eq(media.userId, ctx.user)))
-          .returning();
-        return signMediaRow(updated ?? imageRow);
+          .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)));
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Video generation is not yet implemented",
+        });
       }
 
       const [promptRow] = await db
@@ -894,15 +897,15 @@ export const imageRouter = createTRPCRouter({
         })
         .from(prompts)
         .where(
-          and(eq(prompts.id, imageRow.promptId), eq(prompts.userId, ctx.user)),
+          and(eq(prompts.id, mediaRow.promptId), eq(prompts.userId, ctx.user)),
         )
         .limit(1);
       if (!promptRow) {
-        console.error("[runGeneration] prompt row not found for promptId:", imageRow.promptId);
+        console.error("[runGeneration] prompt row not found for promptId:", mediaRow.promptId);
         await db
           .update(media)
           .set({ status: "failed", error: "Prompt not found", updatedAt: new Date() })
-          .where(and(eq(media.id, imageRow.id), eq(media.userId, ctx.user)));
+          .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)));
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Prompt not found",
@@ -929,7 +932,7 @@ export const imageRouter = createTRPCRouter({
             .set({ status: "running", error: null, updatedAt: new Date() })
             .where(
               and(
-                eq(media.id, imageRow.id),
+                eq(media.id, mediaRow.id),
                 eq(media.userId, ctx.user),
                 eq(media.status, "failed"),
               ),
@@ -939,8 +942,8 @@ export const imageRouter = createTRPCRouter({
 
           const usageRow = await createReservedUsage(tx, {
             userId: ctx.user,
-            mediaId: imageRow.id,
-            model: imageRow.model,
+            mediaId: mediaRow.id,
+            model: mediaRow.model,
             resolution: promptRow.resolution,
             aspectRatio: promptRow.aspectRatio,
           });
@@ -954,7 +957,7 @@ export const imageRouter = createTRPCRouter({
           .where(
             and(
               eq(generationUsage.userId, ctx.user),
-              eq(generationUsage.mediaId, imageRow.id),
+              eq(generationUsage.mediaId, mediaRow.id),
               eq(generationUsage.status, "reserved"),
             ),
           )
@@ -977,7 +980,7 @@ export const imageRouter = createTRPCRouter({
           .set({ status: "running", error: null, updatedAt: new Date() })
           .where(
             and(
-              eq(media.id, imageRow.id),
+              eq(media.id, mediaRow.id),
               eq(media.userId, ctx.user),
               eq(media.status, "pending"),
             ),
@@ -991,8 +994,8 @@ export const imageRouter = createTRPCRouter({
 
         const usageRow = await createReservedUsage(tx, {
           userId: ctx.user,
-          mediaId: imageRow.id,
-          model: imageRow.model,
+          mediaId: mediaRow.id,
+          model: mediaRow.model,
           resolution: promptRow.resolution,
           aspectRatio: promptRow.aspectRatio,
         });
@@ -1005,12 +1008,12 @@ export const imageRouter = createTRPCRouter({
         const [current] = await db
           .select()
           .from(media)
-          .where(and(eq(media.id, imageRow.id), eq(media.userId, ctx.user)))
+          .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
           .limit(1);
-        return signMediaRow(current ?? imageRow);
+        return signMediaRow(current ?? mediaRow);
       }
 
-      console.log("[runGeneration] starting generation for model:", imageRow.model);
+      console.log("[runGeneration] starting generation for model:", mediaRow.model);
 
       const referenceImageIds = parseReferenceImageIds(
         promptRow.referenceImages,
@@ -1018,7 +1021,7 @@ export const imageRouter = createTRPCRouter({
 
       try {
         const generated = await generateForModel(
-          imageRow.model,
+          mediaRow.model,
           ctx.user,
           promptRow.text,
           referenceImageIds,
@@ -1034,11 +1037,11 @@ export const imageRouter = createTRPCRouter({
         );
         await recordGenerationCostEvent({
           userId: ctx.user,
-          mediaId: imageRow.id,
+          mediaId: mediaRow.id,
           usageId: claimResult.usageId,
           provider: generated.cost.provider,
           providerRequestId: generated.cost.providerRequestId,
-          model: imageRow.model,
+          model: mediaRow.model,
           providerModel: generated.cost.providerModel,
           operation: generated.cost.operation,
           usageRaw: generated.cost.usageRaw,
@@ -1053,7 +1056,7 @@ export const imageRouter = createTRPCRouter({
         });
         console.log("[runGeneration] generation succeeded, uploading");
         const { url, key } = await uploadGeneratedImage({
-          mediaId: imageRow.id,
+          mediaId: mediaRow.id,
           generated,
         });
 
@@ -1067,7 +1070,7 @@ export const imageRouter = createTRPCRouter({
             error: null,
             updatedAt: new Date(),
           })
-          .where(and(eq(media.id, imageRow.id), eq(media.userId, ctx.user)))
+          .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
           .returning();
         if (!updated) {
           throw new TRPCError({
@@ -1089,8 +1092,8 @@ export const imageRouter = createTRPCRouter({
           distinctId: ctx.user,
           event: "image_generation_succeeded",
           properties: {
-            image_id: imageRow.id,
-            model: imageRow.model,
+            image_id: mediaRow.id,
+            model: mediaRow.model,
             provider: generated.cost.provider,
           },
         });
@@ -1106,7 +1109,7 @@ export const imageRouter = createTRPCRouter({
             error: message,
             updatedAt: new Date(),
           })
-          .where(and(eq(media.id, imageRow.id), eq(media.userId, ctx.user)))
+          .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
           .returning();
         if (!updated) {
           throw new TRPCError({
@@ -1128,8 +1131,8 @@ export const imageRouter = createTRPCRouter({
           distinctId: ctx.user,
           event: "image_generation_failed",
           properties: {
-            image_id: imageRow.id,
-            model: imageRow.model,
+            image_id: mediaRow.id,
+            model: mediaRow.model,
             error_code: imageGenerationErrorCode(err, message),
             error_snippet: redactErrorMessage(message),
           },

@@ -25,9 +25,9 @@ type MediaGalleryProps = {
   referenceImages: ReferenceImageList | undefined;
   onDeletePrompt: (promptId: string) => void;
   onMovePrompt: (promptId: string, projectId: string) => void;
-  onDeleteMedia: (imageId: string) => void;
-  onReuseAsReference: (imageId: string) => Promise<void>;
-  onRetryMedia: (imageId: string) => void;
+  onDeleteMedia: (mediaId: string) => void;
+  onReuseAsReference: (mediaId: string) => Promise<void>;
+  onRetryMedia: (mediaId: string) => void;
 };
 
 function PromptGroupSkeleton() {
