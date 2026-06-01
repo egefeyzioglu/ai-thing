@@ -58,7 +58,17 @@ const GEMINI_PRICING = {
   },
 } as const;
 
-type Provider = "openai" | "gemini";
+// Placeholder per-second video pricing pending real Modelark/Seedance rates.
+const MODELARK_PRICING = {
+  "dreamina-seedance-2-0": {
+    usdMicrosPerSecond: 200_000,
+  },
+  "dreamina-seedance-2-0-fast": {
+    usdMicrosPerSecond: 100_000,
+  },
+} as const;
+
+type Provider = "openai" | "gemini" | "modelark";
 
 type CostFields = {
   status: GenerationCostEventStatus;
@@ -73,6 +83,7 @@ type CostFields = {
   reasoningTokens?: number | null;
   totalTokens?: number | null;
   outputImageCount?: number | null;
+  outputDurationMs?: number | null;
   fallbackReason?: string | null;
   costCalculationRaw: Record<string, unknown>;
 };
@@ -87,6 +98,8 @@ type CostFallbackContext = {
   negativePrompt?: string | null;
   seed?: string | null;
   thinking?: string | null;
+  videoResolution?: string | null;
+  duration?: number | null;
 };
 
 function pricingContext(context: CostFallbackContext): Record<string, unknown> {
@@ -862,6 +875,38 @@ function calculateGeminiCost(args: {
   };
 }
 
+function calculateModelarkVideoCost(args: {
+  model: string;
+  fallbackContext: CostFallbackContext;
+}): CostFields {
+  const pricing =
+    MODELARK_PRICING[args.model as keyof typeof MODELARK_PRICING];
+  if (!pricing) return unsupportedModelCost(args.model);
+
+  const durationSeconds = args.fallbackContext.duration ?? 5;
+  const costUsdMicros = Math.ceil(
+    pricing.usdMicrosPerSecond * durationSeconds,
+  );
+
+  return {
+    status: "recorded",
+    costUsdMicros,
+    outputDurationMs: durationSeconds * 1000,
+    fallbackReason: null,
+    costCalculationRaw: {
+      pricingVersion: COST_PRICING_VERSION,
+      provider: "modelark",
+      model: args.model,
+      pricingContext: {
+        duration: durationSeconds,
+        videoResolution: args.fallbackContext.videoResolution,
+        aspectRatio: args.fallbackContext.aspectRatio,
+      },
+      lineItems: { videoOutputCost: costUsdMicros },
+    },
+  };
+}
+
 function calculateCost(args: {
   provider: Provider;
   model: string;
@@ -869,6 +914,13 @@ function calculateCost(args: {
   usageRaw: unknown;
   fallbackContext: CostFallbackContext;
 }): CostFields {
+  if (args.provider === "modelark") {
+    return calculateModelarkVideoCost({
+      model: args.model,
+      fallbackContext: args.fallbackContext,
+    });
+  }
+
   if (args.provider === "openai") {
     if (
       args.operation === "responses_image_generation" ||
@@ -953,6 +1005,7 @@ export async function recordGenerationCostEvent(args: {
       reasoningTokens: cost.reasoningTokens,
       totalTokens: cost.totalTokens,
       outputCount: cost.outputImageCount,
+      outputDurationMs: cost.outputDurationMs,
       fallbackReason: cost.fallbackReason,
       usageRaw: args.usageRaw,
       costCalculationRaw: cost.costCalculationRaw,

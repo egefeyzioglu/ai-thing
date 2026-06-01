@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Card } from "src/components/ui/card";
@@ -169,41 +169,58 @@ async function downloadImage(url: string, expectedMimeType?: string) {
   URL.revokeObjectURL(blobUrl);
 }
 
-function VideoPreview({ src, ar }: { src: string; ar: string }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  return (
-    <div
-      className="relative w-full"
-      style={{ aspectRatio: parseAspectRatio(ar) }}
-      onMouseEnter={() => {
-        const el = videoRef.current;
-        if (!el) return;
-        void el.play().catch(() => {});
-      }}
-      onMouseLeave={() => {
-        const el = videoRef.current;
-        if (!el) return;
-        el.pause();
-        el.currentTime = 0;
-      }}
-    >
-      <video
-        ref={videoRef}
-        src={src}
-        className="absolute inset-0 size-full object-cover"
-        muted
-        playsInline
-        loop
-        preload="metadata"
-      />
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 transition-opacity group-hover/cell:opacity-0">
-        <div className="flex size-12 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm">
-          <Play className="ml-0.5 size-5 fill-white text-white" strokeWidth={0} />
+// The signed UploadThing URL is regenerated on every prompt.list response, so
+// naive rendering would swap the <video> src each refetch and the browser
+// would reload + reset playback. The underlying file `mediaKey` is stable, so
+// we memoize on mediaKey + ar — once a stable URL has been handed to the
+// browser, re-signs of the same file are ignored at the React layer and the
+// <video> element keeps its state.
+const VideoPreview = memo(
+  function VideoPreview({
+    src,
+    ar,
+  }: {
+    src: string;
+    mediaKey: string;
+    ar: string;
+  }) {
+    const videoRef = useRef<HTMLVideoElement>(null);
+    return (
+      <div
+        className="relative w-full"
+        style={{ aspectRatio: parseAspectRatio(ar) }}
+        onMouseEnter={() => {
+          const el = videoRef.current;
+          if (!el) return;
+          void el.play().catch(() => {});
+        }}
+        onMouseLeave={() => {
+          const el = videoRef.current;
+          if (!el) return;
+          el.pause();
+          el.currentTime = 0;
+        }}
+      >
+        <video
+          ref={videoRef}
+          src={src}
+          className="absolute inset-0 size-full object-cover"
+          muted
+          playsInline
+          loop
+          preload="metadata"
+        />
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 transition-opacity group-hover/cell:opacity-0">
+          <div className="flex size-12 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm">
+            <Play className="ml-0.5 size-5 fill-white text-white" strokeWidth={0} />
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  },
+  (prev, next) =>
+    prev.mediaKey === next.mediaKey && prev.ar === next.ar,
+);
 
 function VideoRenderingState({
   ar,
@@ -396,7 +413,7 @@ function ImageCell({
     );
   } else {
     body = isVideo ? (
-      <VideoPreview src={image.url} ar={ar} />
+      <VideoPreview src={image.url} mediaKey={image.key} ar={ar} />
     ) : (
       <div className="relative w-full" style={{ aspectRatio: parseAspectRatio(ar) }}>
         <Image

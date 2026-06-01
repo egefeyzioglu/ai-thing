@@ -26,6 +26,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "src/components/ui/collapsible";
+import { Button } from "src/components/ui/button";
+import { ButtonGroup } from "src/components/ui/button-group";
 import { Checkbox } from "src/components/ui/checkbox";
 import { Field, FieldLabel } from "src/components/ui/field";
 import { Input } from "src/components/ui/input";
@@ -403,6 +405,7 @@ type SidebarProps = {
   onThinkingChange: (value: ThinkingOption) => void;
   hasOpenAIModelSelected: boolean;
   hasGeminiModelSelected: boolean;
+  hasOnlySeedanceFastSelected: boolean;
   isMacOS: boolean | null;
   promptComposerRef: RefObject<PromptComposerHandle | null>;
   hasSelectedProject: boolean;
@@ -468,6 +471,7 @@ export function Sidebar({
   onThinkingChange,
   hasOpenAIModelSelected,
   hasGeminiModelSelected,
+  hasOnlySeedanceFastSelected,
   isMacOS,
   promptComposerRef,
   hasSelectedProject,
@@ -723,13 +727,7 @@ export function Sidebar({
           </Field>
         )}
         {mode === "video" && (
-          <div className="flex flex-col gap-3 rounded-md border border-blue-500/30 bg-blue-500/5 p-3">
-            <div className="flex items-center gap-1.5">
-              <VideoIcon size={13} className="text-blue-400" />
-              <span className="text-[10px] font-medium tracking-wider text-blue-400 uppercase">
-                Video · Seedance
-              </span>
-            </div>
+          <>
             <Field className="w-full">
               <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
                 Duration
@@ -754,30 +752,49 @@ export function Sidebar({
             </Field>
             <Field className="w-full">
               <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
-                Video Resolution
+                Resolution
               </FieldLabel>
               <div className="flex flex-row gap-2">
-                {VIDEO_RESOLUTION_OPTIONS.map((videoResolutionOption) => (
-                  <button
-                    key={videoResolutionOption}
-                    type="button"
-                    className={clsx(
-                      "grow cursor-pointer rounded-md border border-1 px-2 py-1 text-sm",
-                      videoResolution === videoResolutionOption
-                        ? "bg-blue-500 text-(--foreground)"
-                        : "text-(--muted-foreground) hover:bg-gray-900",
-                    )}
-                    onClick={() => onVideoResolutionChange(videoResolutionOption)}
-                  >
-                    {videoResolutionOption}
-                  </button>
-                ))}
+                {VIDEO_RESOLUTION_OPTIONS.map((videoResolutionOption) => {
+                  const isDisabled =
+                    videoResolutionOption === "1080p" &&
+                    hasOnlySeedanceFastSelected;
+                  return (
+                    <button
+                      key={videoResolutionOption}
+                      type="button"
+                      disabled={isDisabled}
+                      aria-disabled={isDisabled}
+                      title={
+                        isDisabled
+                          ? "1080p is not supported by Seedance 2.0 Fast"
+                          : undefined
+                      }
+                      className={clsx(
+                        "grow rounded-md border border-1 px-2 py-1 text-sm",
+                        videoResolution === videoResolutionOption
+                          ? "bg-blue-500 text-(--foreground)"
+                          : "text-(--muted-foreground)",
+                        isDisabled
+                          ? "cursor-not-allowed opacity-40"
+                          : "cursor-pointer hover:bg-gray-900",
+                      )}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (isDisabled) return;
+                        onVideoResolutionChange(videoResolutionOption);
+                      }}
+                    >
+                      {videoResolutionOption}
+                    </button>
+                  );
+                })}
               </div>
             </Field>
-            <div className="flex items-start gap-2 text-xs text-(--muted-foreground)">
+            <p className="-mt-1 flex items-start gap-2 text-xs text-(--muted-foreground)">
               {firstFrameRefImage?.url ? (
                 <>
-                  <div className="relative size-7 shrink-0 overflow-hidden rounded border border-(--border)">
+                  <span className="relative size-7 shrink-0 overflow-hidden rounded border border-(--border)">
                     <Image
                       src={firstFrameRefImage.url}
                       alt="First frame reference"
@@ -785,7 +802,7 @@ export function Sidebar({
                       sizes="28px"
                       className="object-cover"
                     />
-                  </div>
+                  </span>
                   <span>
                     <b className="text-(--foreground)">Image-to-video</b> — your
                     reference image becomes the starting frame.
@@ -798,15 +815,18 @@ export function Sidebar({
                   frame). Otherwise text-to-video.
                 </span>
               )}
-            </div>
-          </div>
+            </p>
+          </>
         )}
         <Field className="w-full">
           <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
             Aspect Ratio
           </FieldLabel>
-          <div className="flex flex-row gap-2">
-            {["1:1", "4:3", "3:4", "16:9", "9:16"].map((aspectOption) => (
+          <div className="flex flex-row flex-wrap gap-2">
+            {(mode === "video"
+              ? ["1:1", "4:3", "3:4", "16:9", "9:16", "21:9", "adaptive"]
+              : ["1:1", "4:3", "3:4", "16:9", "9:16"]
+            ).map((aspectOption) => (
               <button
                 key={aspectOption}
                 className={clsx(
@@ -1045,19 +1065,28 @@ export function Sidebar({
                         label="Camera"
                         help="Fixed locks the camera in place. Free move lets the model add camera motion."
                       />
-                      <button
-                        type="button"
-                        aria-pressed={cameraFixed}
-                        onClick={() => onCameraFixedChange(!cameraFixed)}
-                        className={clsx(
-                          "h-8 cursor-pointer rounded-md border border-1 px-2 text-sm",
-                          cameraFixed
-                            ? "border-blue-500 bg-blue-500/15 text-(--foreground)"
-                            : "text-(--muted-foreground) hover:bg-gray-900",
-                        )}
-                      >
-                        {cameraFixed ? "Fixed" : "Free move"}
-                      </button>
+                      <ButtonGroup className="w-full">
+                        <Button
+                          type="button"
+                          variant={cameraFixed ? "secondary" : "outline"}
+                          size="sm"
+                          aria-pressed={cameraFixed}
+                          onClick={() => onCameraFixedChange(true)}
+                          className="flex-1"
+                        >
+                          Fixed
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={!cameraFixed ? "secondary" : "outline"}
+                          size="sm"
+                          aria-pressed={!cameraFixed}
+                          onClick={() => onCameraFixedChange(false)}
+                          className="flex-1"
+                        >
+                          Free move
+                        </Button>
+                      </ButtonGroup>
                     </Field>
                   </div>
                 </div>

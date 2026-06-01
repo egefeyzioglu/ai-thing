@@ -19,6 +19,12 @@ import {
 } from "src/server/db/schema";
 import { recordGenerationCostEvent } from "src/server/generation-costs";
 import { currentUserCanBypassLimits } from "src/server/limits";
+import {
+  isSeedanceSlug,
+  pollSeedanceTask,
+  submitSeedanceTask,
+  type SeedanceSlug,
+} from "src/server/media/seedance";
 import { signUploadThingUrl, utapi, UTFile } from "src/server/uploadthing";
 import {
   createReservedUsage,
@@ -848,41 +854,6 @@ export const mediaRouter = createTRPCRouter({
         return signMediaRow(mediaRow);
       }
 
-      if (mediaRow.type === "video") {
-        const [existingUsage] = await db
-          .select({ id: generationUsage.id })
-          .from(generationUsage)
-          .where(
-            and(
-              eq(generationUsage.userId, ctx.user),
-              eq(generationUsage.mediaId, mediaRow.id),
-              eq(generationUsage.status, "reserved"),
-            ),
-          )
-          .orderBy(desc(generationUsage.createdAt))
-          .limit(1);
-        if (existingUsage) {
-          await markUsageStatus(existingUsage.id, "refunded").catch((err) =>
-            console.error(
-              "[runGeneration] failed to refund video usage:",
-              err,
-            ),
-          );
-        }
-        await db
-          .update(media)
-          .set({
-            status: "failed",
-            error: "Video generation not yet implemented",
-            updatedAt: new Date(),
-          })
-          .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)));
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Video generation is not yet implemented",
-        });
-      }
-
       const [promptRow] = await db
         .select({
           text: prompts.text,
@@ -915,6 +886,181 @@ export const mediaRouter = createTRPCRouter({
       const canBypassMonthlyQuota = input.requestQuotaBypass
         ? await currentUserCanBypassLimits()
         : false;
+
+      if (mediaRow.type === "video") {
+        if (!isSeedanceSlug(mediaRow.model)) {
+          await db
+            .update(media)
+            .set({
+              status: "failed",
+              error: `Unknown video model: ${mediaRow.model}`,
+              updatedAt: new Date(),
+            })
+            .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)));
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Unknown video model: ${mediaRow.model}`,
+          });
+        }
+
+        const videoReferenceImageIds = parseReferenceImageIds(
+          promptRow.referenceImages,
+        );
+        let firstFrameImageUrl: string | undefined;
+        if (videoReferenceImageIds.length > 0) {
+          const refs = await loadOwnedReferenceImages(ctx.user, [
+            videoReferenceImageIds[0]!,
+          ]);
+          firstFrameImageUrl = refs[0]?.url ?? undefined;
+        }
+
+        const videoDurationSeconds = mediaRow.durationMs
+          ? mediaRow.durationMs / 1000
+          : 5;
+
+        const videoClaim = await db.transaction(async (tx) => {
+          if (input.retry) {
+            await lockUserUsage(tx, ctx.user);
+            const usedCredits = await getUsedCredits(tx, ctx.user);
+            if (!canBypassMonthlyQuota && usedCredits >= MONTHLY_CREDIT_LIMIT) {
+              throw new TRPCError({
+                code: "TOO_MANY_REQUESTS",
+                message: "Monthly credit limit reached",
+              });
+            }
+            const [claimed] = await tx
+              .update(media)
+              .set({ status: "running", error: null, updatedAt: new Date() })
+              .where(
+                and(
+                  eq(media.id, mediaRow.id),
+                  eq(media.userId, ctx.user),
+                  eq(media.status, "failed"),
+                ),
+              )
+              .returning();
+            if (!claimed) return { claimed: null, usageId: undefined };
+
+            const usageRow = await createReservedUsage(tx, {
+              userId: ctx.user,
+              mediaId: mediaRow.id,
+              model: mediaRow.model,
+              videoResolution: promptRow.resolution,
+              aspectRatio: promptRow.aspectRatio,
+              duration: videoDurationSeconds,
+              usageType: "video_generation",
+            });
+            return { claimed, usageId: usageRow.id };
+          }
+
+          const [existingUsage] = await tx
+            .select({ id: generationUsage.id })
+            .from(generationUsage)
+            .where(
+              and(
+                eq(generationUsage.userId, ctx.user),
+                eq(generationUsage.mediaId, mediaRow.id),
+                eq(generationUsage.status, "reserved"),
+              ),
+            )
+            .orderBy(desc(generationUsage.createdAt))
+            .limit(1);
+
+          if (!existingUsage) {
+            await lockUserUsage(tx, ctx.user);
+            const usedCredits = await getUsedCredits(tx, ctx.user);
+            if (!canBypassMonthlyQuota && usedCredits >= MONTHLY_CREDIT_LIMIT) {
+              throw new TRPCError({
+                code: "TOO_MANY_REQUESTS",
+                message: "Monthly credit limit reached",
+              });
+            }
+          }
+
+          const [claimed] = await tx
+            .update(media)
+            .set({ status: "running", error: null, updatedAt: new Date() })
+            .where(
+              and(
+                eq(media.id, mediaRow.id),
+                eq(media.userId, ctx.user),
+                eq(media.status, "pending"),
+              ),
+            )
+            .returning();
+          if (!claimed) return { claimed: null, usageId: undefined };
+
+          if (existingUsage) return { claimed, usageId: existingUsage.id };
+
+          const usageRow = await createReservedUsage(tx, {
+            userId: ctx.user,
+            mediaId: mediaRow.id,
+            model: mediaRow.model,
+            videoResolution: promptRow.resolution,
+            aspectRatio: promptRow.aspectRatio,
+            duration: videoDurationSeconds,
+            usageType: "video_generation",
+          });
+          return { claimed, usageId: usageRow.id };
+        });
+
+        if (!videoClaim.claimed) {
+          const [current] = await db
+            .select()
+            .from(media)
+            .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
+            .limit(1);
+          return signMediaRow(current ?? mediaRow);
+        }
+
+        let task;
+        try {
+          task = await submitSeedanceTask({
+            slug: mediaRow.model as SeedanceSlug,
+            prompt: promptRow.text,
+            duration: videoDurationSeconds,
+            aspectRatio: promptRow.aspectRatio ?? "adaptive",
+            resolution: promptRow.resolution ?? undefined,
+            firstFrameImageUrl,
+          });
+        } catch (err) {
+          console.error("[runGeneration] seedance submit failed:", err);
+          const message = err instanceof Error ? err.message : String(err);
+          await db
+            .update(media)
+            .set({
+              status: "failed",
+              error: message,
+              updatedAt: new Date(),
+            })
+            .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)));
+          await markUsageStatus(videoClaim.usageId, "refunded").catch((err2) =>
+            console.error("[runGeneration] failed to refund video usage:", err2),
+          );
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Failed to submit video task: ${message}`,
+          });
+        }
+
+        const [updated] = await db
+          .update(media)
+          .set({
+            status: "running",
+            providerStatus: task.taskId,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
+          .returning();
+
+        console.log(
+          "[runGeneration] video task submitted:",
+          task.taskId,
+          "for media:",
+          mediaRow.id,
+        );
+        return signMediaRow(updated ?? mediaRow);
+      }
 
       const claimResult = await db.transaction(async (tx) => {
         if (input.retry) {
@@ -1139,6 +1285,231 @@ export const mediaRouter = createTRPCRouter({
         });
         console.log("[runGeneration] done, status: failed, error:", message);
         return signMediaRow(updated);
+      }
+    }),
+
+  /**
+   * Poll a single in-flight video media row against Modelark. Transitions the
+   * row to `succeeded` (downloading + re-uploading the video to UploadThing
+   * and recording cost + consuming usage) or `failed` (refunding usage) when
+   * Modelark reports a terminal state. Otherwise just bumps `updatedAt`.
+   * Image media is rejected; finished rows are returned as-is.
+   */
+  pollMediaGeneration: protectedProcedure
+    .input(z.object({ mediaId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }): Promise<Media> => {
+      const [mediaRow] = await db
+        .select()
+        .from(media)
+        .where(and(eq(media.id, input.mediaId), eq(media.userId, ctx.user)))
+        .limit(1);
+      if (!mediaRow) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Media row not found",
+        });
+      }
+
+      if (mediaRow.type !== "video") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Only video media can be polled",
+        });
+      }
+
+      if (mediaRow.status !== "running" || !mediaRow.providerStatus) {
+        return signMediaRow(mediaRow);
+      }
+
+      let task;
+      try {
+        task = await pollSeedanceTask(mediaRow.providerStatus);
+      } catch (err) {
+        console.error(
+          "[pollMediaGeneration] seedance poll error (transient):",
+          err,
+        );
+        return signMediaRow(mediaRow);
+      }
+
+      if (task.status === "queued" || task.status === "running") {
+        const [updated] = await db
+          .update(media)
+          .set({ updatedAt: new Date() })
+          .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
+          .returning();
+        return signMediaRow(updated ?? mediaRow);
+      }
+
+      const refundReservedUsage = async () => {
+        const [existingUsage] = await db
+          .select({ id: generationUsage.id })
+          .from(generationUsage)
+          .where(
+            and(
+              eq(generationUsage.userId, ctx.user),
+              eq(generationUsage.mediaId, mediaRow.id),
+              eq(generationUsage.status, "reserved"),
+            ),
+          )
+          .orderBy(desc(generationUsage.createdAt))
+          .limit(1);
+        if (!existingUsage) return;
+        await markUsageStatus(existingUsage.id, "refunded").catch((err) =>
+          console.error(
+            "[pollMediaGeneration] failed to refund video usage:",
+            err,
+          ),
+        );
+      };
+
+      if (task.status === "failed" || task.status === "cancelled") {
+        const message = task.error?.message ?? `Modelark task ${task.status}`;
+        const [updated] = await db
+          .update(media)
+          .set({
+            status: "failed",
+            error: message,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
+          .returning();
+        await refundReservedUsage();
+        await getPostHogClient().captureImmediate({
+          distinctId: ctx.user,
+          event: "video_generation_failed",
+          properties: {
+            media_id: mediaRow.id,
+            model: mediaRow.model,
+            task_id: task.taskId,
+            error_snippet: redactErrorMessage(message),
+          },
+        });
+        return signMediaRow(updated ?? mediaRow);
+      }
+
+      // task.status === "succeeded"
+      if (!task.videoUrl) {
+        const [updated] = await db
+          .update(media)
+          .set({
+            status: "failed",
+            error: "Modelark task succeeded but returned no video URL",
+            updatedAt: new Date(),
+          })
+          .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
+          .returning();
+        await refundReservedUsage();
+        return signMediaRow(updated ?? mediaRow);
+      }
+
+      try {
+        const videoResp = await fetch(task.videoUrl);
+        if (!videoResp.ok) {
+          throw new Error(
+            `Failed to download video from Modelark: ${videoResp.status}`,
+          );
+        }
+        const buf = Buffer.from(await videoResp.arrayBuffer());
+        const file = new UTFile(
+          [new Uint8Array(buf)],
+          `${mediaRow.id}.mp4`,
+          { type: "video/mp4" },
+        );
+        const uploaded = await utapi.uploadFiles(file, { acl: "private" });
+        if (uploaded.error || !uploaded.data) {
+          throw new Error(
+            `UploadThing upload failed: ${
+              uploaded.error?.message ?? "unknown error"
+            }`,
+          );
+        }
+
+        const durationSeconds = mediaRow.durationMs
+          ? mediaRow.durationMs / 1000
+          : 5;
+
+        const [reservedUsage] = await db
+          .select({ id: generationUsage.id })
+          .from(generationUsage)
+          .where(
+            and(
+              eq(generationUsage.userId, ctx.user),
+              eq(generationUsage.mediaId, mediaRow.id),
+              eq(generationUsage.status, "reserved"),
+            ),
+          )
+          .orderBy(desc(generationUsage.createdAt))
+          .limit(1);
+
+        await recordGenerationCostEvent({
+          userId: ctx.user,
+          mediaId: mediaRow.id,
+          usageId: reservedUsage?.id,
+          provider: "modelark",
+          providerRequestId: task.taskId,
+          model: mediaRow.model,
+          providerModel: task.providerModel || null,
+          operation: "video_generation",
+          usageRaw: task.usageRaw,
+          fallbackContext: {
+            duration: durationSeconds,
+          },
+        }).catch((err) =>
+          console.error(
+            "[pollMediaGeneration] failed to record video cost:",
+            err,
+          ),
+        );
+
+        const [updated] = await db
+          .update(media)
+          .set({
+            status: "succeeded",
+            url: uploaded.data.ufsUrl,
+            key: uploaded.data.key,
+            mimeType: "video/mp4",
+            error: null,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
+          .returning();
+
+        if (reservedUsage) {
+          await markUsageStatus(reservedUsage.id, "consumed").catch((err) =>
+            console.error(
+              "[pollMediaGeneration] failed to consume video usage:",
+              err,
+            ),
+          );
+        }
+
+        await getPostHogClient().captureImmediate({
+          distinctId: ctx.user,
+          event: "video_generation_succeeded",
+          properties: {
+            media_id: mediaRow.id,
+            model: mediaRow.model,
+            task_id: task.taskId,
+            provider: "modelark",
+          },
+        });
+
+        return signMediaRow(updated ?? mediaRow);
+      } catch (err) {
+        console.error("[pollMediaGeneration] finalization failed:", err);
+        const message = err instanceof Error ? err.message : String(err);
+        const [updated] = await db
+          .update(media)
+          .set({
+            status: "failed",
+            error: message,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
+          .returning();
+        await refundReservedUsage();
+        return signMediaRow(updated ?? mediaRow);
       }
     }),
 });

@@ -51,6 +51,9 @@ const GEMINI_MODEL_SLUGS = new Set<PromptModelSlug>([
   "gemini-3.1-flash-image-preview",
   "gemini-3-pro-image-preview",
 ]);
+const SEEDANCE_FAST_SLUGS = new Set<PromptModelSlug>([
+  "dreamina-seedance-2-0-fast",
+]);
 
 function hasDismissedPushPermissionPrompt() {
   try {
@@ -644,6 +647,10 @@ export default function Home() {
   const hasGeminiModelSelected = selectedModels.some((model) =>
     GEMINI_MODEL_SLUGS.has(model),
   );
+  const hasOnlySeedanceFastSelected =
+    mode === "video" &&
+    selectedModels.length > 0 &&
+    selectedModels.every((model) => SEEDANCE_FAST_SLUGS.has(model));
   const isGalleryLoading =
     isLoadingProjects || !selectedProjectId || promptsQuery.isLoading;
   const galleryErrorMessage =
@@ -656,6 +663,19 @@ export default function Home() {
       setResolution("1K");
     }
   }, [hasOnlyOpenAIModelsSelected, resolution]);
+
+  useEffect(() => {
+    if (hasOnlySeedanceFastSelected && videoResolution === "1080p") {
+      setVideoResolution("720p");
+    }
+  }, [hasOnlySeedanceFastSelected, videoResolution]);
+
+  useEffect(() => {
+    const IMAGE_ASPECTS = new Set(["1:1", "4:3", "3:4", "16:9", "9:16"]);
+    if (mode === "image" && !IMAGE_ASPECTS.has(aspect)) {
+      setAspect("1:1");
+    }
+  }, [mode, aspect]);
 
   useEffect(() => {
     if (promptsQuery.error?.data?.code !== "NOT_FOUND" || !projects?.length) {
@@ -777,6 +797,7 @@ export default function Home() {
         }
         hasOpenAIModelSelected={hasOpenAIModelSelected}
         hasGeminiModelSelected={hasGeminiModelSelected}
+        hasOnlySeedanceFastSelected={hasOnlySeedanceFastSelected}
         isMacOS={isMacOS}
         promptComposerRef={promptComposerRef}
         hasSelectedProject={Boolean(selectedProjectId)}

@@ -2,6 +2,7 @@
 
 import PromptGroup from "./prompt-group";
 import { ProjectSwitcher } from "./project-switcher";
+import { VideoPoller } from "./video-poller";
 
 import { Skeleton } from "src/components/ui/skeleton";
 import { useLocalStorage } from "src/lib/localStorage";
@@ -210,6 +211,20 @@ export function MediaGallery({
           ))}
         </div>
       )}
+      {selectedProjectId &&
+        (prompts ?? []).flatMap((prompt) =>
+          prompt.media
+            .filter(
+              (m) => m.type === "video" && m.status === "running",
+            )
+            .map((m) => (
+              <VideoPoller
+                key={m.id}
+                mediaId={m.id}
+                projectId={selectedProjectId}
+              />
+            )),
+        )}
     </div>
   );
 }
