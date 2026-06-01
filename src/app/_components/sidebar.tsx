@@ -45,6 +45,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "src/components/ui/tooltip";
+import { getInitials } from "src/lib/user-utils";
 import type { RouterInputs, RouterOutputs } from "src/trpc/react";
 import { GenerateButton } from "./generate-button";
 import {
@@ -1194,11 +1195,7 @@ export function Sidebar({
                   className="size-full object-cover"
                 />
               ) : (
-                (userFullName ?? userEmail ?? "U")
-                  .split(/\s+/)
-                  .slice(0, 2)
-                  .map((part) => part[0]?.toUpperCase())
-                  .join("")
+                getInitials(userFullName, userEmail)
               )}
             </span>
             <span className="min-w-0">

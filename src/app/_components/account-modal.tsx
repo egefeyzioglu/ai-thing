@@ -31,6 +31,7 @@ import {
 } from "src/components/ui/select";
 import { Switch } from "src/components/ui/switch";
 import { Textarea } from "src/components/ui/textarea";
+import { getInitials } from "src/lib/user-utils";
 import { cn } from "src/lib/utils";
 import type { RouterOutputs } from "src/trpc/react";
 
@@ -58,12 +59,21 @@ type AccountModalProps = {
   onSignOut: () => void;
 };
 
-function useLocalState<T>(key: string, initial: T) {
+function useLocalState<T>(
+  key: string,
+  initial: T,
+  validate?: (value: unknown) => value is T,
+) {
   const [value, setValue] = useState<T>(() => {
     if (typeof window === "undefined") return initial;
     try {
       const raw = window.localStorage.getItem(key);
-      return raw === null ? initial : (JSON.parse(raw) as T);
+      if (raw === null) return initial;
+      const parsed: unknown = JSON.parse(raw) as unknown;
+      if (validate !== undefined) {
+        return validate(parsed) ? parsed : initial;
+      }
+      return parsed as T;
     } catch {
       return initial;
     }
@@ -140,19 +150,6 @@ function formatRowTitle(row: UsageRow) {
 function formatRowDetails(row: UsageRow) {
   if (row.kind === "workshop") return row.model;
   return `${row.resolution ?? "1K"} · ${row.aspectRatio ?? "1:1"}`;
-}
-
-function getInitials(name?: string | null, email?: string | null) {
-  const trimmedName = name?.trim();
-  const source =
-    trimmedName && trimmedName.length > 0
-      ? trimmedName
-      : (email?.split("@")[0] ?? "User");
-  return source
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
 }
 
 function StatusDot({ status }: { status: UsageRow["status"] }) {
@@ -490,17 +487,13 @@ function UsageTabPanel({
 
 function ModelChecklist({
   models,
-  storageKey,
+  selected,
+  onToggle,
 }: {
   models: Model[];
-  storageKey: string;
+  selected: string[];
+  onToggle: (slug: string) => void;
 }) {
-  const defaultSlugs = models.map((model) => model.slug);
-  const [selected, setSelected] = useLocalState<string[]>(
-    storageKey,
-    defaultSlugs,
-  );
-
   return (
     <div className="flex flex-col gap-2">
       {models.map((model) => {
@@ -518,11 +511,7 @@ function ModelChecklist({
                 : "border-(--border) hover:bg-(--muted)/40",
             )}
             onClick={() => {
-              setSelected(
-                checked
-                  ? selected.filter((slug) => slug !== model.slug)
-                  : [...selected, model.slug],
-              );
+              onToggle(model.slug);
             }}
           >
             <span
@@ -558,65 +547,113 @@ function ModelChecklist({
   );
 }
 
+type GenerationDefaults = {
+  outputType: string;
+  notify: boolean;
+  imageModels: string[];
+  imageResolution: string;
+  imageAspect: string;
+  imageRuns: number;
+  quality: string;
+  background: string;
+  negativePrompt: string;
+  seed: string;
+  thinking: string;
+  videoModels: string[];
+  videoResolution: string;
+  duration: string;
+  videoAspect: string;
+  videoRuns: number;
+  motion: string;
+  cameraFixed: boolean;
+};
+
+const DEFAULT_GENERATION_DEFAULTS: GenerationDefaults = {
+  outputType: "image",
+  notify: true,
+  imageModels: [],
+  imageResolution: "1K",
+  imageAspect: "1:1",
+  imageRuns: 1,
+  quality: "auto",
+  background: "auto",
+  negativePrompt: "",
+  seed: "",
+  thinking: "auto",
+  videoModels: [],
+  videoResolution: "720p",
+  duration: "5",
+  videoAspect: "16:9",
+  videoRuns: 1,
+  motion: "auto",
+  cameraFixed: false,
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isGenerationDefaults(value: unknown): value is GenerationDefaults {
+  return (
+    isRecord(value) &&
+    typeof value.outputType === "string" &&
+    typeof value.notify === "boolean" &&
+    Array.isArray(value.imageModels) &&
+    value.imageModels.every((item) => typeof item === "string") &&
+    typeof value.imageResolution === "string" &&
+    typeof value.imageAspect === "string" &&
+    typeof value.imageRuns === "number" &&
+    typeof value.quality === "string" &&
+    typeof value.background === "string" &&
+    typeof value.negativePrompt === "string" &&
+    typeof value.seed === "string" &&
+    typeof value.thinking === "string" &&
+    Array.isArray(value.videoModels) &&
+    value.videoModels.every((item) => typeof item === "string") &&
+    typeof value.videoResolution === "string" &&
+    typeof value.duration === "string" &&
+    typeof value.videoAspect === "string" &&
+    typeof value.videoRuns === "number" &&
+    typeof value.motion === "string" &&
+    typeof value.cameraFixed === "boolean"
+  );
+}
+
 function DefaultsTabPanel({ models }: { models: Model[] }) {
-  const [outputType, setOutputType] = useLocalState(
-    "aiThing.defaults.mode",
-    "image",
+  const [defaults, setDefaults] = useLocalState(
+    "aiThing.defaults",
+    DEFAULT_GENERATION_DEFAULTS,
+    isGenerationDefaults,
   );
-  const [notify, setNotify] = useLocalState("aiThing.defaults.notify", true);
-  const [imageResolution, setImageResolution] = useLocalState(
-    "aiThing.defaults.imageResolution",
-    "1K",
-  );
-  const [imageAspect, setImageAspect] = useLocalState(
-    "aiThing.defaults.imageAspect",
-    "1:1",
-  );
-  const [imageRuns, setImageRuns] = useLocalState(
-    "aiThing.defaults.imageRuns",
-    1,
-  );
-  const [quality, setQuality] = useLocalState(
-    "aiThing.defaults.quality",
-    "auto",
-  );
-  const [background, setBackground] = useLocalState(
-    "aiThing.defaults.background",
-    "auto",
-  );
-  const [negativePrompt, setNegativePrompt] = useLocalState(
-    "aiThing.defaults.negativePrompt",
-    "",
-  );
-  const [seed, setSeed] = useLocalState("aiThing.defaults.seed", "");
-  const [thinking, setThinking] = useLocalState(
-    "aiThing.defaults.thinking",
-    "auto",
-  );
-  const [videoResolution, setVideoResolution] = useLocalState(
-    "aiThing.defaults.videoResolution",
-    "720p",
-  );
-  const [duration, setDuration] = useLocalState(
-    "aiThing.defaults.duration",
-    "5",
-  );
-  const [videoAspect, setVideoAspect] = useLocalState(
-    "aiThing.defaults.videoAspect",
-    "16:9",
-  );
-  const [videoRuns, setVideoRuns] = useLocalState(
-    "aiThing.defaults.videoRuns",
-    1,
-  );
-  const [motion, setMotion] = useLocalState("aiThing.defaults.motion", "auto");
-  const [cameraFixed, setCameraFixed] = useLocalState(
-    "aiThing.defaults.cameraFixed",
-    false,
-  );
+
+  const updateDefault = <Key extends keyof GenerationDefaults>(
+    key: Key,
+    value: GenerationDefaults[Key],
+  ) => setDefaults((prev) => ({ ...prev, [key]: value }));
 
   const imageModels = models.filter((model) => model.kind === "image");
   const videoModels = models.filter((model) => model.kind === "video");
+  const selectedImageModels =
+    defaults.imageModels.length > 0
+      ? defaults.imageModels
+      : imageModels.map((model) => model.slug);
+  const selectedVideoModels =
+    defaults.videoModels.length > 0
+      ? defaults.videoModels
+      : videoModels.map((model) => model.slug);
+
+  const toggleModelDefault = (
+    key: "imageModels" | "videoModels",
+    selected: string[],
+    slug: string,
+  ) => {
+    updateDefault(
+      key,
+      selected.includes(slug)
+        ? selected.filter((selectedSlug) => selectedSlug !== slug)
+        : [...selected, slug],
+    );
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -633,8 +670,8 @@ function DefaultsTabPanel({ models }: { models: Model[] }) {
             subtitle="Which mode opens first."
           >
             <Segmented
-              value={outputType}
-              onChange={setOutputType}
+              value={defaults.outputType}
+              onChange={(value) => updateDefault("outputType", value)}
               options={[
                 ["image", "Image"],
                 ["video", "Video"],
@@ -645,7 +682,10 @@ function DefaultsTabPanel({ models }: { models: Model[] }) {
             title="Notify when generation finishes"
             subtitle="Browser notification if this tab is not focused."
           >
-            <Switch checked={notify} onCheckedChange={setNotify} />
+            <Switch
+              checked={defaults.notify}
+              onCheckedChange={(value) => updateDefault("notify", value)}
+            />
           </SettingRow>
         </div>
       </div>
@@ -654,34 +694,40 @@ function DefaultsTabPanel({ models }: { models: Model[] }) {
         <SectionTitle>Image generation</SectionTitle>
         <ModelChecklist
           models={imageModels}
-          storageKey="aiThing.defaults.imageModels"
+          selected={selectedImageModels}
+          onToggle={(slug) =>
+            toggleModelDefault("imageModels", selectedImageModels, slug)
+          }
         />
         <div className="grid grid-cols-2 gap-3">
           <LabeledSelect
             label="Resolution"
-            value={imageResolution}
-            onChange={setImageResolution}
+            value={defaults.imageResolution}
+            onChange={(value) => updateDefault("imageResolution", value)}
             options={["512", "1K", "2K", "4K"]}
           />
-          <NumberStepper value={imageRuns} onChange={setImageRuns} />
+          <NumberStepper
+            value={defaults.imageRuns}
+            onChange={(value) => updateDefault("imageRuns", value)}
+          />
         </div>
         <LabeledSegments
           label="Aspect ratio"
-          value={imageAspect}
-          onChange={setImageAspect}
+          value={defaults.imageAspect}
+          onChange={(value) => updateDefault("imageAspect", value)}
           options={["1:1", "4:3", "3:4", "16:9", "9:16"]}
         />
         <div className="grid grid-cols-2 gap-3">
           <LabeledSelect
             label="Quality"
-            value={quality}
-            onChange={setQuality}
+            value={defaults.quality}
+            onChange={(value) => updateDefault("quality", value)}
             options={["auto", "low", "medium", "high"]}
           />
           <LabeledSelect
             label="Background"
-            value={background}
-            onChange={setBackground}
+            value={defaults.background}
+            onChange={(value) => updateDefault("background", value)}
             options={["auto", "opaque", "transparent"]}
           />
         </div>
@@ -692,9 +738,11 @@ function DefaultsTabPanel({ models }: { models: Model[] }) {
           <Textarea
             rows={2}
             placeholder="e.g. blurry, low quality, text"
-            value={negativePrompt}
+            value={defaults.negativePrompt}
             className="cursor-text"
-            onChange={(event) => setNegativePrompt(event.target.value)}
+            onChange={(event) =>
+              updateDefault("negativePrompt", event.target.value)
+            }
           />
         </label>
         <div className="grid grid-cols-2 gap-3">
@@ -705,17 +753,17 @@ function DefaultsTabPanel({ models }: { models: Model[] }) {
             <Input
               inputMode="numeric"
               placeholder="Random"
-              value={seed}
+              value={defaults.seed}
               className="cursor-text"
               onChange={(event) =>
-                setSeed(event.target.value.replace(/[^0-9]/g, ""))
+                updateDefault("seed", event.target.value.replace(/[^0-9]/g, ""))
               }
             />
           </label>
           <LabeledSelect
             label="Thinking"
-            value={thinking}
-            onChange={setThinking}
+            value={defaults.thinking}
+            onChange={(value) => updateDefault("thinking", value)}
             options={["auto", "off", "low", "high"]}
           />
         </div>
@@ -725,19 +773,22 @@ function DefaultsTabPanel({ models }: { models: Model[] }) {
         <SectionTitle>Video generation</SectionTitle>
         <ModelChecklist
           models={videoModels}
-          storageKey="aiThing.defaults.videoModels"
+          selected={selectedVideoModels}
+          onToggle={(slug) =>
+            toggleModelDefault("videoModels", selectedVideoModels, slug)
+          }
         />
         <div className="grid grid-cols-2 gap-3">
           <LabeledSelect
             label="Video resolution"
-            value={videoResolution}
-            onChange={setVideoResolution}
+            value={defaults.videoResolution}
+            onChange={(value) => updateDefault("videoResolution", value)}
             options={["480p", "720p", "1080p"]}
           />
           <LabeledSelect
             label="Duration"
-            value={duration}
-            onChange={setDuration}
+            value={defaults.duration}
+            onChange={(value) => updateDefault("duration", value)}
             options={["5", "10"]}
             formatLabel={(value) => `${value}s`}
           />
@@ -745,27 +796,32 @@ function DefaultsTabPanel({ models }: { models: Model[] }) {
         <div className="grid grid-cols-2 gap-3">
           <LabeledSegments
             label="Aspect ratio"
-            value={videoAspect}
-            onChange={setVideoAspect}
+            value={defaults.videoAspect}
+            onChange={(value) => updateDefault("videoAspect", value)}
             options={["1:1", "4:3", "16:9", "9:16"]}
           />
-          <NumberStepper value={videoRuns} onChange={setVideoRuns} />
+          <NumberStepper
+            value={defaults.videoRuns}
+            onChange={(value) => updateDefault("videoRuns", value)}
+          />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <LabeledSelect
             label="Motion"
-            value={motion}
-            onChange={setMotion}
+            value={defaults.motion}
+            onChange={(value) => updateDefault("motion", value)}
             options={["auto", "low", "high"]}
           />
           <SettingBox label="Camera">
             <Button
               type="button"
-              variant={cameraFixed ? "secondary" : "outline"}
+              variant={defaults.cameraFixed ? "secondary" : "outline"}
               className="w-full"
-              onClick={() => setCameraFixed(!cameraFixed)}
+              onClick={() =>
+                updateDefault("cameraFixed", !defaults.cameraFixed)
+              }
             >
-              {cameraFixed ? "Fixed" : "Free move"}
+              {defaults.cameraFixed ? "Fixed" : "Free move"}
             </Button>
           </SettingBox>
         </div>
