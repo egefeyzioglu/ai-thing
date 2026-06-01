@@ -33,6 +33,8 @@ import {
 } from "src/server/usage";
 import { getPostHogClient } from "src/lib/posthog-server";
 
+const VIDEO_DOWNLOAD_TIMEOUT_MS = 60_000;
+
 type ResponsesApiOutputItem = {
   id?: string;
   type: string;
@@ -1403,13 +1405,31 @@ export const mediaRouter = createTRPCRouter({
       }
 
       try {
-        const videoResp = await fetch(task.videoUrl);
-        if (!videoResp.ok) {
-          throw new Error(
-            `Failed to download video from Modelark: ${videoResp.status}`,
-          );
+        const controller = new AbortController();
+        const timeoutId = setTimeout(
+          () => controller.abort(),
+          VIDEO_DOWNLOAD_TIMEOUT_MS,
+        );
+        let buf: Buffer;
+        try {
+          const videoResp = await fetch(task.videoUrl, {
+            signal: controller.signal,
+          });
+          if (!videoResp.ok) {
+            throw new Error(
+              `Failed to download video from Modelark: ${videoResp.status}`,
+            );
+          }
+          buf = Buffer.from(await videoResp.arrayBuffer());
+        } catch (err) {
+          if (err instanceof DOMException && err.name === "AbortError") {
+            throw new Error("Video download timed out");
+          }
+          throw err;
+        } finally {
+          clearTimeout(timeoutId);
         }
-        const buf = Buffer.from(await videoResp.arrayBuffer());
+
         const file = new UTFile(
           [new Uint8Array(buf)],
           `${mediaRow.id}.mp4`,
