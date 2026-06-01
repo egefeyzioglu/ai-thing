@@ -192,6 +192,12 @@ export const referenceImageRouter = createTRPCRouter({
           message: `Media ${input.mediaId} does not have a URL (is it in progress/has it failed?)`,
         });
       }
+      if (!generatedImageRow.mimeType.startsWith("image/")) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Media ${input.mediaId} is not an image and cannot be used as a reference image`,
+        });
+      }
       const newId = crypto.randomUUID();
       const [referenceImageRow] = await db
         .insert(referenceImages)
