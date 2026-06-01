@@ -76,6 +76,27 @@ function parseAspectRatio(ar: string): string {
   return "1 / 1";
 }
 
+function parseProviderErrorMessage(rawError: string): string {
+  const jsonStart = rawError.indexOf("{");
+  if (jsonStart === -1) return rawError;
+
+  try {
+    const parsed = JSON.parse(rawError.slice(jsonStart)) as {
+      error?: { message?: unknown };
+      message?: unknown;
+    };
+    if (typeof parsed?.error?.message === "string" && parsed.error.message) {
+      return parsed.error.message;
+    }
+    if (typeof parsed?.message === "string" && parsed.message) {
+      return parsed.message;
+    }
+  } catch {
+    // Not JSON; fall through and show the raw string
+  }
+  return rawError;
+}
+
 // Fan stack padding for n visible cards. Values: pt = (n-1)*4px, pr/pb = (n-1)*14+4px.
 const FAN_PADDING = [
   "p-0",
@@ -403,8 +424,16 @@ function ImageCell({
   } else if (image.status === "failed") {
     body = (
       <div className="relative w-full bg-muted" style={{ aspectRatio: parseAspectRatio(ar) }}>
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 px-3 py-2">
           <p className="text-xs text-destructive">Generation failed</p>
+          {image.error && (
+            <p
+              className="text-[10px] text-muted-foreground text-center line-clamp-4 break-words max-w-full"
+              title={image.error}
+            >
+              {parseProviderErrorMessage(image.error)}
+            </p>
+          )}
           {onRetry && (
             <Button variant="outline" size="xs" onClick={onRetry} className="cursor-pointer">
               Retry
