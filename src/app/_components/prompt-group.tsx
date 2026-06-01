@@ -705,6 +705,7 @@ function CollapsiblePrompt({ text }: { text: string }) {
       {overflows && (
         <button
           type="button"
+          aria-expanded={expanded}
           onClick={() => setExpanded((e) => !e)}
           className="mt-0.5 text-[11px] text-muted-foreground/80 hover:text-foreground cursor-pointer"
         >
