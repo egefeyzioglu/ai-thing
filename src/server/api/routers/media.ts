@@ -23,7 +23,6 @@ import {
   isSeedanceSlug,
   pollSeedanceTask,
   submitSeedanceTask,
-  type SeedanceSlug,
 } from "src/server/media/seedance";
 import { signUploadThingUrl, utapi, UTFile } from "src/server/uploadthing";
 import {
@@ -1016,7 +1015,7 @@ export const mediaRouter = createTRPCRouter({
         let task;
         try {
           task = await submitSeedanceTask({
-            slug: mediaRow.model as SeedanceSlug,
+            slug: mediaRow.model,
             prompt: promptRow.text,
             duration: videoDurationSeconds,
             aspectRatio: promptRow.aspectRatio ?? "adaptive",

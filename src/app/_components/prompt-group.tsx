@@ -192,7 +192,9 @@ const VideoPreview = memo(
         onMouseEnter={() => {
           const el = videoRef.current;
           if (!el) return;
-          void el.play().catch(() => {});
+          void el.play().catch((err) => {
+            console.debug("video hover-play interrupted:", err);
+          });
         }}
         onMouseLeave={() => {
           const el = videoRef.current;
@@ -884,6 +886,52 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
   );
 }
 
+function CollapsiblePrompt({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const ref = useRef<HTMLParagraphElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const measure = () => {
+      const lh = parseFloat(getComputedStyle(el).lineHeight);
+      if (isNaN(lh)) return;
+      setOverflows(el.scrollHeight > lh * 4 + 1);
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [text]);
+
+  return (
+    <div>
+      <p
+        ref={ref}
+        className={cn(
+          "text-sm text-foreground leading-relaxed",
+          !expanded && "line-clamp-4",
+        )}
+      >
+        {text}
+      </p>
+      {overflows && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((e) => !e)}
+          className="mt-0.5 text-[11px] text-muted-foreground/80 hover:text-foreground cursor-pointer"
+        >
+          {expanded ? "see less" : "see more..."}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function PromptGroup(props: PromptGroupProps) {
   const [referenceModalImage, setReferenceModalImage] = useState<string | null>(null);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -910,7 +958,7 @@ export default function PromptGroup(props: PromptGroupProps) {
       {/* prompt header */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <p className="text-sm text-foreground leading-relaxed">{props.prompt}</p>
+          <CollapsiblePrompt text={props.prompt} />
           <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
             <p className="text-[11px] text-muted-foreground/60">{fmtDate(props.createdAt)}</p>
             {refImages.length > 0 && (

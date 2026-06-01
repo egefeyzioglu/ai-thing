@@ -1041,7 +1041,7 @@ export function Sidebar({
                       <Select
                         value={motion}
                         onValueChange={(value) =>
-                          onMotionChange((value as VideoMotion) ?? "auto")
+                          onMotionChange(value ?? "auto")
                         }
                       >
                         <SelectTrigger size="sm" className="w-full">
