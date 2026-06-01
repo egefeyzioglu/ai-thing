@@ -818,6 +818,8 @@ export default function Home() {
         hasOnlyOpenAIModelsSelected={hasOnlyOpenAIModelsSelected}
         totalGenerations={totalGenerations}
         userFullName={user.user?.fullName}
+        userEmail={user.user?.primaryEmailAddress?.emailAddress}
+        userImageUrl={user.user?.imageUrl}
         usage={usage}
         isLoadingUsage={isLoadingUsage}
         currentRequestCost={currentRequestCost}
