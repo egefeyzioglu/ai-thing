@@ -3,11 +3,12 @@
 import { useEffect, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
-import { useClerk } from "@clerk/nextjs";
+import { UserButton } from "@clerk/nextjs";
 import {
   Check,
   ChevronDown,
   ChevronUp,
+  Gauge,
   HelpCircle,
   Image as ImageIcon,
   Maximize2,
@@ -45,14 +46,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "src/components/ui/tooltip";
-import { getInitials } from "src/lib/user-utils";
 import type { RouterInputs, RouterOutputs } from "src/trpc/react";
 import { GenerateButton } from "./generate-button";
 import {
   PromptComposer,
   type PromptComposerHandle,
 } from "./prompt-composer";
-import { AccountModal } from "./account-modal";
+import { UsageModal } from "./usage-modal";
 
 export type PromptModelSlug =
   RouterInputs["prompt"]["createWithGenerations"]["models"][number];
@@ -426,8 +426,6 @@ type SidebarProps = {
   hasOnlyOpenAIModelsSelected: boolean;
   totalGenerations: number;
   userFullName: string | null | undefined;
-  userEmail: string | null | undefined;
-  userImageUrl: string | null | undefined;
   usage: RouterOutputs["usage"]["getCurrent"] | undefined;
   isLoadingUsage: boolean;
   currentRequestCost: number;
@@ -492,8 +490,6 @@ export function Sidebar({
   hasOnlyOpenAIModelsSelected,
   totalGenerations,
   userFullName,
-  userEmail,
-  userImageUrl,
   usage,
   isLoadingUsage,
   currentRequestCost,
@@ -501,12 +497,11 @@ export function Sidebar({
   bypassMonthlyQuota,
   onBypassMonthlyQuotaChange,
 }: SidebarProps) {
-  const [accountOpen, setAccountOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<{
     id: string;
     url: string;
   } | null>(null);
-  const { openUserProfile, signOut } = useClerk();
 
   const toggleSelected = (id: string) => {
     if (mode === "video") {
@@ -1163,7 +1158,7 @@ export function Sidebar({
               <button
                 type="button"
                 className="cursor-pointer underline hover:text-red-200"
-                onClick={() => setAccountOpen(true)}
+                onClick={() => setUsageOpen(true)}
               >
                 View usage
               </button>
@@ -1180,57 +1175,28 @@ export function Sidebar({
           onGenerate={onGenerate}
         />
         <br />
-        <div className="flex w-full flex-row items-center-safe justify-start gap-3 px-4">
-          <button
-            type="button"
-            className="flex min-w-0 cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-left hover:bg-(--muted)/50"
-            onClick={() => setAccountOpen(true)}
-          >
-            <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-500 text-xs font-semibold text-white">
-              {userImageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={userImageUrl}
-                  alt=""
-                  className="size-full object-cover"
-                />
-              ) : (
-                getInitials(userFullName, userEmail)
-              )}
-            </span>
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-medium">
-                {userFullName ?? "Account"}
-              </span>
-              {userEmail && (
-                <span className="block truncate text-xs text-(--muted-foreground)">
-                  {userEmail}
-                </span>
-              )}
-            </span>
-          </button>
+        <div className="flex w-full flex-row items-center-safe justify-start gap-4 px-4">
+          <UserButton>
+            <UserButton.MenuItems>
+              <UserButton.Action
+                label="Usage"
+                labelIcon={<Gauge className="size-4" />}
+                onClick={() => setUsageOpen(true)}
+              />
+            </UserButton.MenuItems>
+          </UserButton>
+          {userFullName}
         </div>
-        {accountOpen && (
-          <AccountModal
-            open={accountOpen}
-            onOpenChange={setAccountOpen}
-            user={{
-              name: userFullName,
-              email: userEmail,
-              imageUrl: userImageUrl,
-            }}
+        {usageOpen && (
+          <UsageModal
+            open={usageOpen}
+            onOpenChange={setUsageOpen}
             usage={usage}
-            isLoadingUsage={isLoadingUsage}
+            isLoading={isLoadingUsage}
             currentRequestCost={currentRequestCost}
             canBypassLimits={canBypassLimits}
             bypassMonthlyQuota={bypassMonthlyQuota}
             onBypassMonthlyQuotaChange={onBypassMonthlyQuotaChange}
-            models={activeModels}
-            onManageAccount={() => {
-              setAccountOpen(false);
-              openUserProfile();
-            }}
-            onSignOut={() => void signOut()}
           />
         )}
       </div>
