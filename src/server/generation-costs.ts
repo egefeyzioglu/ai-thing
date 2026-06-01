@@ -922,20 +922,20 @@ function calculateModelarkVideoCost(args: {
     MODELARK_PRICING[args.model as keyof typeof MODELARK_PRICING];
   if (!pricing) return unsupportedModelCost(args.model);
 
-  const requestedResolution = args.fallbackContext.videoResolution ?? "720p";
-  const tier =
-    pricing[requestedResolution as keyof typeof pricing] ??
-    pricing["720p" as keyof typeof pricing];
-  if (!tier) {
+  const requestedResolutionRaw = args.fallbackContext.videoResolution;
+  const requestedResolution = requestedResolutionRaw ?? "720p";
+  const tier = pricing[requestedResolution as keyof typeof pricing];
+
+  if (!tier && requestedResolutionRaw !== undefined) {
     return {
       status: "estimated",
       costUsdMicros: 0,
-      fallbackReason: `unsupported_modelark_resolution:${requestedResolution}`,
+      fallbackReason: `unsupported_modelark_resolution:${requestedResolutionRaw}`,
       costCalculationRaw: {
         pricingVersion: COST_PRICING_VERSION,
         provider: "modelark",
         model: args.model,
-        fallbackReason: `unsupported_modelark_resolution:${requestedResolution}`,
+        fallbackReason: `unsupported_modelark_resolution:${requestedResolutionRaw}`,
       },
     };
   }
