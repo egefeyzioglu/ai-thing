@@ -707,7 +707,16 @@ export function Sidebar({
     return VIDEO_REFERENCE_ROLE_OPTIONS.map((opt) => opt.value).filter(
       (role) => {
         if (role === ownRole) return true;
-        if (role === "refimg" && otherHasFrame) return false;
+        // Demoting first/last → refimg is always allowed: handleChangeRole
+        // sweeps the sibling frame along to keep the state legal.
+        if (
+          role === "refimg" &&
+          otherHasFrame &&
+          ownRole !== "first" &&
+          ownRole !== "last"
+        ) {
+          return false;
+        }
         if ((role === "first" || role === "last") && otherHasRefimg) {
           return false;
         }
