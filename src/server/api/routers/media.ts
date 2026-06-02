@@ -23,6 +23,7 @@ import {
   isSeedanceSlug,
   pollSeedanceTask,
   submitSeedanceTask,
+  type SeedanceReferenceInput,
 } from "src/server/media/seedance";
 import { signUploadThingUrl, utapi, UTFile } from "src/server/uploadthing";
 import {
@@ -271,10 +272,42 @@ async function signMediaRow<T extends { url: string | null }>(
   };
 }
 
-function parseReferenceImageIds(raw: unknown): string[] {
+type VideoReferenceRole = "first" | "last" | "refimg";
+
+type ParsedPromptReference = {
+  id: string;
+  role?: VideoReferenceRole;
+};
+
+function parsePromptReferences(raw: unknown): ParsedPromptReference[] {
   if (!Array.isArray(raw)) return [];
-  return raw.filter((value): value is string => typeof value === "string");
+  return raw.flatMap((value): ParsedPromptReference[] => {
+    if (typeof value === "string") return [{ id: value }];
+    if (value && typeof value === "object" && "id" in value) {
+      const id = (value as { id?: unknown }).id;
+      const role = (value as { role?: unknown }).role;
+      if (typeof id !== "string") return [];
+      if (role === "first" || role === "last" || role === "refimg") {
+        return [{ id, role }];
+      }
+      return [{ id }];
+    }
+    return [];
+  });
 }
+
+function parseReferenceImageIds(raw: unknown): string[] {
+  return parsePromptReferences(raw).map((r) => r.id);
+}
+
+const VIDEO_TO_SEEDANCE_ROLE: Record<
+  VideoReferenceRole,
+  SeedanceReferenceInput["role"]
+> = {
+  first: "first_frame",
+  last: "last_frame",
+  refimg: "reference_image",
+};
 
 function redactErrorMessage(message: string) {
   return message
@@ -904,16 +937,39 @@ export const mediaRouter = createTRPCRouter({
           });
         }
 
-        const videoReferenceImageIds = parseReferenceImageIds(
+        const videoReferences = parsePromptReferences(
           promptRow.referenceImages,
         );
-        let firstFrameImageUrl: string | undefined;
-        if (videoReferenceImageIds.length > 0) {
-          const refs = await loadOwnedReferenceImages(ctx.user, [
-            videoReferenceImageIds[0]!,
-          ]);
-          firstFrameImageUrl = refs[0]?.url ?? undefined;
-        }
+        // Legacy rows stored a single string id and treated it as the first
+        // frame. Apply that default here so retries on old rows keep working.
+        const videoReferencesWithRole = videoReferences.map((ref, idx) => ({
+          id: ref.id,
+          role:
+            ref.role ??
+            ((videoReferences.length === 1 && idx === 0
+              ? "first"
+              : "refimg") as VideoReferenceRole),
+        }));
+        const seedanceReferences: SeedanceReferenceInput[] =
+          videoReferencesWithRole.length > 0
+            ? await (async () => {
+                const loaded = await loadOwnedReferenceImages(
+                  ctx.user,
+                  videoReferencesWithRole.map((r) => r.id),
+                );
+                const byId = new Map(loaded.map((img) => [img.id, img]));
+                return videoReferencesWithRole.flatMap((ref) => {
+                  const img = byId.get(ref.id);
+                  if (!img?.url) return [];
+                  return [
+                    {
+                      url: img.url,
+                      role: VIDEO_TO_SEEDANCE_ROLE[ref.role],
+                    },
+                  ];
+                });
+              })()
+            : [];
 
         const videoDurationSeconds = mediaRow.durationMs
           ? mediaRow.durationMs / 1000
@@ -1022,7 +1078,7 @@ export const mediaRouter = createTRPCRouter({
             duration: videoDurationSeconds,
             aspectRatio: promptRow.aspectRatio ?? "adaptive",
             resolution: promptRow.resolution ?? undefined,
-            firstFrameImageUrl,
+            references: seedanceReferences,
           });
         } catch (err) {
           console.error("[runGeneration] seedance submit failed:", err);

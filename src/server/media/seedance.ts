@@ -112,6 +112,18 @@ function normalize(data: ModelarkTaskResponse): SeedanceTaskResult {
   };
 }
 
+export const SEEDANCE_REFERENCE_ROLES = [
+  "first_frame",
+  "last_frame",
+  "reference_image",
+] as const;
+export type SeedanceReferenceRole = (typeof SEEDANCE_REFERENCE_ROLES)[number];
+
+export type SeedanceReferenceInput = {
+  url: string;
+  role: SeedanceReferenceRole;
+};
+
 export type SubmitSeedanceTaskInput = {
   slug: SeedanceSlug;
   prompt: string;
@@ -119,18 +131,18 @@ export type SubmitSeedanceTaskInput = {
   aspectRatio: string;
   resolution?: string;
   generateAudio?: boolean;
-  firstFrameImageUrl?: string;
+  references?: SeedanceReferenceInput[];
 };
 
 export async function submitSeedanceTask(
   args: SubmitSeedanceTaskInput,
 ): Promise<SeedanceTaskResult> {
   const content: unknown[] = [{ type: "text", text: args.prompt }];
-  if (args.firstFrameImageUrl) {
+  for (const ref of args.references ?? []) {
     content.push({
       type: "image_url",
-      image_url: { url: args.firstFrameImageUrl },
-      role: "reference_image",
+      image_url: { url: ref.url },
+      role: ref.role,
     });
   }
 

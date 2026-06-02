@@ -101,6 +101,11 @@ export type VideoResolution = (typeof VIDEO_RESOLUTION_OPTIONS)[number];
 export const VIDEO_MOTION_OPTIONS = ["auto", "low", "high"] as const;
 export type VideoMotion = (typeof VIDEO_MOTION_OPTIONS)[number];
 
+export const VIDEO_REFERENCE_ROLES = ["first", "last", "refimg"] as const;
+export type VideoReferenceRole = (typeof VIDEO_REFERENCE_ROLES)[number];
+
+export const MAX_VIDEO_REFERENCE_IMAGES = 9;
+
 export const promptRouter = createTRPCRouter({
   getModels: protectedProcedure.query(() => {
     return SUPPORTED_MODELS.map((model) => ({
@@ -120,7 +125,17 @@ export const promptRouter = createTRPCRouter({
         mode: z.enum(["image", "video"]),
         models: z.array(z.enum(supportedModelSlugs)).min(1),
         repeatCount: z.number().int().min(1).max(8),
-        referenceImages: z.array(z.string()).optional(),
+        referenceImages: z
+          .array(
+            z.union([
+              z.string(),
+              z.object({
+                id: z.string().min(1),
+                role: z.enum(VIDEO_REFERENCE_ROLES).optional(),
+              }),
+            ]),
+          )
+          .optional(),
         resolution: z.string().optional(),
         aspectRatio: z.string().optional(),
         // image-only
@@ -151,9 +166,19 @@ export const promptRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       // De-dupe in case the client double-checked a model.
       const models = Array.from(new Set(input.models));
-      const referenceImageIds = Array.from(
-        new Set(input.referenceImages ?? []),
+
+      // Normalize referenceImages input to {id, role?} and de-dupe by id
+      // (last entry wins so a later role assignment overrides an earlier one).
+      const normalizedRefs = (input.referenceImages ?? []).map((raw) =>
+        typeof raw === "string" ? { id: raw } : { id: raw.id, role: raw.role },
       );
+      const refsById = new Map<
+        string,
+        { id: string; role?: VideoReferenceRole }
+      >();
+      for (const r of normalizedRefs) refsById.set(r.id, r);
+      const referenceImagesNormalized = Array.from(refsById.values());
+      const referenceImageIds = referenceImagesNormalized.map((r) => r.id);
 
       const inconsistentModels = models.filter(
         (slug) => SUPPORTED_MODEL_BY_SLUG[slug]?.kind !== input.mode,
@@ -173,11 +198,33 @@ export const promptRouter = createTRPCRouter({
               "Video generation requires both duration and videoResolution",
           });
         }
-        if (referenceImageIds.length > 1) {
+        if (referenceImagesNormalized.length > MAX_VIDEO_REFERENCE_IMAGES) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Video generation accepts at most ${MAX_VIDEO_REFERENCE_IMAGES} reference images`,
+          });
+        }
+        const firstCount = referenceImagesNormalized.filter(
+          (r) => r.role === "first",
+        ).length;
+        const lastCount = referenceImagesNormalized.filter(
+          (r) => r.role === "last",
+        ).length;
+        const refImgCount = referenceImagesNormalized.filter(
+          (r) => r.role === "refimg" || r.role === undefined,
+        ).length;
+        if (firstCount > 1 || lastCount > 1) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message:
-              "Video generation accepts at most one reference image (used as the first frame)",
+              "Video generation accepts at most one first frame and one last frame",
+          });
+        }
+        if ((firstCount > 0 || lastCount > 0) && refImgCount > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "First/last frames can't be combined with reference images",
           });
         }
       }
@@ -237,6 +284,10 @@ export const promptRouter = createTRPCRouter({
           : input.resolution;
 
         const promptId = crypto.randomUUID();
+        const persistedReferenceImages =
+          input.mode === "video"
+            ? referenceImagesNormalized
+            : referenceImageIds;
         const [promptRow] = await tx
           .insert(prompts)
           .values({
@@ -244,7 +295,7 @@ export const promptRouter = createTRPCRouter({
             userId: ctx.user,
             projectId: input.projectId,
             text: input.text,
-            referenceImages: referenceImageIds,
+            referenceImages: persistedReferenceImages,
             resolution: persistedResolution,
             aspectRatio: input.aspectRatio,
             quality:

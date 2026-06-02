@@ -87,6 +87,9 @@ export default function Home() {
   const [selectedReferenceImages, setSelectedReferenceImages] = useState<
     string[]
   >([]);
+  const [videoReferenceRoles, setVideoReferenceRoles] = useState<
+    Record<string, "first" | "last" | "refimg">
+  >({});
   const [selectedModels, setSelectedModels] = useState<PromptModelSlug[]>([]);
   const [mode, setMode] = useLocalStorage("outputMode");
   const [resolution, setResolution] = useState<ResolutionOption>("1K");
@@ -199,10 +202,44 @@ export default function Home() {
   ]);
 
   useEffect(() => {
-    if (mode === "video" && selectedReferenceImages.length > 1) {
-      setSelectedReferenceImages((prev) => prev.slice(0, 1));
-    }
-  }, [mode, selectedReferenceImages]);
+    setVideoReferenceRoles((prev) => {
+      const next: Record<string, "first" | "last" | "refimg"> = {};
+      let firstTaken = false;
+      let lastTaken = false;
+      let hasRefimg = false;
+      for (const id of selectedReferenceImages) {
+        const existing = prev[id];
+        if (existing === "first" && !firstTaken) {
+          next[id] = "first";
+          firstTaken = true;
+        } else if (existing === "last" && !lastTaken) {
+          next[id] = "last";
+          lastTaken = true;
+        } else if (existing === "refimg") {
+          next[id] = "refimg";
+          hasRefimg = true;
+        }
+      }
+      for (const id of selectedReferenceImages) {
+        if (next[id]) continue;
+        // Stay in refimg-only mode if the user has any refimgs; otherwise
+        // fill the missing frame slot (first then last) so the second image
+        // in image-to-video defaults to the end frame, not an illegal mix.
+        if (hasRefimg) {
+          next[id] = "refimg";
+        } else if (!firstTaken) {
+          next[id] = "first";
+          firstTaken = true;
+        } else if (!lastTaken) {
+          next[id] = "last";
+          lastTaken = true;
+        } else {
+          next[id] = "refimg";
+        }
+      }
+      return next;
+    });
+  }, [selectedReferenceImages]);
 
   useEffect(() => {
     if (user.isLoaded && !canBypassLimits && bypassMonthlyQuota) {
@@ -423,7 +460,12 @@ export default function Home() {
         repeatCount: runs,
         referenceImages:
           selectedReferenceImages.length > 0
-            ? selectedReferenceImages
+            ? mode === "video"
+              ? selectedReferenceImages.map((id) => ({
+                  id,
+                  role: videoReferenceRoles[id] ?? "refimg",
+                }))
+              : selectedReferenceImages
             : undefined,
         resolution: mode === "image" ? resolution : undefined,
         videoResolution: mode === "video" ? videoResolution : undefined,
@@ -751,6 +793,8 @@ export default function Home() {
         onArchivedModelsOpenChange={setArchivedModelsOpen}
         selectedReferenceImages={selectedReferenceImages}
         onSelectedReferenceImagesChange={setSelectedReferenceImages}
+        videoReferenceRoles={videoReferenceRoles}
+        onVideoReferenceRolesChange={setVideoReferenceRoles}
         selectedModels={selectedModels}
         onToggleSelectedModel={toggleSelectedModel}
         mode={mode}
