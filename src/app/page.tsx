@@ -65,6 +65,23 @@ function normalizeVideoRoles(
       hasRefimg = true;
     }
   }
+  // Decide refimg-only mode upfront: either prev already had refimgs, or
+  // there are more unassigned refs than free frame slots (which would
+  // otherwise force some defaults into the refimg branch and produce an
+  // illegal {first, last, refimg} mix). When so, demote any preserved
+  // frames so the second pass yields a clean refimg-only set.
+  const unclaimedCount = selected.filter((id) => !next[id]).length;
+  const freeFrameSlots = (firstTaken ? 0 : 1) + (lastTaken ? 0 : 1);
+  if (hasRefimg || unclaimedCount > freeFrameSlots) {
+    hasRefimg = true;
+    for (const id of selected) {
+      if (next[id] === "first" || next[id] === "last") {
+        next[id] = "refimg";
+      }
+    }
+    firstTaken = false;
+    lastTaken = false;
+  }
   for (const id of selected) {
     if (next[id]) continue;
     // Stay in refimg-only mode if the user has any refimgs; otherwise
