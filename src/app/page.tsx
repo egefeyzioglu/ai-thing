@@ -27,6 +27,7 @@ import { MediaGallery } from "./_components/media-gallery";
 import type { PromptComposerHandle } from "./_components/prompt-composer";
 import {
   Sidebar,
+  MAX_VIDEO_REFERENCE_IMAGES,
   type PromptModelSlug,
   type ResolutionOption,
   type VideoDuration,
@@ -40,6 +41,73 @@ type PendingDelete =
   | { type: "referenceImage"; id: string }
   | { type: "prompt"; id: string }
   | { type: "media"; id: string };
+
+type VideoReferenceRole = "first" | "last" | "refimg";
+
+function normalizeVideoRoles(
+  prev: Record<string, VideoReferenceRole>,
+  selected: string[],
+): Record<string, VideoReferenceRole> {
+  const next: Record<string, VideoReferenceRole> = {};
+  let firstTaken = false;
+  let lastTaken = false;
+  let hasRefimg = false;
+  for (const id of selected) {
+    const existing = prev[id];
+    if (existing === "first" && !firstTaken) {
+      next[id] = "first";
+      firstTaken = true;
+    } else if (existing === "last" && !lastTaken) {
+      next[id] = "last";
+      lastTaken = true;
+    } else if (existing === "refimg") {
+      next[id] = "refimg";
+      hasRefimg = true;
+    }
+  }
+  // Decide refimg-only mode upfront: either prev already had refimgs, or
+  // there are more unassigned refs than free frame slots (which would
+  // otherwise force some defaults into the refimg branch and produce an
+  // illegal {first, last, refimg} mix). When so, demote any preserved
+  // frames so the second pass yields a clean refimg-only set.
+  const unclaimedCount = selected.filter((id) => !next[id]).length;
+  const freeFrameSlots = (firstTaken ? 0 : 1) + (lastTaken ? 0 : 1);
+  if (hasRefimg || unclaimedCount > freeFrameSlots) {
+    hasRefimg = true;
+    for (const id of selected) {
+      if (next[id] === "first" || next[id] === "last") {
+        next[id] = "refimg";
+      }
+    }
+    firstTaken = false;
+    lastTaken = false;
+  }
+  for (const id of selected) {
+    if (next[id]) continue;
+    // Stay in refimg-only mode if the user has any refimgs; otherwise
+    // fill the missing frame slot (first then last) so the second image
+    // in image-to-video defaults to the end frame, not an illegal mix.
+    if (hasRefimg) {
+      next[id] = "refimg";
+    } else if (!firstTaken) {
+      next[id] = "first";
+      firstTaken = true;
+    } else if (!lastTaken) {
+      next[id] = "last";
+      lastTaken = true;
+    } else {
+      next[id] = "refimg";
+    }
+  }
+  // Backfill: a solitary "last" with no "first" (e.g., user unselected the
+  // first frame) becomes the new first frame, since last_frame alone would
+  // serialize as last-frame-only image-to-video.
+  if (!firstTaken && lastTaken) {
+    const loneLastId = selected.find((id) => next[id] === "last");
+    if (loneLastId) next[loneLastId] = "first";
+  }
+  return next;
+}
 
 const PUSH_PERMISSION_PROMPT_STORAGE_KEY = "ai-thing.pushPermissionPrompt";
 const OPENAI_MODEL_SLUGS = new Set<PromptModelSlug>([
@@ -87,6 +155,9 @@ export default function Home() {
   const [selectedReferenceImages, setSelectedReferenceImages] = useState<
     string[]
   >([]);
+  const [videoReferenceRoles, setVideoReferenceRoles] = useState<
+    Record<string, "first" | "last" | "refimg">
+  >({});
   const [selectedModels, setSelectedModels] = useState<PromptModelSlug[]>([]);
   const [mode, setMode] = useLocalStorage("outputMode");
   const [resolution, setResolution] = useState<ResolutionOption>("1K");
@@ -199,10 +270,10 @@ export default function Home() {
   ]);
 
   useEffect(() => {
-    if (mode === "video" && selectedReferenceImages.length > 1) {
-      setSelectedReferenceImages((prev) => prev.slice(0, 1));
-    }
-  }, [mode, selectedReferenceImages]);
+    setVideoReferenceRoles((prev) =>
+      normalizeVideoRoles(prev, selectedReferenceImages),
+    );
+  }, [selectedReferenceImages, mode]);
 
   useEffect(() => {
     if (user.isLoaded && !canBypassLimits && bypassMonthlyQuota) {
@@ -351,10 +422,52 @@ export default function Home() {
 
         if (createdReferenceIds.length > 0) {
           await utils.referenceImage.getReferenceImages.invalidate();
-          setSelectedReferenceImages((prev) => [
-            ...prev,
-            ...createdReferenceIds.filter((id) => !prev.includes(id)),
-          ]);
+          setSelectedReferenceImages((prev) => {
+            const dedupedNew = createdReferenceIds.filter(
+              (id) => !prev.includes(id),
+            );
+            if (mode !== "video") {
+              return [...prev, ...dedupedNew];
+            }
+            const remaining = Math.max(
+              0,
+              MAX_VIDEO_REFERENCE_IMAGES - prev.length,
+            );
+            const accepted = dedupedNew.slice(0, remaining);
+            const rejected = dedupedNew.length - accepted.length;
+            if (rejected > 0) {
+              toast.error(
+                rejected === 1
+                  ? `1 uploaded image not selected — video accepts at most ${MAX_VIDEO_REFERENCE_IMAGES} reference images`
+                  : `${rejected} uploaded images not selected — video accepts at most ${MAX_VIDEO_REFERENCE_IMAGES} reference images`,
+              );
+            }
+            if (accepted.length === 0) return prev;
+            const hasFirst = prev.some(
+              (sid) => videoReferenceRoles[sid] === "first",
+            );
+            const hasLast = prev.some(
+              (sid) => videoReferenceRoles[sid] === "last",
+            );
+            if (hasFirst && hasLast) {
+              setVideoReferenceRoles((prevRoles) => {
+                const nextRoles = { ...prevRoles };
+                for (const sid of prev) {
+                  if (
+                    nextRoles[sid] === "first" ||
+                    nextRoles[sid] === "last"
+                  ) {
+                    nextRoles[sid] = "refimg";
+                  }
+                }
+                return nextRoles;
+              });
+              toast.info(
+                "First and last frames are now reference images so you can add more.",
+              );
+            }
+            return [...prev, ...accepted];
+          });
           setReferenceImagesOpen(true);
         }
 
@@ -423,7 +536,12 @@ export default function Home() {
         repeatCount: runs,
         referenceImages:
           selectedReferenceImages.length > 0
-            ? selectedReferenceImages
+            ? mode === "video"
+              ? selectedReferenceImages.map((id) => ({
+                  id,
+                  role: videoReferenceRoles[id] ?? "refimg",
+                }))
+              : selectedReferenceImages
             : undefined,
         resolution: mode === "image" ? resolution : undefined,
         videoResolution: mode === "video" ? videoResolution : undefined,
@@ -751,6 +869,8 @@ export default function Home() {
         onArchivedModelsOpenChange={setArchivedModelsOpen}
         selectedReferenceImages={selectedReferenceImages}
         onSelectedReferenceImagesChange={setSelectedReferenceImages}
+        videoReferenceRoles={videoReferenceRoles}
+        onVideoReferenceRolesChange={setVideoReferenceRoles}
         selectedModels={selectedModels}
         onToggleSelectedModel={toggleSelectedModel}
         mode={mode}

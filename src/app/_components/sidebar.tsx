@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import clsx from "clsx";
+import { toast } from "sonner";
 
 import {
   Collapsible,
@@ -32,6 +33,11 @@ import { Checkbox } from "src/components/ui/checkbox";
 import { Field, FieldLabel } from "src/components/ui/field";
 import { Input } from "src/components/ui/input";
 import { Label } from "src/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "src/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -79,6 +85,25 @@ export const VIDEO_MOTION_OPTIONS: { value: VideoMotion; label: string }[] = [
   { value: "low", label: "Subtle" },
   { value: "high", label: "Dynamic" },
 ];
+
+export type VideoReferenceRole = "first" | "last" | "refimg";
+export const MAX_VIDEO_REFERENCE_IMAGES = 9;
+
+const VIDEO_REFERENCE_ROLE_OPTIONS: {
+  value: VideoReferenceRole;
+  label: string;
+  short: string;
+  hint: string;
+  accent: boolean;
+}[] = [
+  { value: "first", label: "First frame", short: "First", hint: "Start of the clip", accent: true },
+  { value: "last", label: "Last frame", short: "Last", hint: "End of the clip", accent: true },
+  { value: "refimg", label: "Reference image", short: "Ref", hint: "Guides style & subject", accent: false },
+];
+
+const VIDEO_REFERENCE_ROLE_BY_VALUE = Object.fromEntries(
+  VIDEO_REFERENCE_ROLE_OPTIONS.map((opt) => [opt.value, opt]),
+) as Record<VideoReferenceRole, (typeof VIDEO_REFERENCE_ROLE_OPTIONS)[number]>;
 
 export const QUALITY_OPTIONS: { value: QualityOption; label: string }[] = [
   { value: "auto", label: "Auto" },
@@ -197,9 +222,16 @@ type ReferenceImageProps = {
   onDelete: () => void;
   setSelected: () => void;
   onPreview: () => void;
+  role?: VideoReferenceRole;
+  availableRoles?: VideoReferenceRole[];
+  onChangeRole?: (role: VideoReferenceRole) => void;
 };
 
 function ReferenceImage(props: ReferenceImageProps) {
+  const showRolePill = props.isSelected && props.role !== undefined;
+  const roleInfo = props.role
+    ? VIDEO_REFERENCE_ROLE_BY_VALUE[props.role]
+    : undefined;
   return (
     <div
       className={clsx(
@@ -229,7 +261,10 @@ function ReferenceImage(props: ReferenceImageProps) {
         {/* Maximize hint on hover (image body only) */}
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute right-1.5 bottom-1.5 z-10 flex items-center justify-center rounded-md bg-black/50 p-1 opacity-0 transition-opacity group-hover:opacity-100"
+          className={clsx(
+            "pointer-events-none absolute right-1.5 z-10 flex items-center justify-center rounded-md bg-black/50 p-1 opacity-0 transition-opacity group-hover:opacity-100",
+            showRolePill ? "bottom-7" : "bottom-1.5",
+          )}
         >
           <Maximize2 className="size-3 text-white" strokeWidth={2} />
         </div>
@@ -270,6 +305,71 @@ function ReferenceImage(props: ReferenceImageProps) {
       >
         <Trash2 className="size-3 text-white" strokeWidth={2.2} />
       </button>
+
+      {showRolePill && roleInfo && props.onChangeRole && (
+        <Popover>
+          <PopoverTrigger
+            render={
+              <button
+                type="button"
+                onClick={(e) => e.stopPropagation()}
+                className={clsx(
+                  "focus-visible:outline-ring absolute right-1 bottom-1 left-1 z-20 flex cursor-pointer items-center justify-center gap-0.5 rounded-full border px-1 py-0.5 text-[9.5px] font-medium leading-none backdrop-blur-md transition-colors focus-visible:outline focus-visible:outline-2",
+                  roleInfo.accent
+                    ? "border-blue-400/45 bg-black/55 text-blue-400 hover:bg-black/70"
+                    : "border-(--border) bg-black/55 text-(--foreground) hover:bg-black/70",
+                )}
+                aria-label={`Role: ${roleInfo.label}. Click to change.`}
+              >
+                <span>{roleInfo.short}</span>
+                <ChevronDown className="size-2.5 opacity-70" strokeWidth={2.5} />
+              </button>
+            }
+          />
+          <PopoverContent
+            align="start"
+            sideOffset={4}
+            className="w-44 gap-0.5 p-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {(props.availableRoles ?? VIDEO_REFERENCE_ROLE_OPTIONS.map((o) => o.value)).map(
+              (roleValue) => {
+                const opt = VIDEO_REFERENCE_ROLE_BY_VALUE[roleValue];
+                const selected = props.role === roleValue;
+                return (
+                  <button
+                    key={roleValue}
+                    type="button"
+                    onClick={() => props.onChangeRole?.(roleValue)}
+                    className={clsx(
+                      "flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs",
+                      selected
+                        ? "bg-blue-500/15"
+                        : "hover:bg-gray-800",
+                    )}
+                  >
+                    <span
+                      className={clsx(
+                        "size-2 shrink-0 rounded-full",
+                        opt.accent ? "bg-blue-400" : "bg-(--muted-foreground)",
+                      )}
+                    />
+                    <span className="flex min-w-0 flex-col leading-tight">
+                      <span className="text-xs">{opt.label}</span>
+                      <span className="text-[10px] text-(--muted-foreground)">
+                        {opt.hint}
+                      </span>
+                    </span>
+                    {selected && (
+                      <Check className="ml-auto size-3 shrink-0 text-blue-400" strokeWidth={3} />
+                    )}
+                  </button>
+                );
+              },
+            )}
+          </PopoverContent>
+        </Popover>
+      )}
     </div>
   );
 }
@@ -375,6 +475,14 @@ type SidebarProps = {
   onArchivedModelsOpenChange: (open: boolean) => void;
   selectedReferenceImages: string[];
   onSelectedReferenceImagesChange: (ids: string[]) => void;
+  videoReferenceRoles: Record<string, VideoReferenceRole>;
+  onVideoReferenceRolesChange: (
+    update:
+      | Record<string, VideoReferenceRole>
+      | ((
+          prev: Record<string, VideoReferenceRole>,
+        ) => Record<string, VideoReferenceRole>),
+  ) => void;
   selectedModels: PromptModelSlug[];
   onToggleSelectedModel: (slug: PromptModelSlug) => void;
   mode: OutputMode;
@@ -441,6 +549,8 @@ export function Sidebar({
   onArchivedModelsOpenChange,
   selectedReferenceImages,
   onSelectedReferenceImagesChange,
+  videoReferenceRoles,
+  onVideoReferenceRolesChange,
   selectedModels,
   onToggleSelectedModel,
   mode,
@@ -503,25 +613,129 @@ export function Sidebar({
     url: string;
   } | null>(null);
 
+  const hasFirst = selectedReferenceImages.some(
+    (id) => videoReferenceRoles[id] === "first",
+  );
+  const hasLast = selectedReferenceImages.some(
+    (id) => videoReferenceRoles[id] === "last",
+  );
+  const hasRefImg = selectedReferenceImages.some(
+    (id) => (videoReferenceRoles[id] ?? "refimg") === "refimg",
+  );
+
   const toggleSelected = (id: string) => {
-    if (mode === "video") {
-      onSelectedReferenceImagesChange(
-        selectedReferenceImages.includes(id) ? [] : [id],
-      );
-      return;
-    }
     if (selectedReferenceImages.includes(id)) {
       onSelectedReferenceImagesChange(
         selectedReferenceImages.filter((e) => e !== id),
       );
-    } else {
-      onSelectedReferenceImagesChange([...selectedReferenceImages, id]);
+      return;
     }
+    if (mode === "video") {
+      if (selectedReferenceImages.length >= MAX_VIDEO_REFERENCE_IMAGES) {
+        toast.error(
+          `Video generation accepts at most ${MAX_VIDEO_REFERENCE_IMAGES} reference images`,
+        );
+        return;
+      }
+      if (hasFirst && hasLast) {
+        onVideoReferenceRolesChange((prev) => {
+          const next = { ...prev };
+          for (const sid of selectedReferenceImages) {
+            if (next[sid] === "first" || next[sid] === "last") {
+              next[sid] = "refimg";
+            }
+          }
+          return next;
+        });
+        toast.info(
+          "First and last frames are now reference images so you can add more.",
+        );
+      }
+    }
+    onSelectedReferenceImagesChange([...selectedReferenceImages, id]);
+  };
+
+  const handleChangeRole = (id: string, role: VideoReferenceRole) => {
+    onVideoReferenceRolesChange((prev) => {
+      const next = { ...prev };
+      if (role === "first" || role === "last") {
+        for (const otherId of selectedReferenceImages) {
+          if (otherId !== id && next[otherId] === role) {
+            next[otherId] = "refimg";
+          }
+        }
+      }
+      next[id] = role;
+      const hasFrame = selectedReferenceImages.some(
+        (sid) => next[sid] === "first" || next[sid] === "last",
+      );
+      const hasRefimgNow = selectedReferenceImages.some(
+        (sid) => (next[sid] ?? "refimg") === "refimg",
+      );
+      if (hasFrame && hasRefimgNow) {
+        // Demoting a frame → refimg means the user wants refimg-only mode;
+        // sweep the remaining frame(s) along instead of blocking.
+        if (role === "refimg") {
+          for (const otherId of selectedReferenceImages) {
+            if (next[otherId] === "first" || next[otherId] === "last") {
+              next[otherId] = "refimg";
+            }
+          }
+          return next;
+        }
+        toast.error(
+          "First/last frames can't be combined with reference images",
+        );
+        return prev;
+      }
+      return next;
+    });
+  };
+
+  const availableRolesFor = (id: string): VideoReferenceRole[] => {
+    const ownRole = videoReferenceRoles[id] ?? "refimg";
+    const otherHasFrame = selectedReferenceImages.some(
+      (sid) =>
+        sid !== id &&
+        (videoReferenceRoles[sid] === "first" ||
+          videoReferenceRoles[sid] === "last"),
+    );
+    const otherHasRefimg = selectedReferenceImages.some(
+      (sid) =>
+        sid !== id && (videoReferenceRoles[sid] ?? "refimg") === "refimg",
+    );
+    return VIDEO_REFERENCE_ROLE_OPTIONS.map((opt) => opt.value).filter(
+      (role) => {
+        if (role === ownRole) return true;
+        // Demoting first/last → refimg is always allowed: handleChangeRole
+        // sweeps the sibling frame along to keep the state legal.
+        if (
+          role === "refimg" &&
+          otherHasFrame &&
+          ownRole !== "first" &&
+          ownRole !== "last"
+        ) {
+          return false;
+        }
+        if ((role === "first" || role === "last") && otherHasRefimg) {
+          return false;
+        }
+        return true;
+      },
+    );
   };
 
   const firstFrameRefImage =
-    mode === "video" && selectedReferenceImages.length > 0
-      ? referenceImages?.find((img) => img.id === selectedReferenceImages[0])
+    mode === "video" && hasFirst
+      ? referenceImages?.find(
+          (img) => videoReferenceRoles[img.id] === "first",
+        )
+      : undefined;
+  const lastFrameRefImage =
+    mode === "video" && hasLast
+      ? referenceImages?.find(
+          (img) => videoReferenceRoles[img.id] === "last",
+        )
       : undefined;
 
   return (
@@ -568,19 +782,35 @@ export function Sidebar({
                 ? Array.from({ length: 6 }).map((_, i) => (
                     <Skeleton key={i} className="aspect-square rounded-md" />
                   ))
-                : referenceImages?.map((img) => (
-                    <ReferenceImage
-                      key={img.id}
-                      src={img.url ?? ""}
-                      alt="Reference image"
-                      isSelected={selectedReferenceImages.includes(img.id)}
-                      setSelected={() => toggleSelected(img.id)}
-                      onDelete={() => onDeleteReferenceImage(img.id)}
-                      onPreview={() =>
-                        setPreviewImage({ id: img.id, url: img.url ?? "" })
-                      }
-                    />
-                  ))}
+                : referenceImages?.map((img) => {
+                    const isSelected = selectedReferenceImages.includes(img.id);
+                    const role =
+                      mode === "video" && isSelected
+                        ? videoReferenceRoles[img.id] ?? "refimg"
+                        : undefined;
+                    return (
+                      <ReferenceImage
+                        key={img.id}
+                        src={img.url ?? ""}
+                        alt="Reference image"
+                        isSelected={isSelected}
+                        setSelected={() => toggleSelected(img.id)}
+                        onDelete={() => onDeleteReferenceImage(img.id)}
+                        onPreview={() =>
+                          setPreviewImage({ id: img.id, url: img.url ?? "" })
+                        }
+                        role={role}
+                        availableRoles={
+                          mode === "video" ? availableRolesFor(img.id) : undefined
+                        }
+                        onChangeRole={
+                          mode === "video"
+                            ? (newRole) => handleChangeRole(img.id, newRole)
+                            : undefined
+                        }
+                      />
+                    );
+                  })}
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -598,6 +828,20 @@ export function Sidebar({
                 onChange={onFileUpload}
               />
             </div>
+            {mode === "video" && (
+              <div className="flex items-center gap-3 px-2 pb-1 text-[11px] text-(--muted-foreground)">
+                <span
+                  className={clsx(
+                    "inline-flex items-center gap-1",
+                    selectedReferenceImages.length >= MAX_VIDEO_REFERENCE_IMAGES &&
+                      "text-blue-400",
+                  )}
+                >
+                  <ImageIcon className="size-3 opacity-80" strokeWidth={1.5} />
+                  {selectedReferenceImages.length}/{MAX_VIDEO_REFERENCE_IMAGES}
+                </span>
+              </div>
+            )}
           </CollapsibleContent>
         </Collapsible>
         <Field>
@@ -792,27 +1036,62 @@ export function Sidebar({
               </div>
             </Field>
             <p className="-mt-1 flex items-start gap-2 text-xs text-(--muted-foreground)">
-              {firstFrameRefImage?.url ? (
+              {firstFrameRefImage?.url || lastFrameRefImage?.url ? (
                 <>
-                  <span className="relative size-7 shrink-0 overflow-hidden rounded border border-(--border)">
-                    <Image
-                      src={firstFrameRefImage.url}
-                      alt="First frame reference"
-                      fill
-                      sizes="28px"
-                      className="object-cover"
-                    />
+                  <span className="inline-flex shrink-0 gap-1.5">
+                    {firstFrameRefImage?.url && (
+                      <span className="flex flex-col items-center">
+                        <span className="relative size-7 overflow-hidden rounded border border-(--border)">
+                          <Image
+                            src={firstFrameRefImage.url}
+                            alt="First frame reference"
+                            fill
+                            sizes="28px"
+                            className="object-cover"
+                          />
+                        </span>
+                        <span className="mt-0.5 text-[8px] tracking-wide text-blue-400 uppercase">
+                          Start
+                        </span>
+                      </span>
+                    )}
+                    {lastFrameRefImage?.url && (
+                      <span className="flex flex-col items-center">
+                        <span className="relative size-7 overflow-hidden rounded border border-(--border)">
+                          <Image
+                            src={lastFrameRefImage.url}
+                            alt="Last frame reference"
+                            fill
+                            sizes="28px"
+                            className="object-cover"
+                          />
+                        </span>
+                        <span className="mt-0.5 text-[8px] tracking-wide text-blue-400 uppercase">
+                          End
+                        </span>
+                      </span>
+                    )}
                   </span>
                   <span>
-                    <b className="text-(--foreground)">Image-to-video</b> — your
-                    reference image becomes the starting frame.
+                    <b className="text-(--foreground)">Image-to-video</b>{" "}
+                    {hasFirst && hasLast
+                      ? "— morphs from your first frame to your last frame."
+                      : hasFirst
+                        ? "— begins on your first frame."
+                        : "— ends on your last frame."}
                   </span>
                 </>
+              ) : hasRefImg ? (
+                <span>
+                  Reference images guide style and subject. Deselect them to
+                  use <b className="text-(--foreground)">image-to-video</b>.
+                </span>
               ) : (
                 <span>
-                  Select a reference image above to use{" "}
-                  <b className="text-(--foreground)">image-to-video</b> (first
-                  frame). Otherwise text-to-video.
+                  Tag a reference image above as{" "}
+                  <b className="text-(--foreground)">first frame</b> to use{" "}
+                  <b className="text-(--foreground)">image-to-video</b>.
+                  Otherwise text-to-video.
                 </span>
               )}
             </p>

@@ -190,16 +190,28 @@ export function MediaGallery({
                 createdAt: mediaItem.createdAt,
                 updatedAt: mediaItem.updatedAt,
               }))}
-              referenceImages={
-                (prompt.referenceImages as string[])?.length > 0
-                  ? (prompt.referenceImages as string[]).map((id) => ({
-                      id,
-                      url:
-                        referenceImages?.find((r) => r.id === id)?.url ??
-                        undefined,
-                    }))
-                  : []
-              }
+              referenceImages={(() => {
+                const raw = prompt.referenceImages;
+                if (!Array.isArray(raw)) return [];
+                const ids = raw.flatMap((item): string[] => {
+                  if (typeof item === "string") return [item];
+                  if (
+                    item &&
+                    typeof item === "object" &&
+                    "id" in item &&
+                    typeof (item as { id?: unknown }).id === "string"
+                  ) {
+                    return [(item as { id: string }).id];
+                  }
+                  return [];
+                });
+                return ids.map((id) => ({
+                  id,
+                  url:
+                    referenceImages?.find((r) => r.id === id)?.url ??
+                    undefined,
+                }));
+              })()}
               onDeletePrompt={() => onDeletePrompt(prompt.id)}
               onMovePrompt={(projectId) => onMovePrompt(prompt.id, projectId)}
               onDeleteMedia={onDeleteMedia}
