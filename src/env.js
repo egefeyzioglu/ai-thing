@@ -16,6 +16,7 @@ export const env = createEnv({
       .enum(["development", "test", "production"])
       .default("development"),
     OPENAI_API_KEY: z.string().min(1),
+    ANTHROPIC_API_KEY: z.string().min(1),
     GEMINI_API_KEY: z.string().min(1),
     ARK_API_KEY: z.string().min(1),
     UPLOADTHING_TOKEN: z.string().min(1),
@@ -44,6 +45,7 @@ export const env = createEnv({
     DIRECT_URL: process.env.DIRECT_URL,
     NODE_ENV: process.env.NODE_ENV,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     ARK_API_KEY: process.env.ARK_API_KEY,
     UPLOADTHING_TOKEN: process.env.UPLOADTHING_TOKEN,

@@ -25,9 +25,17 @@ import {
 } from "src/server/usage";
 import { signUploadThingUrl } from "src/server/uploadthing";
 
-const WORKSHOP_MODELS = ["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"] as const;
+const WORKSHOP_MODELS = [
+  "gpt-5.4-mini",
+  "gpt-5.4",
+  "gpt-5.5",
+  "claude-opus-4-8",
+  "claude-sonnet-4-6",
+  "claude-haiku-4-5",
+] as const;
 type WorkshopModel = (typeof WORKSHOP_MODELS)[number];
-type OpenAIWorkshopModel = WorkshopModel;
+type OpenAIWorkshopModel = Extract<WorkshopModel, `gpt-${string}`>;
+type AnthropicWorkshopModel = Extract<WorkshopModel, `claude-${string}`>;
 const WORKSHOP_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
 type WorkshopReasoningEffort = (typeof WORKSHOP_REASONING_EFFORTS)[number];
 const WORKSHOP_MESSAGE_CREDITS = 1;
@@ -61,6 +69,26 @@ type OpenAIInputImageContent = {
 };
 
 type OpenAIInputContent = OpenAIInputTextContent | OpenAIInputImageContent;
+
+type AnthropicTextContent = {
+  type: "text";
+  text: string;
+};
+
+type AnthropicImageContent = {
+  type: "image";
+  source: {
+    type: "url";
+    url: string;
+  };
+};
+
+type AnthropicContent = AnthropicTextContent | AnthropicImageContent;
+
+type AnthropicMessage = {
+  role: "user" | "assistant";
+  content: string | AnthropicContent[] | AnthropicResponseContent[];
+};
 
 type OpenAIResponseContent = {
   type?: string;
@@ -149,6 +177,68 @@ type OpenAITextRequestBody = {
   parallel_tool_calls?: boolean;
 };
 
+type AnthropicToolUseContent = {
+  type: "tool_use";
+  id: string;
+  name: "suggest_prompt";
+  input: unknown;
+};
+
+type AnthropicToolResultContent = {
+  type: "tool_result";
+  tool_use_id: string;
+  content: string;
+};
+
+type AnthropicResponseContent =
+  | AnthropicTextContent
+  | AnthropicToolUseContent
+  | {
+      type: "thinking";
+      thinking?: string;
+    };
+
+type AnthropicUsage = {
+  input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+  output_tokens?: number;
+};
+
+type AnthropicResponse = {
+  id?: string;
+  model?: string;
+  role?: "assistant";
+  content?: AnthropicResponseContent[];
+  stop_reason?: string | null;
+  usage?: AnthropicUsage;
+};
+
+type AnthropicTextRequestBody = {
+  model: AnthropicWorkshopModel;
+  max_tokens: number;
+  system: string;
+  messages: (AnthropicMessage | {
+    role: "user";
+    content: AnthropicToolResultContent[];
+  })[];
+  tools?: {
+    name: "suggest_prompt";
+    description: string;
+    input_schema: {
+      type: "object";
+      properties: {
+        prompt: {
+          type: "string";
+          description: string;
+        };
+      };
+      required: ["prompt"];
+    };
+  }[];
+  tool_choice?: { type: "auto" } | { type: "none" };
+};
+
 const suggestedPromptParamSchema = z.object({
   prompt: z.string(),
 });
@@ -192,7 +282,7 @@ type ParsedTextResponse = {
 };
 
 type ProviderTextResponse = ParsedTextResponse & {
-  provider: "openai";
+  provider: "openai" | "anthropic";
   providerRequestId?: string | null;
   providerModel: string;
   usageRaw: unknown;
@@ -421,8 +511,52 @@ function buildProviderInput(messages: ChatMessage[]): {
   });
 }
 
+function buildAnthropicMessages(messages: ChatMessage[]): AnthropicMessage[] {
+  return getProviderMessages(messages).map((message) => {
+    const role: "user" | "assistant" =
+      message.role === "user" ? "user" : "assistant";
+    if (role === "assistant" || message.attachments.length === 0) {
+      return {
+        role,
+        content: message.content,
+      };
+    }
+
+    const imageContent = message.attachments
+      .filter((image): image is WorkshopAttachmentInput & { url: string } =>
+        Boolean(image.url),
+      )
+      .map(
+        (image): AnthropicImageContent => ({
+          type: "image",
+          source: {
+            type: "url",
+            url: image.url,
+          },
+        }),
+      );
+
+    return {
+      role,
+      content: [
+        ...imageContent,
+        {
+          type: "text",
+          text:
+            message.content ||
+            "Use the attached image(s) as reference for this prompt workshop request.",
+        },
+      ],
+    };
+  });
+}
+
 function getProviderMessages(messages: ChatMessage[]) {
   return messages.filter((message) => message.role !== "reasoning_summary");
+}
+
+function isOpenAIWorkshopModel(model: WorkshopModel): model is OpenAIWorkshopModel {
+  return model.startsWith("gpt-");
 }
 
 function getWorkshopPromptCacheKey(
@@ -501,6 +635,44 @@ function parseOpenAIResponse(
     reasoningSummary: reasoningSummary || undefined,
     suggestedPromptParam: functionCallParams[0]?.param,
     suggestedPromptCallId: functionCallParams[0]?.callId,
+  };
+}
+
+function parseAnthropicResponse(
+  data: AnthropicResponse,
+  options: { allowEmpty?: boolean } = {},
+): ParsedTextResponse {
+  const content = data.content ?? [];
+  const text = content
+    .filter((item): item is AnthropicTextContent => item.type === "text")
+    .map((item) => item.text)
+    .join("\n")
+    .trim();
+  const reasoningSummary = content
+    .filter((item) => item.type === "thinking" && item.thinking)
+    .map((item) => ("thinking" in item ? item.thinking : undefined))
+    .filter((value): value is string => typeof value === "string")
+    .join("\n")
+    .trim();
+  const toolUse = content.find(
+    (item): item is AnthropicToolUseContent =>
+      item.type === "tool_use" && item.name === "suggest_prompt",
+  );
+  const suggestedPromptParam = toolUse
+    ? suggestedPromptParamSchema.parse(toolUse.input)
+    : undefined;
+
+  if (!text && !suggestedPromptParam && !options.allowEmpty) {
+    throw new Error(
+      "Anthropic response did not contain any text or a tool call",
+    );
+  }
+
+  return {
+    text,
+    reasoningSummary: reasoningSummary || undefined,
+    suggestedPromptParam,
+    suggestedPromptCallId: toolUse?.id,
   };
 }
 
@@ -695,6 +867,47 @@ function mergeParsedOpenAIResponses(responses: OpenAIResponse[]) {
   };
 }
 
+function mergeAnthropicUsage(usages: (AnthropicUsage | undefined)[]) {
+  const normalized = usages.filter((usage) => usage !== undefined);
+  if (normalized.length === 0) return null;
+
+  return {
+    input_tokens: addNumbers(...normalized.map((usage) => usage.input_tokens)),
+    cache_creation_input_tokens: addNumbers(
+      ...normalized.map((usage) => usage.cache_creation_input_tokens),
+    ),
+    cache_read_input_tokens: addNumbers(
+      ...normalized.map((usage) => usage.cache_read_input_tokens),
+    ),
+    output_tokens: addNumbers(
+      ...normalized.map((usage) => usage.output_tokens),
+    ),
+  };
+}
+
+function mergeParsedAnthropicResponses(responses: AnthropicResponse[]) {
+  const parsedResponses = responses.map((response) =>
+    parseAnthropicResponse(response, { allowEmpty: true }),
+  );
+
+  return {
+    text: parsedResponses
+      .map((parsed) => parsed.text)
+      .filter(Boolean)
+      .join("\n\n")
+      .trim(),
+    reasoningSummary:
+      parsedResponses
+        .map((parsed) => parsed.reasoningSummary)
+        .filter((summary): summary is string => summary !== undefined)
+        .join("\n\n")
+        .trim() || undefined,
+    suggestedPromptParam: parsedResponses.find(
+      (parsed) => parsed.suggestedPromptParam,
+    )?.suggestedPromptParam,
+  };
+}
+
 async function createOpenAIResponse(
   body: OpenAITextRequestBody,
   signal?: AbortSignal,
@@ -765,6 +978,115 @@ async function generateOpenAIText(
         responses.map((response) => response.usage),
       ),
     },
+  };
+}
+
+function createAnthropicTextRequestBody(
+  model: AnthropicWorkshopModel,
+  messages: ChatMessage[],
+): AnthropicTextRequestBody {
+  return {
+    model,
+    max_tokens: 4096,
+    system: workshopSystemPrompt,
+    messages: buildAnthropicMessages(messages),
+    tools: [
+      {
+        name: "suggest_prompt",
+        description:
+          "Suggest a final prompt to be submitted to the image generation model",
+        input_schema: {
+          type: "object",
+          properties: {
+            prompt: {
+              type: "string",
+              description: "The prompt you are suggesting",
+            },
+          },
+          required: ["prompt"],
+        },
+      },
+    ],
+    tool_choice: { type: "auto" },
+  };
+}
+
+async function createAnthropicMessage(
+  body: AnthropicTextRequestBody,
+  signal?: AbortSignal,
+) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    signal,
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Anthropic API error (${res.status}): ${text}`);
+  }
+
+  return (await res.json()) as AnthropicResponse;
+}
+
+async function generateAnthropicText(
+  model: AnthropicWorkshopModel,
+  messages: ChatMessage[],
+  options: GenerateAssistantTextOptions = {},
+) {
+  const firstResponse = await createAnthropicMessage(
+    createAnthropicTextRequestBody(model, messages),
+    options.signal,
+  );
+  const parsed = parseAnthropicResponse(firstResponse);
+  const responses = [firstResponse];
+
+  if (parsed.suggestedPromptCallId) {
+    responses.push(
+      await createAnthropicMessage(
+        {
+          model,
+          max_tokens: 4096,
+          system: workshopSystemPrompt,
+          messages: [
+            ...buildAnthropicMessages(messages),
+            {
+              role: "assistant",
+              content: firstResponse.content ?? [],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: parsed.suggestedPromptCallId,
+                  content: JSON.stringify({ status: "recorded" }),
+                },
+              ],
+            },
+          ],
+        },
+        options.signal,
+      ),
+    );
+  }
+
+  const merged = mergeParsedAnthropicResponses(responses);
+  return {
+    ...merged,
+    provider: "anthropic" as const,
+    providerRequestId:
+      responses
+        .map((response) => response.id)
+        .filter(Boolean)
+        .join(",") || null,
+    providerModel: responses.at(-1)?.model ?? model,
+    usageRaw: mergeAnthropicUsage(responses.map((response) => response.usage)),
   };
 }
 
@@ -935,6 +1257,24 @@ async function generateAssistantText(
         suggestedPrompt: suggestedPromptParam.prompt,
       };
     }
+    case "claude-opus-4-8":
+    case "claude-sonnet-4-6":
+    case "claude-haiku-4-5": {
+      generated = await generateAnthropicText(model, messages, options);
+      const { text, suggestedPromptParam } = generated;
+      if (!suggestedPromptParam) {
+        return {
+          ...generated,
+          assistantText: text,
+          suggestedPrompt: undefined,
+        };
+      }
+      return {
+        ...generated,
+        assistantText: text || undefined,
+        suggestedPrompt: suggestedPromptParam.prompt,
+      };
+    }
   }
 }
 
@@ -1035,7 +1375,7 @@ export async function sendWorkshopMessage(args: {
   let assistantText: string | undefined;
   let reasoningSummary: string | undefined;
   let suggestedPrompt: string | undefined;
-  let provider: "openai";
+  let provider: "openai" | "anthropic";
   let providerRequestId: string | null | undefined;
   let providerModel: string;
   let usageRaw: unknown;
@@ -1057,8 +1397,12 @@ export async function sendWorkshopMessage(args: {
       input.reasoningEffort,
       {
         onReasoningSummaryDelta: args.onReasoningSummaryDelta,
-        promptCacheKey: getWorkshopPromptCacheKey(thread.id, input.model),
-        promptCacheRetention: getOpenAIPromptCacheRetention(input.model),
+        promptCacheKey: isOpenAIWorkshopModel(input.model)
+          ? getWorkshopPromptCacheKey(thread.id, input.model)
+          : undefined,
+        promptCacheRetention: isOpenAIWorkshopModel(input.model)
+          ? getOpenAIPromptCacheRetention(input.model)
+          : undefined,
         signal: args.signal,
       },
     ));

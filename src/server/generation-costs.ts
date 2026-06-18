@@ -93,6 +93,24 @@ const MODELARK_PRICING = {
   },
 } as const;
 
+const ANTHROPIC_PRICING = {
+  "claude-opus-4-8": {
+    inputUsdMicrosPerMillion: 5_000_000,
+    cachedInputUsdMicrosPerMillion: 500_000,
+    outputUsdMicrosPerMillion: 25_000_000,
+  },
+  "claude-sonnet-4-6": {
+    inputUsdMicrosPerMillion: 3_000_000,
+    cachedInputUsdMicrosPerMillion: 300_000,
+    outputUsdMicrosPerMillion: 15_000_000,
+  },
+  "claude-haiku-4-5": {
+    inputUsdMicrosPerMillion: 1_000_000,
+    cachedInputUsdMicrosPerMillion: 100_000,
+    outputUsdMicrosPerMillion: 5_000_000,
+  },
+} as const;
+
 type ModelarkUsage = {
   completion_tokens?: number;
   total_tokens?: number;
@@ -106,7 +124,7 @@ function normalizeModelarkUsage(value: unknown): ModelarkUsage | null {
   };
 }
 
-type Provider = "openai" | "gemini" | "modelark";
+type Provider = "openai" | "gemini" | "modelark" | "anthropic";
 
 type CostFields = {
   status: GenerationCostEventStatus;
@@ -196,6 +214,13 @@ type GeminiUsageMetadata = {
   candidatesTokensDetails?: GeminiModalityTokenCount[];
   toolUsePromptTokensDetails?: GeminiModalityTokenCount[];
   serviceTier?: string;
+};
+
+type AnthropicUsage = {
+  input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+  output_tokens?: number;
 };
 
 export function formatUsdMicros(value: number): string {
@@ -321,6 +346,20 @@ function normalizeGeminiUsage(value: unknown): GeminiUsageMetadata | null {
     toolUsePromptTokensDetails: readDetails("toolUsePromptTokensDetails"),
     serviceTier:
       typeof value.serviceTier === "string" ? value.serviceTier : undefined,
+  };
+}
+
+function normalizeAnthropicUsage(value: unknown): AnthropicUsage | null {
+  if (!isRecord(value)) return null;
+
+  return {
+    input_tokens: readNumber(value, "input_tokens"),
+    cache_creation_input_tokens: readNumber(
+      value,
+      "cache_creation_input_tokens",
+    ),
+    cache_read_input_tokens: readNumber(value, "cache_read_input_tokens"),
+    output_tokens: readNumber(value, "output_tokens"),
   };
 }
 
@@ -649,6 +688,69 @@ function calculateGeminiTextCost(args: {
       model: args.model,
       serviceTier: usage.serviceTier,
       lineItems: { inputCost, textOutputCost },
+    },
+  };
+}
+
+function calculateAnthropicTextCost(args: {
+  model: string;
+  usageRaw: unknown;
+}): CostFields {
+  const pricing =
+    ANTHROPIC_PRICING[args.model as keyof typeof ANTHROPIC_PRICING];
+  if (!pricing) return unsupportedModelCost(args.model);
+
+  const usage = normalizeAnthropicUsage(args.usageRaw);
+  if (!usage) {
+    return {
+      status: "estimated",
+      costUsdMicros: 0,
+      fallbackReason: "missing_anthropic_usage",
+      costCalculationRaw: {
+        pricingVersion: COST_PRICING_VERSION,
+        provider: "anthropic",
+        model: args.model,
+        fallbackReason: "missing_anthropic_usage",
+      },
+    };
+  }
+
+  const cachedInputTokens = usage.cache_read_input_tokens ?? 0;
+  const cacheCreationInputTokens = usage.cache_creation_input_tokens ?? 0;
+  const billableInputTokens = Math.max(
+    (usage.input_tokens ?? 0) - cachedInputTokens,
+    0,
+  );
+  const inputCost = microsForTokens(
+    billableInputTokens,
+    pricing.inputUsdMicrosPerMillion,
+  );
+  const cachedInputCost = microsForTokens(
+    cachedInputTokens,
+    pricing.cachedInputUsdMicrosPerMillion,
+  );
+  const outputCost = microsForTokens(
+    usage.output_tokens,
+    pricing.outputUsdMicrosPerMillion,
+  );
+
+  return {
+    status: "recorded",
+    costUsdMicros: inputCost + cachedInputCost + outputCost,
+    inputTokens: usage.input_tokens,
+    cachedInputTokens,
+    outputTextTokens: usage.output_tokens,
+    outputTokens: usage.output_tokens,
+    totalTokens:
+      usage.input_tokens !== undefined || usage.output_tokens !== undefined
+        ? (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0)
+        : undefined,
+    costCalculationRaw: {
+      pricingVersion: COST_PRICING_VERSION,
+      provider: "anthropic",
+      model: args.model,
+      cacheCreationInputTokens,
+      lineItems: { inputCost, cachedInputCost, outputCost },
     },
   };
 }
@@ -1038,6 +1140,13 @@ function calculateCost(args: {
       operation: args.operation,
       usageRaw: args.usageRaw,
       fallbackContext: args.fallbackContext,
+    });
+  }
+
+  if (args.provider === "anthropic") {
+    return calculateAnthropicTextCost({
+      model: args.model,
+      usageRaw: args.usageRaw,
     });
   }
 
