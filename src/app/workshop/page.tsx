@@ -80,6 +80,19 @@ function OpenAIIcon({ className }: { className?: string }) {
   );
 }
 
+function AnthropicIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M12 2 22 22h-4.34l-1.9-4.16H8.24L6.34 22H2L12 2Zm-2.1 12.2h4.2L12 9.48 9.9 14.2Z" />
+    </svg>
+  );
+}
+
 const WORKSHOP_MODELS = [
   {
     slug: "gpt-5.4" as const,
@@ -104,6 +117,30 @@ const WORKSHOP_MODELS = [
     description: "Fast · thinking",
     iconBg: "bg-black dark:bg-neutral-800",
     LogoIcon: OpenAIIcon,
+  },
+  {
+    slug: "claude-opus-4-8" as const,
+    name: "Claude Opus 4.8",
+    provider: "Anthropic",
+    description: "Deep · messages",
+    iconBg: "bg-orange-950",
+    LogoIcon: AnthropicIcon,
+  },
+  {
+    slug: "claude-sonnet-4-6" as const,
+    name: "Claude Sonnet 4.6",
+    provider: "Anthropic",
+    description: "Balanced · messages",
+    iconBg: "bg-orange-950",
+    LogoIcon: AnthropicIcon,
+  },
+  {
+    slug: "claude-haiku-4-5" as const,
+    name: "Claude Haiku 4.5",
+    provider: "Anthropic",
+    description: "Fast · messages",
+    iconBg: "bg-orange-950",
+    LogoIcon: AnthropicIcon,
   },
 ];
 
@@ -624,6 +661,7 @@ function WorkshopComposer(props: WorkshopComposerProps) {
   const currentReasoningEffort = WORKSHOP_REASONING_EFFORTS.find(
     (effort) => effort.value === selectedReasoningEffort,
   );
+  const showReasoningEffort = isOpenAIWorkshopModel(selectedModel);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -779,41 +817,45 @@ function WorkshopComposer(props: WorkshopComposerProps) {
                 ))}
               </SelectContent>
             </Select>
-            <div className="bg-border/70 h-4 w-px shrink-0" />
-            <Select
-              value={selectedReasoningEffort}
-              onValueChange={(value) => setSelectedReasoningEffort(value!)}
-              disabled={controlsShouldBeDisabled}
-            >
-              <SelectTrigger
-                size="sm"
-                className="text-muted-foreground hover:text-foreground h-6 max-w-40 cursor-pointer gap-1.5 border-none bg-transparent px-0 text-xs shadow-none transition-colors focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50 [&>svg]:size-3"
-              >
-                <Brain className="size-3.5 shrink-0" />
-                <span className="truncate">
-                  {currentReasoningEffort?.shortLabel}
-                </span>
-              </SelectTrigger>
-              <SelectContent
-                align="start"
-                alignItemWithTrigger={false}
-                className="min-w-44"
-              >
-                <div className="text-muted-foreground px-2 py-1.5 text-[10px] font-medium">
-                  Reasoning
-                </div>
-                {WORKSHOP_REASONING_EFFORTS.map((effort) => (
-                  <SelectItem
-                    key={effort.value}
-                    value={effort.value}
-                    className="cursor-pointer"
+            {showReasoningEffort && (
+              <>
+                <div className="bg-border/70 h-4 w-px shrink-0" />
+                <Select
+                  value={selectedReasoningEffort}
+                  onValueChange={(value) => setSelectedReasoningEffort(value!)}
+                  disabled={controlsShouldBeDisabled}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="text-muted-foreground hover:text-foreground h-6 max-w-40 cursor-pointer gap-1.5 border-none bg-transparent px-0 text-xs shadow-none transition-colors focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50 [&>svg]:size-3"
                   >
-                    {effort.label}
-                    {effort.value === "medium" ? " (default)" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                    <Brain className="size-3.5 shrink-0" />
+                    <span className="truncate">
+                      {currentReasoningEffort?.shortLabel}
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent
+                    align="start"
+                    alignItemWithTrigger={false}
+                    className="min-w-44"
+                  >
+                    <div className="text-muted-foreground px-2 py-1.5 text-[10px] font-medium">
+                      Reasoning
+                    </div>
+                    {WORKSHOP_REASONING_EFFORTS.map((effort) => (
+                      <SelectItem
+                        key={effort.value}
+                        value={effort.value}
+                        className="cursor-pointer"
+                      >
+                        {effort.label}
+                        {effort.value === "medium" ? " (default)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
           </div>
           <WorkshopTooltip
             label={sendIsPending ? "Stop generation" : "Send message"}
