@@ -658,8 +658,11 @@ function parseAnthropicResponse(
     (item): item is AnthropicToolUseContent =>
       item.type === "tool_use" && item.name === "suggest_prompt",
   );
-  const suggestedPromptParam = toolUse
-    ? suggestedPromptParamSchema.parse(toolUse.input)
+  const suggestedPromptResult = toolUse
+    ? suggestedPromptParamSchema.safeParse(toolUse.input)
+    : undefined;
+  const suggestedPromptParam = suggestedPromptResult?.success
+    ? suggestedPromptResult.data
     : undefined;
 
   if (!text && !suggestedPromptParam && !options.allowEmpty) {

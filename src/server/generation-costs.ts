@@ -96,16 +96,19 @@ const MODELARK_PRICING = {
 const ANTHROPIC_PRICING = {
   "claude-opus-4-8": {
     inputUsdMicrosPerMillion: 5_000_000,
+    cacheCreationInputUsdMicrosPerMillion: 6_250_000,
     cachedInputUsdMicrosPerMillion: 500_000,
     outputUsdMicrosPerMillion: 25_000_000,
   },
   "claude-sonnet-4-6": {
     inputUsdMicrosPerMillion: 3_000_000,
+    cacheCreationInputUsdMicrosPerMillion: 3_750_000,
     cachedInputUsdMicrosPerMillion: 300_000,
     outputUsdMicrosPerMillion: 15_000_000,
   },
   "claude-haiku-4-5": {
     inputUsdMicrosPerMillion: 1_000_000,
+    cacheCreationInputUsdMicrosPerMillion: 1_250_000,
     cachedInputUsdMicrosPerMillion: 100_000,
     outputUsdMicrosPerMillion: 5_000_000,
   },
@@ -729,6 +732,10 @@ function calculateAnthropicTextCost(args: {
     cachedInputTokens,
     pricing.cachedInputUsdMicrosPerMillion,
   );
+  const cacheCreationInputCost = microsForTokens(
+    cacheCreationInputTokens,
+    pricing.cacheCreationInputUsdMicrosPerMillion,
+  );
   const outputCost = microsForTokens(
     usage.output_tokens,
     pricing.outputUsdMicrosPerMillion,
@@ -736,7 +743,8 @@ function calculateAnthropicTextCost(args: {
 
   return {
     status: "recorded",
-    costUsdMicros: inputCost + cachedInputCost + outputCost,
+    costUsdMicros:
+      inputCost + cacheCreationInputCost + cachedInputCost + outputCost,
     inputTokens: usage.input_tokens,
     cachedInputTokens,
     outputTextTokens: usage.output_tokens,
@@ -750,7 +758,12 @@ function calculateAnthropicTextCost(args: {
       provider: "anthropic",
       model: args.model,
       cacheCreationInputTokens,
-      lineItems: { inputCost, cachedInputCost, outputCost },
+      lineItems: {
+        inputCost,
+        cacheCreationInputCost,
+        cachedInputCost,
+        outputCost,
+      },
     },
   };
 }
