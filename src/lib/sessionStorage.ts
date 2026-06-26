@@ -18,6 +18,36 @@ function defineSessionStorageItem<TSchema extends z.ZodTypeAny>(
 
 // version field currently unused
 export const sessionStorageSchema = {
+  promptText: defineSessionStorageItem({
+    schema: z.string(),
+    key: "ai-thing.promptText",
+    defaultValue: "",
+    version: 1,
+  }),
+  generationDetails: defineSessionStorageItem({
+    schema: z.object({
+      selectedModels: z.array(z.string()),
+      modelsInitialized: z.boolean(),
+      mode: z.enum(["image", "video"]),
+      resolution: z.enum(["512", "1K", "2K", "4K"]),
+      videoResolution: z.enum(["480p", "720p", "1080p"]),
+      duration: z.union([z.literal(5), z.literal(10)]),
+      aspect: z.string(),
+      runs: z.number().int().min(1).max(8),
+    }),
+    key: "ai-thing.generationDetails",
+    defaultValue: {
+      selectedModels: [],
+      modelsInitialized: false,
+      mode: "image",
+      resolution: "1K",
+      videoResolution: "720p",
+      duration: 5,
+      aspect: "1:1",
+      runs: 1,
+    },
+    version: 1,
+  }),
   imageGenerationAdvanced: defineSessionStorageItem({
     schema: z.object({
       quality: z.enum(["auto", "low", "medium", "high"]),
@@ -121,15 +151,17 @@ export function setSessionStorage<K extends SessionStorageKey>(
 
 export function useSessionStorage<K extends SessionStorageKey>(
   key: K,
-): [SessionStorageValue<K>, SessionStorageSetter<K>] {
+): [SessionStorageValue<K>, SessionStorageSetter<K>, boolean] {
   const defaultValue = sessionStorageSchema[key].defaultValue;
   const [value, setValue] = useState(defaultValue);
+  const [loaded, setLoaded] = useState(false);
   const skipNextPersistRef = useRef(true);
 
   useEffect(() => {
     const storedValue = getSessionStorage(key);
     skipNextPersistRef.current = true;
     setValue(storedValue ?? sessionStorageSchema[key].defaultValue);
+    setLoaded(true);
   }, [key]);
 
   useEffect(() => {
@@ -158,5 +190,5 @@ export function useSessionStorage<K extends SessionStorageKey>(
     },
     [key],
   );
-  return [value, setValueWrapper];
+  return [value, setValueWrapper, loaded];
 }

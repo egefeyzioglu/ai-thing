@@ -3,9 +3,9 @@
 import {
   memo,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useRef,
-  useState,
   type Ref,
 } from "react";
 import clsx from "clsx";
@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "src/components/ui/button";
 import { Field, FieldLabel } from "src/components/ui/field";
 import { Textarea } from "src/components/ui/textarea";
+import { useSessionStorage } from "src/lib/sessionStorage";
 import { WORKSHOP_DRAFT_STORAGE_KEY } from "src/lib/workshop";
 
 type HasContentListener = (hasContent: boolean) => void;
@@ -39,7 +40,7 @@ export function PromptComposer({
   isMacOS,
   onSubmit,
 }: PromptComposerProps) {
-  const [promptText, setPromptText] = useState("");
+  const [promptText, setPromptText] = useSessionStorage("promptText");
 
   const valueRef = useRef("");
   valueRef.current = promptText;
@@ -48,16 +49,20 @@ export function PromptComposer({
   const hasContentListenersRef = useRef(new Set<HasContentListener>());
   const textChangeListenersRef = useRef(new Set<TextChangeListener>());
 
-  const notifyHasContent = (value: string) => {
+  const notifyHasContent = useCallback((value: string) => {
     const hasContent = value.trim().length > 0;
     if (hasContent === hasContentRef.current) return;
     hasContentRef.current = hasContent;
     hasContentListenersRef.current.forEach((listener) => listener(hasContent));
-  };
+  }, []);
 
-  const notifyTextChange = (value: string) => {
+  const notifyTextChange = useCallback((value: string) => {
     textChangeListenersRef.current.forEach((listener) => listener(value));
-  };
+  }, []);
+
+  useEffect(() => {
+    notifyHasContent(promptText);
+  }, [notifyHasContent, promptText]);
 
   useImperativeHandle(
     ref,
@@ -83,7 +88,7 @@ export function PromptComposer({
         };
       },
     }),
-    [],
+    [notifyHasContent, notifyTextChange, setPromptText],
   );
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
