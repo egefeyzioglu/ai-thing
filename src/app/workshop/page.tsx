@@ -698,6 +698,7 @@ function WorkshopComposer(props: WorkshopComposerProps) {
                     src={attachment.url}
                     alt="Pending image attachment"
                     fill
+                    loading="lazy"
                     sizes="64px"
                     className="object-cover"
                   />
@@ -958,6 +959,7 @@ function WorkshopMessageBubble({ message }: { message: WorkshopMessage }) {
                     src={attachment.url}
                     alt="Workshop image attachment"
                     fill
+                    loading="lazy"
                     sizes="(max-width: 768px) 40vw, 160px"
                     className="object-cover"
                   />

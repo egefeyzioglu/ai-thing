@@ -451,6 +451,7 @@ function ImageCell({
           src={image.url}
           alt="Generated image"
           fill
+          loading="lazy"
           className="object-cover"
           sizes="(max-width: 768px) 100vw, 33vw"
         />
@@ -1006,7 +1007,14 @@ export default function PromptGroup(props: PromptGroupProps) {
                     }}
                     className="relative size-[18px] rounded border border-border overflow-hidden shrink-0 cursor-pointer"
                   >
-                    <Image src={r.url!} alt="Reference" fill className="object-cover" sizes="18px" />
+                    <Image
+                      src={r.url!}
+                      alt="Reference"
+                      fill
+                      loading="lazy"
+                      className="object-cover"
+                      sizes="18px"
+                    />
                   </div>
                 ))}
                 <span className="text-[10px] text-muted-foreground/60 ml-0.5">
