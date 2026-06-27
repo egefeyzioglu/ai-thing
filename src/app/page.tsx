@@ -1,7 +1,13 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 
 import {
@@ -413,16 +419,18 @@ export default function Home() {
     usageQuery,
     utils,
   });
-  galleryActionRef.current = {
-    effectiveBypassMonthlyQuota,
-    movePromptMutation,
-    reuseAsReference,
-    runGeneration,
-    selectedProjectId,
-    usage,
-    usageQuery,
-    utils,
-  };
+  useLayoutEffect(() => {
+    galleryActionRef.current = {
+      effectiveBypassMonthlyQuota,
+      movePromptMutation,
+      reuseAsReference,
+      runGeneration,
+      selectedProjectId,
+      usage,
+      usageQuery,
+      utils,
+    };
+  });
 
   const toggleSelectedModel = (slug: PromptModelSlug) => {
     setSelectedModels((prev) =>
@@ -744,7 +752,9 @@ export default function Home() {
     }
   };
   const handleGenerateRef = useRef(handleGenerate);
-  handleGenerateRef.current = handleGenerate;
+  useLayoutEffect(() => {
+    handleGenerateRef.current = handleGenerate;
+  });
   const handleGenerateStable = useCallback(() => {
     void handleGenerateRef.current();
   }, []);
@@ -760,7 +770,11 @@ export default function Home() {
         toast.error("Failed to reuse image as reference");
         return;
       }
-      await utils.referenceImage.getReferenceImages.invalidate();
+      try {
+        await utils.referenceImage.getReferenceImages.invalidate();
+      } catch (err) {
+        console.error("Failed to refresh reference images after reuse", err);
+      }
       setSelectedReferenceImages((prev) =>
         prev.includes(result.referenceImageRow.id)
           ? prev
