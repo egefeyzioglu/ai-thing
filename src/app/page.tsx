@@ -22,7 +22,10 @@ import {
 } from "src/components/ui/alert-dialog";
 import { calculateGenerationCredits } from "src/lib/credits";
 import { notifyPromptDone } from "src/lib/notify";
-import { isExpectedTRPCError } from "src/lib/trpc-errors";
+import {
+  isExpectedTRPCError,
+  isGenerationCancelledTRPCError,
+} from "src/lib/trpc-errors";
 import { useUploadThing } from "src/lib/uploadthing";
 import { WORKSHOP_ACCEPTED_PROMPT_STORAGE_KEY } from "src/lib/workshop";
 import { api } from "src/trpc/react";
@@ -715,14 +718,20 @@ export default function Home() {
           ),
         ),
       );
-      const failedGenerationCount = generationResults.filter(
+      const completedGenerationResults = generationResults.filter(
+        (generationResult) =>
+          generationResult.status === "fulfilled" ||
+          !isGenerationCancelledTRPCError(generationResult.reason),
+      );
+      if (completedGenerationResults.length === 0) return;
+      const failedGenerationCount = completedGenerationResults.filter(
         (generationResult) =>
           generationResult.status === "rejected" ||
           generationResult.value.status === "failed",
       ).length;
       posthog.capture("image_generation_completed", {
-        total: generationResults.length,
-        succeeded: generationResults.length - failedGenerationCount,
+        total: completedGenerationResults.length,
+        succeeded: completedGenerationResults.length - failedGenerationCount,
         failed: failedGenerationCount,
         models: selectedModels,
       });
@@ -730,7 +739,7 @@ export default function Home() {
         failureState:
           failedGenerationCount === 0
             ? "none"
-            : failedGenerationCount === generationResults.length
+            : failedGenerationCount === completedGenerationResults.length
               ? "all"
               : "some",
       });

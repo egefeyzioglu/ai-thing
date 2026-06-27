@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { MONTHLY_CREDIT_LIMIT } from "src/lib/credits";
@@ -20,6 +20,7 @@ import {
   lockUserUsage,
 } from "src/server/usage";
 import { currentUserCanBypassLimits } from "src/server/limits";
+import { cancelSeedanceTask } from "src/server/media/seedance";
 
 export type SupportedModel = {
   slug: string;
@@ -374,18 +375,80 @@ export const promptRouter = createTRPCRouter({
         });
       }
 
-      // Collect UploadThing keys for every generated media item that isn't reused
-      // so we can remove the files before the cascade-delete wipes the rows.
-      const mediaRows = await db
-        .select({ key: media.key, reusedBy: referenceImages.reusedFromMediaId })
-        .from(media)
-        .leftJoin(referenceImages, eq(media.id, referenceImages.reusedFromMediaId))
-        .where(and(eq(media.promptId, input.id), eq(media.userId, ctx.user)));
+      const { keys, runningVideoTaskIds } = await db.transaction(async (tx) => {
+        await tx.execute(sql`
+          select ${media.id}
+          from ${media}
+          where ${media.promptId} = ${input.id}
+            and ${media.userId} = ${ctx.user}
+          for update
+        `);
 
-      const keys = mediaRows
-        .filter((r) => !r.reusedBy)
-        .map((r) => r.key)
-        .filter((k): k is string => !!k);
+        // Collect UploadThing keys for every generated media item that isn't
+        // reused before the cascade-delete wipes the rows.
+        const mediaRows = await tx
+          .select({
+            id: media.id,
+            key: media.key,
+            providerStatus: media.providerStatus,
+            status: media.status,
+            type: media.type,
+            reusedBy: referenceImages.reusedFromMediaId,
+          })
+          .from(media)
+          .leftJoin(
+            referenceImages,
+            eq(media.id, referenceImages.reusedFromMediaId),
+          )
+          .where(and(eq(media.promptId, input.id), eq(media.userId, ctx.user)));
+
+        const mediaIds = mediaRows.map((r) => r.id);
+        const runningVideoTaskIds = mediaRows
+          .filter(
+            (r) =>
+              r.type === "video" && r.status === "running" && r.providerStatus,
+          )
+          .map((r) => r.providerStatus)
+          .filter((taskId): taskId is string => !!taskId);
+
+        if (mediaIds.length > 0) {
+          await tx
+            .update(generationUsage)
+            .set({ status: "refunded", updatedAt: new Date() })
+            .where(
+              and(
+                eq(generationUsage.userId, ctx.user),
+                eq(generationUsage.status, "reserved"),
+                inArray(generationUsage.mediaId, mediaIds),
+              ),
+            );
+        }
+
+        const keys = mediaRows
+          .filter((r) => !r.reusedBy)
+          .map((r) => r.key)
+          .filter((k): k is string => !!k);
+
+        // The `onDelete: "cascade"` on images.promptId handles child rows.
+        // The `onDelete: "set null" on referenceImages.reused_from handles
+        // dangling references.
+        await tx
+          .delete(prompts)
+          .where(and(eq(prompts.id, input.id), eq(prompts.userId, ctx.user)));
+
+        return { keys, runningVideoTaskIds };
+      });
+
+      await Promise.all(
+        runningVideoTaskIds.map((taskId) =>
+          cancelSeedanceTask(taskId).catch((error) => {
+            console.error(
+              `Failed to cancel video task ${taskId} for prompt ${input.id}`,
+              error,
+            );
+          }),
+        ),
+      );
 
       if (keys.length > 0) {
         await utapi.deleteFiles(keys).catch((r) => {
@@ -395,13 +458,6 @@ export const promptRouter = createTRPCRouter({
           );
         });
       }
-
-      // The `onDelete: "cascade"` on images.promptId handles child rows.
-      // The `onDelete: "set null" on referenceImages.reused_from handles
-      // dangling references
-      await db
-        .delete(prompts)
-        .where(and(eq(prompts.id, input.id), eq(prompts.userId, ctx.user)));
 
       return { success: true };
     }),

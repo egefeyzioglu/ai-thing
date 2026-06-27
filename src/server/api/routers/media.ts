@@ -20,6 +20,7 @@ import {
 import { recordGenerationCostEvent } from "src/server/generation-costs";
 import { currentUserCanBypassLimits } from "src/server/limits";
 import {
+  cancelSeedanceTask,
   isSeedanceSlug,
   pollSeedanceTask,
   submitSeedanceTask,
@@ -35,6 +36,57 @@ import {
 import { getPostHogClient } from "src/lib/posthog-server";
 
 const VIDEO_DOWNLOAD_TIMEOUT_MS = 60_000;
+const GENERATION_CANCELLED_MESSAGE = "Generation cancelled";
+
+function generationCancelledError() {
+  return new TRPCError({
+    code: "NOT_FOUND",
+    message: GENERATION_CANCELLED_MESSAGE,
+  });
+}
+
+function isGenerationCancelledError(error: unknown) {
+  return (
+    error instanceof TRPCError &&
+    error.code === "NOT_FOUND" &&
+    error.message === GENERATION_CANCELLED_MESSAGE
+  );
+}
+
+async function refundReservedUsageForMedia(userId: string, mediaId: string) {
+  await db
+    .update(generationUsage)
+    .set({ status: "refunded", updatedAt: new Date() })
+    .where(
+      and(
+        eq(generationUsage.userId, userId),
+        eq(generationUsage.mediaId, mediaId),
+        eq(generationUsage.status, "reserved"),
+      ),
+    );
+}
+
+async function assertMediaStillExists(args: {
+  userId: string;
+  mediaId: string;
+  usageId?: string;
+}) {
+  const [current] = await db
+    .select({ id: media.id })
+    .from(media)
+    .where(and(eq(media.id, args.mediaId), eq(media.userId, args.userId)))
+    .limit(1);
+
+  if (current) return;
+
+  await markUsageStatus(args.usageId, "refunded").catch((error) => {
+    console.error(
+      "[runGeneration] failed to refund cancelled image usage:",
+      error,
+    );
+  });
+  throw generationCancelledError();
+}
 
 type ResponsesApiOutputItem = {
   id?: string;
@@ -870,11 +922,7 @@ export const mediaRouter = createTRPCRouter({
         .where(and(eq(media.id, input.mediaId), eq(media.userId, ctx.user)))
         .limit(1);
       if (!mediaRow) {
-        console.error("[runGeneration] media row not found:", input.mediaId);
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Media row not found",
-        });
+        throw generationCancelledError();
       }
 
       console.log("[runGeneration] media row found:", { status: mediaRow.status, model: mediaRow.model, error: mediaRow.error });
@@ -906,15 +954,8 @@ export const mediaRouter = createTRPCRouter({
         )
         .limit(1);
       if (!promptRow) {
-        console.error("[runGeneration] prompt row not found for promptId:", mediaRow.promptId);
-        await db
-          .update(media)
-          .set({ status: "failed", error: "Prompt not found", updatedAt: new Date() })
-          .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)));
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Prompt not found",
-        });
+        await refundReservedUsageForMedia(ctx.user, mediaRow.id);
+        throw generationCancelledError();
       }
 
       const canBypassMonthlyQuota = input.requestQuotaBypass
@@ -1116,7 +1157,24 @@ export const mediaRouter = createTRPCRouter({
           "for media:",
           mediaRow.id,
         );
-        return signMediaRow(updated ?? mediaRow);
+        if (!updated) {
+          await cancelSeedanceTask(task.taskId).catch((error) => {
+            console.error(
+              "[runGeneration] failed to cancel deleted video task:",
+              error,
+            );
+          });
+          await markUsageStatus(videoClaim.usageId, "refunded").catch(
+            (error) => {
+              console.error(
+                "[runGeneration] failed to refund cancelled video usage:",
+                error,
+              );
+            },
+          );
+          throw generationCancelledError();
+        }
+        return signMediaRow(updated);
       }
 
       const claimResult = await db.transaction(async (tx) => {
@@ -1238,6 +1296,11 @@ export const mediaRouter = createTRPCRouter({
             thinking: promptRow.thinking,
           },
         );
+        await assertMediaStillExists({
+          userId: ctx.user,
+          mediaId: mediaRow.id,
+          usageId: claimResult.usageId,
+        });
         await recordGenerationCostEvent({
           userId: ctx.user,
           mediaId: mediaRow.id,
@@ -1276,10 +1339,21 @@ export const mediaRouter = createTRPCRouter({
           .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
           .returning();
         if (!updated) {
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: "Failed to update image row",
+          await utapi.deleteFiles(key).catch((error) => {
+            console.error(
+              "[runGeneration] failed to delete uploaded cancelled image:",
+              error,
+            );
           });
+          await markUsageStatus(claimResult.usageId, "refunded").catch(
+            (error) => {
+              console.error(
+                "[runGeneration] failed to refund cancelled image usage:",
+                error,
+              );
+            },
+          );
+          throw generationCancelledError();
         }
         const didConsume = await markUsageStatus(
           claimResult.usageId,
@@ -1303,6 +1377,10 @@ export const mediaRouter = createTRPCRouter({
         console.log("[runGeneration] done, status: succeeded");
         return signMediaRow(updated);
       } catch (err) {
+        if (isGenerationCancelledError(err)) {
+          throw err;
+        }
+
         console.error("[runGeneration] generation/upload failed:", err);
         const message = err instanceof Error ? err.message : String(err);
         const [updated] = await db
@@ -1315,10 +1393,15 @@ export const mediaRouter = createTRPCRouter({
           .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
           .returning();
         if (!updated) {
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: "Failed to record image failure",
-          });
+          await markUsageStatus(claimResult.usageId, "refunded").catch(
+            (error) => {
+              console.error(
+                "[runGeneration] failed to refund cancelled image usage:",
+                error,
+              );
+            },
+          );
+          throw generationCancelledError();
         }
         const didRefund = await markUsageStatus(
           claimResult.usageId,
