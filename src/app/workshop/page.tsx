@@ -1181,8 +1181,8 @@ function SuggestedPromptCard({
         </div>
       </div>
       <CollapsibleContent>
-        <div className="border-t border-blue-500/20 px-4 py-3">
-          <p className="text-foreground/90 line-clamp-6 text-sm leading-relaxed whitespace-pre-wrap">
+        <div className="max-h-[min(50vh,28rem)] overflow-y-auto border-t border-blue-500/20 px-4 py-3">
+          <p className="text-foreground/90 text-sm leading-relaxed break-words whitespace-pre-wrap">
             {prompt}
           </p>
         </div>
