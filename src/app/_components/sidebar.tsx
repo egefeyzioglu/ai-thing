@@ -255,6 +255,7 @@ function ReferenceImage(props: ReferenceImageProps) {
           alt={props.alt}
           width={100}
           height={100}
+          loading="lazy"
           className="m-auto w-full"
         />
 
@@ -1046,6 +1047,7 @@ export function Sidebar({
                             src={firstFrameRefImage.url}
                             alt="First frame reference"
                             fill
+                            loading="lazy"
                             sizes="28px"
                             className="object-cover"
                           />
@@ -1062,6 +1064,7 @@ export function Sidebar({
                             src={lastFrameRefImage.url}
                             alt="Last frame reference"
                             fill
+                            loading="lazy"
                             sizes="28px"
                             className="object-cover"
                           />
