@@ -1,7 +1,13 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 
 import {
@@ -35,7 +41,11 @@ import {
 } from "./_components/sidebar";
 import { useActiveProject } from "./_hooks/use-active-project";
 import { useLocalStorage } from "src/lib/localStorage";
-import { useSessionStorage } from "src/lib/sessionStorage";
+import {
+  setSessionStorage,
+  useSessionStorage,
+  type SessionStorageValue,
+} from "src/lib/sessionStorage";
 
 type PendingDelete =
   | { type: "referenceImage"; id: string }
@@ -43,6 +53,7 @@ type PendingDelete =
   | { type: "media"; id: string };
 
 type VideoReferenceRole = "first" | "last" | "refimg";
+type GenerationDetails = SessionStorageValue<"generationDetails">;
 
 function normalizeVideoRoles(
   prev: Record<string, VideoReferenceRole>,
@@ -158,21 +169,20 @@ export default function Home() {
   const [videoReferenceRoles, setVideoReferenceRoles] = useState<
     Record<string, "first" | "last" | "refimg">
   >({});
-  const [selectedModels, setSelectedModels] = useState<PromptModelSlug[]>([]);
-  const [mode, setMode] = useLocalStorage("outputMode");
-  const [resolution, setResolution] = useState<ResolutionOption>("1K");
-  const [videoResolution, setVideoResolution] =
-    useState<VideoResolution>("720p");
-  const [duration, setDuration] = useState<VideoDuration>(5);
-  const [aspect, setAspect] = useState("1:1");
-  const [advanced, setAdvanced] = useSessionStorage(
-    "imageGenerationAdvanced",
-  );
+  const [generationDetails, setGenerationDetails, generationDetailsLoaded] =
+    useSessionStorage("generationDetails");
+  const selectedModels = generationDetails.selectedModels as PromptModelSlug[];
+  const mode = generationDetails.mode;
+  const resolution = generationDetails.resolution;
+  const videoResolution = generationDetails.videoResolution;
+  const duration = generationDetails.duration;
+  const aspect = generationDetails.aspect;
+  const runs = generationDetails.runs;
+  const [advanced, setAdvanced] = useSessionStorage("imageGenerationAdvanced");
   const [videoAdvanced, setVideoAdvanced] = useSessionStorage(
     "videoGenerationAdvanced",
   );
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null);
-  const [runs, setRuns] = useState(1);
   const [pushPermissionDialogOpen, setPushPermissionDialogOpen] =
     useState(false);
   const [generateButtonLocked, setGenerateButtonLocked] = useState(false);
@@ -187,6 +197,63 @@ export default function Home() {
   const promptComposerRef = useRef<PromptComposerHandle>(null);
   const generateButtonTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
+  );
+
+  const updateGenerationDetails = useCallback(
+    (
+      update:
+        | Partial<GenerationDetails>
+        | ((prev: GenerationDetails) => Partial<GenerationDetails>),
+    ) => {
+      setGenerationDetails((prev) => ({
+        ...prev,
+        ...(typeof update === "function" ? update(prev) : update),
+      }));
+    },
+    [setGenerationDetails],
+  );
+
+  const setSelectedModels = useCallback(
+    (
+      update:
+        | PromptModelSlug[]
+        | ((prev: PromptModelSlug[]) => PromptModelSlug[]),
+    ) => {
+      updateGenerationDetails((prev) => ({
+        selectedModels:
+          typeof update === "function"
+            ? update(prev.selectedModels as PromptModelSlug[])
+            : update,
+        modelsInitialized: true,
+      }));
+    },
+    [updateGenerationDetails],
+  );
+  const setMode = useCallback(
+    (value: GenerationDetails["mode"]) =>
+      updateGenerationDetails({ mode: value }),
+    [updateGenerationDetails],
+  );
+  const setResolution = useCallback(
+    (value: ResolutionOption) => updateGenerationDetails({ resolution: value }),
+    [updateGenerationDetails],
+  );
+  const setVideoResolution = useCallback(
+    (value: VideoResolution) =>
+      updateGenerationDetails({ videoResolution: value }),
+    [updateGenerationDetails],
+  );
+  const setDuration = useCallback(
+    (value: VideoDuration) => updateGenerationDetails({ duration: value }),
+    [updateGenerationDetails],
+  );
+  const setAspect = useCallback(
+    (value: string) => updateGenerationDetails({ aspect: value }),
+    [updateGenerationDetails],
+  );
+  const setRuns = useCallback(
+    (value: number) => updateGenerationDetails({ runs: value }),
+    [updateGenerationDetails],
   );
 
   const unlockGenerateButton = () => {
@@ -212,6 +279,7 @@ export default function Home() {
         WORKSHOP_ACCEPTED_PROMPT_STORAGE_KEY,
       );
       if (acceptedPrompt) {
+        setSessionStorage("promptText", acceptedPrompt);
         promptComposerRef.current?.setValue(acceptedPrompt);
         sessionStorage.removeItem(WORKSHOP_ACCEPTED_PROMPT_STORAGE_KEY);
       }
@@ -341,13 +409,33 @@ export default function Home() {
   });
   const reuseAsReference =
     api.referenceImage.createReferenceImageFromGenerated.useMutation();
+  const galleryActionRef = useRef({
+    effectiveBypassMonthlyQuota,
+    movePromptMutation,
+    reuseAsReference,
+    runGeneration,
+    selectedProjectId,
+    usage,
+    usageQuery,
+    utils,
+  });
+  useLayoutEffect(() => {
+    galleryActionRef.current = {
+      effectiveBypassMonthlyQuota,
+      movePromptMutation,
+      reuseAsReference,
+      runGeneration,
+      selectedProjectId,
+      usage,
+      usageQuery,
+      utils,
+    };
+  });
 
   const toggleSelectedModel = (slug: PromptModelSlug) => {
-    if (selectedModels.includes(slug)) {
-      setSelectedModels(selectedModels.filter((i) => i !== slug));
-    } else {
-      setSelectedModels([...selectedModels, slug]);
-    }
+    setSelectedModels((prev) =>
+      prev.includes(slug) ? prev.filter((i) => i !== slug) : [...prev, slug],
+    );
   };
 
   const maybeShowPushPermissionDialog = () => {
@@ -390,6 +478,21 @@ export default function Home() {
 
     setPendingDelete(null);
   };
+
+  const handleDeletePrompt = useCallback((id: string) => {
+    setPendingDelete({ type: "prompt", id });
+  }, []);
+
+  const handleMovePrompt = useCallback(
+    (id: string, projectId: string) => {
+      galleryActionRef.current.movePromptMutation.mutate({ id, projectId });
+    },
+    [],
+  );
+
+  const handleDeleteMedia = useCallback((id: string) => {
+    setPendingDelete({ type: "media", id });
+  }, []);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -648,78 +751,111 @@ export default function Home() {
       });
     }
   };
+  const handleGenerateRef = useRef(handleGenerate);
+  useLayoutEffect(() => {
+    handleGenerateRef.current = handleGenerate;
+  });
+  const handleGenerateStable = useCallback(() => {
+    void handleGenerateRef.current();
+  }, []);
 
-  const handleReuseAsReference = async (imageId: string) => {
-    let result;
-    try {
-      result = await reuseAsReference.mutateAsync({ mediaId: imageId });
-    } catch (err) {
-      console.error("Failed to reuse image as reference", err);
-      toast.error("Failed to reuse image as reference");
-      return;
-    }
-    await utils.referenceImage.getReferenceImages.invalidate();
-    setSelectedReferenceImages((prev) =>
-      prev.includes(result.referenceImageRow.id)
-        ? prev
-        : [...prev, result.referenceImageRow.id],
-    );
-    posthog.capture("generated_image_reused_as_reference", { image_id: imageId });
-    toast.success("Image reused as reference");
-    setReferenceImagesOpen(true);
-  };
-
-  const handleRetryImage = (imageId: string) => {
-    console.log("[retry] clicked, imageId:", imageId);
-    if (!selectedProjectId) return;
-    if (!effectiveBypassMonthlyQuota && usage?.isOverQuota) {
-      toast.error(
-        `Monthly credit limit reached. Credits reset on ${formatResetDate(usage.periodEnd)}.`,
+  const handleReuseAsReference = useCallback(
+    async (imageId: string) => {
+      const { reuseAsReference, utils } = galleryActionRef.current;
+      let result;
+      try {
+        result = await reuseAsReference.mutateAsync({ mediaId: imageId });
+      } catch (err) {
+        console.error("Failed to reuse image as reference", err);
+        toast.error("Failed to reuse image as reference");
+        return;
+      }
+      try {
+        await utils.referenceImage.getReferenceImages.invalidate();
+      } catch (err) {
+        console.error("Failed to refresh reference images after reuse", err);
+      }
+      setSelectedReferenceImages((prev) =>
+        prev.includes(result.referenceImageRow.id)
+          ? prev
+          : [...prev, result.referenceImageRow.id],
       );
-      return;
-    }
+      posthog.capture("generated_image_reused_as_reference", {
+        image_id: imageId,
+      });
+      toast.success("Image reused as reference");
+      setReferenceImagesOpen(true);
+    },
+    [],
+  );
 
-    posthog.capture("image_retry_started", { image_id: imageId });
-    toast.info("Retry generation started");
-    utils.prompt.list.setData({ projectId: selectedProjectId }, (old) =>
-      old?.map((p) => ({
-        ...p,
-        media: p.media.map((img) =>
-          img.id === imageId
-            ? {
-                ...img,
-                status: "pending" as const,
-                error: null,
-              }
-            : img,
-        ),
-      })),
-    );
-    console.log("[retry] optimistic update applied, calling runGeneration");
-    runGeneration.mutate(
-      { mediaId: imageId, retry: true, requestQuotaBypass: effectiveBypassMonthlyQuota },
-      {
-        onSuccess: (data) => console.log("[retry] succeeded, result:", data),
-        onError: (err) => {
-          if (isExpectedTRPCError(err)) {
-            toast.error(
-              `Monthly credit limit reached. Credits reset on ${formatResetDate(usage?.periodEnd)}.`,
-            );
-          } else {
-            console.error("[retry] mutation error:", err);
-          }
+  const handleRetryImage = useCallback(
+    (imageId: string) => {
+      const {
+        effectiveBypassMonthlyQuota,
+        runGeneration,
+        selectedProjectId,
+        usage,
+        usageQuery,
+        utils,
+      } = galleryActionRef.current;
+      console.log("[retry] clicked, imageId:", imageId);
+      if (!selectedProjectId) return;
+      if (!effectiveBypassMonthlyQuota && usage?.isOverQuota) {
+        toast.error(
+          `Monthly credit limit reached. Credits reset on ${formatResetDate(usage.periodEnd)}.`,
+        );
+        return;
+      }
+
+      posthog.capture("image_retry_started", { image_id: imageId });
+      toast.info("Retry generation started");
+      utils.prompt.list.setData({ projectId: selectedProjectId }, (old) =>
+        old?.map((p) => ({
+          ...p,
+          media: p.media.map((img) =>
+            img.id === imageId
+              ? {
+                  ...img,
+                  status: "pending" as const,
+                  error: null,
+                }
+              : img,
+          ),
+        })),
+      );
+      console.log("[retry] optimistic update applied, calling runGeneration");
+      runGeneration.mutate(
+        {
+          mediaId: imageId,
+          retry: true,
+          requestQuotaBypass: effectiveBypassMonthlyQuota,
         },
-        onSettled: (data, error) => {
-          console.log("[retry] settled, invalidating list");
-          void utils.prompt.list.invalidate();
-          void usageQuery.refetch();
-          notifyPromptDone({
-            failureState: !!error || data?.status === "failed" ? "all" : "none",
-          });
+        {
+          onSuccess: (data) => console.log("[retry] succeeded, result:", data),
+          onError: (err) => {
+            if (isExpectedTRPCError(err)) {
+              toast.error(
+                `Monthly credit limit reached. Credits reset on ${formatResetDate(usage?.periodEnd)}.`,
+              );
+            } else {
+              console.error("[retry] mutation error:", err);
+            }
+          },
+          onSettled: (data, error) => {
+            console.log("[retry] settled, invalidating list");
+            void utils.prompt.list.invalidate();
+            void usageQuery.refetch();
+            notifyPromptDone({
+              failureState:
+                !!error || data?.status === "failed" ? "all" : "none",
+            });
+          },
         },
-      },
-    );
-  };
+      );
+    },
+    [],
+  );
 
   useEffect(() => {
     setIsMacOS(navigator?.userAgent.toLowerCase().includes("mac"));
@@ -728,15 +864,38 @@ export default function Home() {
   const lastInitializedModeRef = useRef<typeof mode | null>(null);
 
   useEffect(() => {
+    if (!generationDetailsLoaded) return;
     if (!models) return;
     if (lastInitializedModeRef.current === mode) return;
     lastInitializedModeRef.current = mode;
-    setSelectedModels(
-      models
-        .filter((model) => !model.isArchived && model.kind === mode)
-        .map((model) => model.slug),
+    const availableModelSlugs = new Set(
+      models.filter((model) => model.kind === mode).map((model) => model.slug),
     );
-  }, [models, mode]);
+    const restoredModels = selectedModels.filter((slug) =>
+      availableModelSlugs.has(slug),
+    );
+    const defaultModels = models
+      .filter((model) => !model.isArchived && model.kind === mode)
+      .map((model) => model.slug);
+    if (generationDetails.modelsInitialized) {
+      if (selectedModels.length > 0 && restoredModels.length === 0) {
+        setSelectedModels(defaultModels);
+        return;
+      }
+      if (restoredModels.length !== selectedModels.length) {
+        setSelectedModels(restoredModels);
+      }
+      return;
+    }
+    setSelectedModels(defaultModels);
+  }, [
+    generationDetailsLoaded,
+    generationDetails.modelsInitialized,
+    mode,
+    models,
+    selectedModels,
+    setSelectedModels,
+  ]);
 
   const totalGenerations = runs * selectedModels.length;
   const currentRequestCost = selectedModels.reduce(
@@ -780,20 +939,20 @@ export default function Home() {
     if (hasOnlyOpenAIModelsSelected && resolution === "512") {
       setResolution("1K");
     }
-  }, [hasOnlyOpenAIModelsSelected, resolution]);
+  }, [hasOnlyOpenAIModelsSelected, resolution, setResolution]);
 
   useEffect(() => {
     if (hasOnlySeedanceFastSelected && videoResolution === "1080p") {
       setVideoResolution("720p");
     }
-  }, [hasOnlySeedanceFastSelected, videoResolution]);
+  }, [hasOnlySeedanceFastSelected, setVideoResolution, videoResolution]);
 
   useEffect(() => {
     const IMAGE_ASPECTS = new Set(["1:1", "4:3", "3:4", "16:9", "9:16"]);
     if (mode === "image" && !IMAGE_ASPECTS.has(aspect)) {
       setAspect("1:1");
     }
-  }, [mode, aspect]);
+  }, [aspect, mode, setAspect]);
 
   useEffect(() => {
     if (promptsQuery.error?.data?.code !== "NOT_FOUND" || !projects?.length) {
@@ -924,7 +1083,7 @@ export default function Home() {
         runs={runs}
         onRunsChange={setRuns}
         generateButtonLocked={generateButtonLocked}
-        onGenerate={handleGenerate}
+        onGenerate={handleGenerateStable}
         fileInputRef={fileInputRef}
         onFileUpload={handleFileUpload}
         onDeleteReferenceImage={(id) =>
@@ -956,11 +1115,9 @@ export default function Home() {
         isLoading={isGalleryLoading}
         models={models}
         referenceImages={referenceImages}
-        onDeletePrompt={(id) => setPendingDelete({ type: "prompt", id })}
-        onMovePrompt={(id, projectId) =>
-          movePromptMutation.mutate({ id, projectId })
-        }
-        onDeleteMedia={(id) => setPendingDelete({ type: "media", id })}
+        onDeletePrompt={handleDeletePrompt}
+        onMovePrompt={handleMovePrompt}
+        onDeleteMedia={handleDeleteMedia}
         onReuseAsReference={handleReuseAsReference}
         onRetryMedia={handleRetryImage}
       />

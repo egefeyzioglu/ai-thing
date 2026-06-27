@@ -1,5 +1,7 @@
 "use client";
 
+import { memo } from "react";
+
 import PromptGroup from "./prompt-group";
 import { ProjectSwitcher } from "./project-switcher";
 import { VideoPoller } from "./video-poller";
@@ -65,7 +67,7 @@ function PromptGroupSkeleton() {
   );
 }
 
-export function MediaGallery({
+export const MediaGallery = memo(function MediaGallery({
   projects,
   project,
   selectedProjectId,
@@ -236,7 +238,7 @@ export function MediaGallery({
                 projectId={selectedProjectId}
               />
             )),
-        )}
+      )}
     </div>
   );
-}
+});
