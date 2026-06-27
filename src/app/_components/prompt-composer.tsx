@@ -35,7 +35,7 @@ type PromptComposerProps = {
   onSubmit: () => void;
 };
 
-export function PromptComposer({
+export const PromptComposer = memo(function PromptComposer({
   ref,
   isMacOS,
   onSubmit,
@@ -125,7 +125,7 @@ export function PromptComposer({
       <ComposerFooter isMacOS={isMacOS} getValue={getValue} />
     </Field>
   );
-}
+});
 
 type ComposerFooterProps = {
   isMacOS: boolean | null;

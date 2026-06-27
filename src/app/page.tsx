@@ -403,6 +403,26 @@ export default function Home() {
   });
   const reuseAsReference =
     api.referenceImage.createReferenceImageFromGenerated.useMutation();
+  const galleryActionRef = useRef({
+    effectiveBypassMonthlyQuota,
+    movePromptMutation,
+    reuseAsReference,
+    runGeneration,
+    selectedProjectId,
+    usage,
+    usageQuery,
+    utils,
+  });
+  galleryActionRef.current = {
+    effectiveBypassMonthlyQuota,
+    movePromptMutation,
+    reuseAsReference,
+    runGeneration,
+    selectedProjectId,
+    usage,
+    usageQuery,
+    utils,
+  };
 
   const toggleSelectedModel = (slug: PromptModelSlug) => {
     setSelectedModels((prev) =>
@@ -450,6 +470,21 @@ export default function Home() {
 
     setPendingDelete(null);
   };
+
+  const handleDeletePrompt = useCallback((id: string) => {
+    setPendingDelete({ type: "prompt", id });
+  }, []);
+
+  const handleMovePrompt = useCallback(
+    (id: string, projectId: string) => {
+      galleryActionRef.current.movePromptMutation.mutate({ id, projectId });
+    },
+    [],
+  );
+
+  const handleDeleteMedia = useCallback((id: string) => {
+    setPendingDelete({ type: "media", id });
+  }, []);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -708,78 +743,105 @@ export default function Home() {
       });
     }
   };
+  const handleGenerateRef = useRef(handleGenerate);
+  handleGenerateRef.current = handleGenerate;
+  const handleGenerateStable = useCallback(() => {
+    void handleGenerateRef.current();
+  }, []);
 
-  const handleReuseAsReference = async (imageId: string) => {
-    let result;
-    try {
-      result = await reuseAsReference.mutateAsync({ mediaId: imageId });
-    } catch (err) {
-      console.error("Failed to reuse image as reference", err);
-      toast.error("Failed to reuse image as reference");
-      return;
-    }
-    await utils.referenceImage.getReferenceImages.invalidate();
-    setSelectedReferenceImages((prev) =>
-      prev.includes(result.referenceImageRow.id)
-        ? prev
-        : [...prev, result.referenceImageRow.id],
-    );
-    posthog.capture("generated_image_reused_as_reference", { image_id: imageId });
-    toast.success("Image reused as reference");
-    setReferenceImagesOpen(true);
-  };
-
-  const handleRetryImage = (imageId: string) => {
-    console.log("[retry] clicked, imageId:", imageId);
-    if (!selectedProjectId) return;
-    if (!effectiveBypassMonthlyQuota && usage?.isOverQuota) {
-      toast.error(
-        `Monthly credit limit reached. Credits reset on ${formatResetDate(usage.periodEnd)}.`,
+  const handleReuseAsReference = useCallback(
+    async (imageId: string) => {
+      const { reuseAsReference, utils } = galleryActionRef.current;
+      let result;
+      try {
+        result = await reuseAsReference.mutateAsync({ mediaId: imageId });
+      } catch (err) {
+        console.error("Failed to reuse image as reference", err);
+        toast.error("Failed to reuse image as reference");
+        return;
+      }
+      await utils.referenceImage.getReferenceImages.invalidate();
+      setSelectedReferenceImages((prev) =>
+        prev.includes(result.referenceImageRow.id)
+          ? prev
+          : [...prev, result.referenceImageRow.id],
       );
-      return;
-    }
+      posthog.capture("generated_image_reused_as_reference", {
+        image_id: imageId,
+      });
+      toast.success("Image reused as reference");
+      setReferenceImagesOpen(true);
+    },
+    [],
+  );
 
-    posthog.capture("image_retry_started", { image_id: imageId });
-    toast.info("Retry generation started");
-    utils.prompt.list.setData({ projectId: selectedProjectId }, (old) =>
-      old?.map((p) => ({
-        ...p,
-        media: p.media.map((img) =>
-          img.id === imageId
-            ? {
-                ...img,
-                status: "pending" as const,
-                error: null,
-              }
-            : img,
-        ),
-      })),
-    );
-    console.log("[retry] optimistic update applied, calling runGeneration");
-    runGeneration.mutate(
-      { mediaId: imageId, retry: true, requestQuotaBypass: effectiveBypassMonthlyQuota },
-      {
-        onSuccess: (data) => console.log("[retry] succeeded, result:", data),
-        onError: (err) => {
-          if (isExpectedTRPCError(err)) {
-            toast.error(
-              `Monthly credit limit reached. Credits reset on ${formatResetDate(usage?.periodEnd)}.`,
-            );
-          } else {
-            console.error("[retry] mutation error:", err);
-          }
+  const handleRetryImage = useCallback(
+    (imageId: string) => {
+      const {
+        effectiveBypassMonthlyQuota,
+        runGeneration,
+        selectedProjectId,
+        usage,
+        usageQuery,
+        utils,
+      } = galleryActionRef.current;
+      console.log("[retry] clicked, imageId:", imageId);
+      if (!selectedProjectId) return;
+      if (!effectiveBypassMonthlyQuota && usage?.isOverQuota) {
+        toast.error(
+          `Monthly credit limit reached. Credits reset on ${formatResetDate(usage.periodEnd)}.`,
+        );
+        return;
+      }
+
+      posthog.capture("image_retry_started", { image_id: imageId });
+      toast.info("Retry generation started");
+      utils.prompt.list.setData({ projectId: selectedProjectId }, (old) =>
+        old?.map((p) => ({
+          ...p,
+          media: p.media.map((img) =>
+            img.id === imageId
+              ? {
+                  ...img,
+                  status: "pending" as const,
+                  error: null,
+                }
+              : img,
+          ),
+        })),
+      );
+      console.log("[retry] optimistic update applied, calling runGeneration");
+      runGeneration.mutate(
+        {
+          mediaId: imageId,
+          retry: true,
+          requestQuotaBypass: effectiveBypassMonthlyQuota,
         },
-        onSettled: (data, error) => {
-          console.log("[retry] settled, invalidating list");
-          void utils.prompt.list.invalidate();
-          void usageQuery.refetch();
-          notifyPromptDone({
-            failureState: !!error || data?.status === "failed" ? "all" : "none",
-          });
+        {
+          onSuccess: (data) => console.log("[retry] succeeded, result:", data),
+          onError: (err) => {
+            if (isExpectedTRPCError(err)) {
+              toast.error(
+                `Monthly credit limit reached. Credits reset on ${formatResetDate(usage?.periodEnd)}.`,
+              );
+            } else {
+              console.error("[retry] mutation error:", err);
+            }
+          },
+          onSettled: (data, error) => {
+            console.log("[retry] settled, invalidating list");
+            void utils.prompt.list.invalidate();
+            void usageQuery.refetch();
+            notifyPromptDone({
+              failureState:
+                !!error || data?.status === "failed" ? "all" : "none",
+            });
+          },
         },
-      },
-    );
-  };
+      );
+    },
+    [],
+  );
 
   useEffect(() => {
     setIsMacOS(navigator?.userAgent.toLowerCase().includes("mac"));
@@ -1007,7 +1069,7 @@ export default function Home() {
         runs={runs}
         onRunsChange={setRuns}
         generateButtonLocked={generateButtonLocked}
-        onGenerate={handleGenerate}
+        onGenerate={handleGenerateStable}
         fileInputRef={fileInputRef}
         onFileUpload={handleFileUpload}
         onDeleteReferenceImage={(id) =>
@@ -1039,11 +1101,9 @@ export default function Home() {
         isLoading={isGalleryLoading}
         models={models}
         referenceImages={referenceImages}
-        onDeletePrompt={(id) => setPendingDelete({ type: "prompt", id })}
-        onMovePrompt={(id, projectId) =>
-          movePromptMutation.mutate({ id, projectId })
-        }
-        onDeleteMedia={(id) => setPendingDelete({ type: "media", id })}
+        onDeletePrompt={handleDeletePrompt}
+        onMovePrompt={handleMovePrompt}
+        onDeleteMedia={handleDeleteMedia}
         onReuseAsReference={handleReuseAsReference}
         onRetryMedia={handleRetryImage}
       />

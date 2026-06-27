@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type RefObject } from "react";
+import { memo, useEffect, useState, type RefObject } from "react";
 
 import { Button } from "src/components/ui/button";
 import type { PromptComposerHandle } from "./prompt-composer";
@@ -15,7 +15,7 @@ type GenerateButtonProps = {
   onGenerate: () => void;
 };
 
-export function GenerateButton({
+export const GenerateButton = memo(function GenerateButton({
   promptComposerRef,
   selectedModelsCount,
   hasSelectedProject,
@@ -52,8 +52,8 @@ export function GenerateButton({
       {generateButtonLocked
         ? "Generating..."
         : isOverQuota && !bypassMonthlyQuota
-          ? "Out of credits"
-          : "Generate"}
+      ? "Out of credits"
+      : "Generate"}
     </Button>
   );
-}
+});
