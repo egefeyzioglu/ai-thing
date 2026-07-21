@@ -116,6 +116,7 @@ export async function generateSeedreamImage(args: {
   prompt: string;
   imageUrls?: string[];
   size?: string;
+  signal?: AbortSignal;
 }): Promise<SeedreamGenerationResult> {
   const imageUrls = args.imageUrls ?? [];
   const image =
@@ -128,7 +129,12 @@ export async function generateSeedreamImage(args: {
   const response = await fetch(SEEDREAM_GENERATIONS_ENDPOINT, {
     method: "POST",
     headers: authHeaders(),
-    signal: AbortSignal.timeout(SEEDREAM_REQUEST_TIMEOUT_MS),
+    signal: args.signal
+      ? AbortSignal.any([
+          args.signal,
+          AbortSignal.timeout(SEEDREAM_REQUEST_TIMEOUT_MS),
+        ])
+      : AbortSignal.timeout(SEEDREAM_REQUEST_TIMEOUT_MS),
     body: JSON.stringify({
       model: providerModel,
       prompt: args.prompt,

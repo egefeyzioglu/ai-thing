@@ -374,6 +374,7 @@ async function generateImageOpenAIResponses(
   resolution?: string,
   aspectRatio?: string,
   advanced?: AdvancedSettings,
+  signal?: AbortSignal,
 ): Promise<GeneratedImage> {
   const ownedReferenceImages = await loadOwnedReferenceImages(
     userId,
@@ -418,6 +419,7 @@ async function generateImageOpenAIResponses(
     },
     // TODO: Make this typesafe
     body: body,
+    signal,
   });
 
   if (!res.ok) {
@@ -460,6 +462,7 @@ async function generateImageGptImage2Generations(
   model: ["gpt-image-2-2026-04-21"][number],
   size: string,
   advanced?: AdvancedSettings,
+  signal?: AbortSignal,
 ): Promise<GeneratedImage | undefined> {
   const body = JSON.stringify({
     model,
@@ -476,6 +479,7 @@ async function generateImageGptImage2Generations(
       Authorization: `Bearer ${env.OPENAI_API_KEY}`,
     },
     body,
+    signal,
   });
   if (!res.ok) {
     const text = await res.text();
@@ -511,6 +515,7 @@ async function generateImageGptImage2Edits(
   size: string,
   referenceImages: ReferenceImage[],
   advanced?: AdvancedSettings,
+  signal?: AbortSignal,
 ): Promise<GeneratedImage | undefined> {
   const body = JSON.stringify({
     model: "gpt-image-2-2026-04-21",
@@ -530,6 +535,7 @@ async function generateImageGptImage2Edits(
       Authorization: `Bearer ${env.OPENAI_API_KEY}`,
     },
     body,
+    signal,
   });
   if (!res.ok) {
     const text = await res.text();
@@ -567,6 +573,7 @@ async function generateImageGptImage2(
   resolution?: string,
   aspectRatio?: string,
   advanced?: AdvancedSettings,
+  signal?: AbortSignal,
 ): Promise<GeneratedImage> {
   const ownedReferenceImages = await loadOwnedReferenceImages(
     userId,
@@ -575,12 +582,19 @@ async function generateImageGptImage2(
   const size = resolveImageSize(resolution, aspectRatio) ?? "auto";
 
   const image = await (ownedReferenceImages.length > 0
-    ? generateImageGptImage2Edits(prompt, size, ownedReferenceImages, advanced)
+    ? generateImageGptImage2Edits(
+        prompt,
+        size,
+        ownedReferenceImages,
+        advanced,
+        signal,
+      )
     : generateImageGptImage2Generations(
         prompt,
         "gpt-image-2-2026-04-21",
         size,
         advanced,
+        signal,
       ));
 
   if (!image) {
@@ -602,6 +616,7 @@ async function generateImageGeminiModel(
   resolution?: string,
   aspectRatio?: string,
   advanced?: AdvancedSettings,
+  signal?: AbortSignal,
 ): Promise<GeneratedImage> {
   const ownedReferenceImages = await loadOwnedReferenceImages(
     userId,
@@ -611,7 +626,7 @@ async function generateImageGeminiModel(
     await Promise.all(
       ownedReferenceImages.map(async (image) => {
         if (!image?.url) return undefined;
-        const imageBytes = await (await fetch(image.url)).bytes();
+        const imageBytes = await (await fetch(image.url, { signal })).bytes();
         return {
           b64: Buffer.from(imageBytes).toString("base64"),
           mimeType: image.mimeType,
@@ -690,6 +705,7 @@ async function generateImageGeminiModel(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
+      signal,
     },
   );
 
@@ -730,6 +746,7 @@ async function generateImageSeedream(
   referenceImageIds?: string[],
   resolution?: string,
   aspectRatio?: string,
+  signal?: AbortSignal,
 ): Promise<GeneratedImage> {
   const ownedReferenceImages = await loadOwnedReferenceImages(
     userId,
@@ -747,6 +764,7 @@ async function generateImageSeedream(
     prompt,
     imageUrls,
     size,
+    signal,
   });
 
   return {
@@ -808,6 +826,7 @@ async function generateForModel(
   resolution?: string,
   aspectRatio?: string,
   advanced?: AdvancedSettings,
+  signal?: AbortSignal,
 ): Promise<GeneratedImage> {
   switch (model) {
     case "gpt-image-2":
@@ -818,6 +837,7 @@ async function generateForModel(
         resolution,
         aspectRatio,
         advanced,
+        signal,
       );
     case "gpt-5.4-mini":
       return generateImageOpenAIResponses(
@@ -827,6 +847,7 @@ async function generateForModel(
         resolution,
         aspectRatio,
         advanced,
+        signal,
       );
     case "gemini-2.5-flash-image":
     case "gemini-3.1-flash-image-preview":
@@ -839,6 +860,7 @@ async function generateForModel(
         resolution,
         aspectRatio,
         advanced,
+        signal,
       );
     case "dola-seedream-5-0-lite":
     case "dola-seedream-5-0-pro":
@@ -849,6 +871,7 @@ async function generateForModel(
         referenceImageIds,
         resolution,
         aspectRatio,
+        signal,
       );
     default:
       throw new Error(`Unsupported model: ${model}`);
@@ -920,7 +943,7 @@ export const mediaRouter = createTRPCRouter({
         requestQuotaBypass: z.boolean().optional(),
       }),
     )
-    .mutation(async ({ ctx, input }): Promise<Media> => {
+    .mutation(async ({ ctx, input, signal }): Promise<Media> => {
       console.log("[runGeneration] input:", { mediaId: input.mediaId, retry: input.retry });
 
       const [mediaRow] = await db
@@ -1297,7 +1320,44 @@ export const mediaRouter = createTRPCRouter({
             seed: promptRow.seed,
             thinking: promptRow.thinking,
           },
+          signal,
         );
+
+        const [activeMedia] = await db
+          .select({ id: media.id })
+          .from(media)
+          .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
+          .limit(1);
+        if (!activeMedia) {
+          await recordGenerationCostEvent({
+            userId: ctx.user,
+            mediaId: null,
+            usageId: claimResult.usageId,
+            provider: generated.cost.provider,
+            providerRequestId: generated.cost.providerRequestId,
+            model: mediaRow.model,
+            providerModel: generated.cost.providerModel,
+            operation: generated.cost.operation,
+            usageRaw: generated.cost.usageRaw,
+            fallbackContext: {
+              resolution: promptRow.resolution,
+              aspectRatio: promptRow.aspectRatio,
+              outputImageCount: 1,
+              ...generated.cost.fallbackContext,
+            },
+          }).catch((err) => {
+            console.error(
+              "[runGeneration] failed to record canceled generation cost:",
+              err,
+            );
+          });
+          await markUsageStatus(claimResult.usageId, "refunded");
+          return signMediaRow({
+            ...mediaRow,
+            status: "failed",
+            error: "Generation canceled",
+          });
+        }
         await recordGenerationCostEvent({
           userId: ctx.user,
           mediaId: mediaRow.id,
@@ -1336,9 +1396,17 @@ export const mediaRouter = createTRPCRouter({
           .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
           .returning();
         if (!updated) {
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: "Failed to update image row",
+          await utapi.deleteFiles(key).catch((err) => {
+            console.error(
+              `[runGeneration] failed to delete canceled upload ${key}:`,
+              err,
+            );
+          });
+          await markUsageStatus(claimResult.usageId, "refunded");
+          return signMediaRow({
+            ...mediaRow,
+            status: "failed",
+            error: "Generation canceled",
           });
         }
         const didConsume = await markUsageStatus(
@@ -1363,6 +1431,17 @@ export const mediaRouter = createTRPCRouter({
         console.log("[runGeneration] done, status: succeeded");
         return signMediaRow(updated);
       } catch (err) {
+        if (
+          signal?.aborted ||
+          (err instanceof Error && err.name === "AbortError")
+        ) {
+          await markUsageStatus(claimResult.usageId, "refunded");
+          return signMediaRow({
+            ...mediaRow,
+            status: "failed",
+            error: "Generation canceled",
+          });
+        }
         console.error("[runGeneration] generation/upload failed:", err);
         const message = err instanceof Error ? err.message : String(err);
         const [updated] = await db
@@ -1375,9 +1454,11 @@ export const mediaRouter = createTRPCRouter({
           .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
           .returning();
         if (!updated) {
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: "Failed to record image failure",
+          await markUsageStatus(claimResult.usageId, "refunded");
+          return signMediaRow({
+            ...mediaRow,
+            status: "failed",
+            error: "Generation canceled",
           });
         }
         const didRefund = await markUsageStatus(
