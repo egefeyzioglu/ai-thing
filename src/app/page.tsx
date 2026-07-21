@@ -334,6 +334,9 @@ export default function Home() {
   const canBypassLimits = user.user?.publicMetadata.canBypassLimits === true;
   const effectiveBypassMonthlyQuota = canBypassLimits && bypassMonthlyQuota;
   const utils = api.useUtils();
+  const generationAbortControllersRef = useRef(
+    new Map<string, Set<AbortController>>(),
+  );
 
   const { data: referenceImages, isLoading: isLoadingRefImages } =
     api.referenceImage.getReferenceImages.useQuery();
@@ -411,7 +414,6 @@ export default function Home() {
   const { startUpload } = useUploadThing("imageUploader");
 
   const createPrompt = api.prompt.createWithGenerations.useMutation();
-  const runGeneration = api.media.runGeneration.useMutation();
   const deletePromptMutation = api.prompt.deletePrompt.useMutation({
     onSuccess: () => {
       toast.success("Generation deleted");
@@ -445,7 +447,6 @@ export default function Home() {
     effectiveBypassMonthlyQuota,
     movePromptMutation,
     reuseAsReference,
-    runGeneration,
     selectedProjectId,
     usage,
     usageQuery,
@@ -456,7 +457,6 @@ export default function Home() {
       effectiveBypassMonthlyQuota,
       movePromptMutation,
       reuseAsReference,
-      runGeneration,
       selectedProjectId,
       usage,
       usageQuery,
@@ -503,6 +503,10 @@ export default function Home() {
         },
       );
     } else if (pendingDelete.type === "prompt") {
+      generationAbortControllersRef.current
+        .get(pendingDelete.id)
+        ?.forEach((controller) => controller.abort("Prompt deleted"));
+      generationAbortControllersRef.current.delete(pendingDelete.id);
       deletePromptMutation.mutate({ id: pendingDelete.id });
     } else {
       deleteMediaMutation.mutate({ id: pendingDelete.id });
@@ -754,31 +758,38 @@ export default function Home() {
       }, 3000);
     }
 
+    const generationController = new AbortController();
+    generationAbortControllersRef.current.set(
+      result.id,
+      new Set([generationController]),
+    );
     let generationResults;
     try {
       generationResults = await Promise.allSettled(
         result.media.map((img) =>
-          runGeneration.mutateAsync(
+          utils.client.media.runGeneration.mutate(
             {
               mediaId: img.id,
               requestQuotaBypass: effectiveBypassMonthlyQuota,
             },
             {
-              onSuccess: () => {
-                utils.prompt.list.invalidate().catch((reason) => {
-                  console.error(
-                    "Failed to invalidate images query, user will have to refresh.",
-                    reason,
-                  );
-                });
-                usageQuery.refetch().catch((reason) => {
-                  console.error("Failed to refetch usage query.", reason);
-                });
-              },
+              signal: generationController.signal,
             },
-          ),
+          ).then((generatedMedia) => {
+            utils.prompt.list.invalidate().catch((reason) => {
+              console.error(
+                "Failed to invalidate images query, user will have to refresh.",
+                reason,
+              );
+            });
+            usageQuery.refetch().catch((reason) => {
+              console.error("Failed to refetch usage query.", reason);
+            });
+            return generatedMedia;
+          }),
         ),
       );
+      if (generationController.signal.aborted) return;
       const failedGenerationCount = generationResults.filter(
         (generationResult) =>
           generationResult.status === "rejected" ||
@@ -804,6 +815,11 @@ export default function Home() {
         `Failed to generate one or more images for prompt: "${trimmedPrompt}"`,
       );
     } finally {
+      const controllers = generationAbortControllersRef.current.get(result.id);
+      controllers?.delete(generationController);
+      if (controllers?.size === 0) {
+        generationAbortControllersRef.current.delete(result.id);
+      }
       utils.prompt.list.invalidate().catch((reason) => {
         console.error(
           "Failed to invalidate images query. Some images may be stuck generating until a refresh",
@@ -857,7 +873,6 @@ export default function Home() {
     (imageId: string) => {
       const {
         effectiveBypassMonthlyQuota,
-        runGeneration,
         selectedProjectId,
         usage,
         usageQuery,
@@ -889,15 +904,37 @@ export default function Home() {
         })),
       );
       console.log("[retry] optimistic update applied, calling runGeneration");
-      runGeneration.mutate(
-        {
-          mediaId: imageId,
-          retry: true,
-          requestQuotaBypass: effectiveBypassMonthlyQuota,
-        },
-        {
-          onSuccess: (data) => console.log("[retry] succeeded, result:", data),
-          onError: (err) => {
+      const promptId = utils.prompt.list
+        .getData({ projectId: selectedProjectId })
+        ?.find((prompt) => prompt.media.some((item) => item.id === imageId))?.id;
+      const generationController = new AbortController();
+      if (promptId) {
+        const controllers =
+          generationAbortControllersRef.current.get(promptId) ?? new Set();
+        controllers.add(generationController);
+        generationAbortControllersRef.current.set(promptId, controllers);
+      }
+      void utils.client.media.runGeneration
+        .mutate(
+          {
+            mediaId: imageId,
+            retry: true,
+            requestQuotaBypass: effectiveBypassMonthlyQuota,
+          },
+          {
+            signal: generationController.signal,
+          },
+        )
+        .then((data) => {
+          console.log("[retry] succeeded, result:", data);
+          if (!generationController.signal.aborted) {
+            notifyPromptDone({
+              failureState: data.status === "failed" ? "all" : "none",
+            });
+          }
+        })
+        .catch((err: unknown) => {
+          if (!generationController.signal.aborted) {
             if (isExpectedTRPCError(err)) {
               toast.error(
                 `Monthly credit limit reached. Credits reset on ${formatResetDate(usage?.periodEnd)}.`,
@@ -905,18 +942,21 @@ export default function Home() {
             } else {
               console.error("[retry] mutation error:", err);
             }
-          },
-          onSettled: (data, error) => {
-            console.log("[retry] settled, invalidating list");
-            void utils.prompt.list.invalidate();
-            void usageQuery.refetch();
-            notifyPromptDone({
-              failureState:
-                !!error || data?.status === "failed" ? "all" : "none",
-            });
-          },
-        },
-      );
+          }
+        })
+        .finally(() => {
+          if (promptId) {
+            const controllers =
+              generationAbortControllersRef.current.get(promptId);
+            controllers?.delete(generationController);
+            if (controllers?.size === 0) {
+              generationAbortControllersRef.current.delete(promptId);
+            }
+          }
+          console.log("[retry] settled, invalidating list");
+          void utils.prompt.list.invalidate();
+          void usageQuery.refetch();
+        });
     },
     [],
   );

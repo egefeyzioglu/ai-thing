@@ -414,26 +414,53 @@ export const promptRouter = createTRPCRouter({
   deletePrompt: protectedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const [row] = await db
-        .select()
-        .from(prompts)
-        .where(and(eq(prompts.id, input.id), eq(prompts.userId, ctx.user)))
-        .limit(1);
+      const mediaRows = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(prompts)
+          .where(and(eq(prompts.id, input.id), eq(prompts.userId, ctx.user)))
+          .for("update")
+          .limit(1);
 
-      if (!row) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Prompt not found",
-        });
-      }
+        if (!row) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Prompt not found",
+          });
+        }
 
-      // Collect UploadThing keys for every generated media item that isn't reused
-      // so we can remove the files before the cascade-delete wipes the rows.
-      const mediaRows = await db
-        .select({ key: media.key, reusedBy: referenceImages.reusedFromMediaId })
-        .from(media)
-        .leftJoin(referenceImages, eq(media.id, referenceImages.reusedFromMediaId))
-        .where(and(eq(media.promptId, input.id), eq(media.userId, ctx.user)));
+        const rows = await tx
+          .select({
+            id: media.id,
+            key: media.key,
+            reusedBy: referenceImages.reusedFromMediaId,
+          })
+          .from(media)
+          .leftJoin(
+            referenceImages,
+            eq(media.id, referenceImages.reusedFromMediaId),
+          )
+          .where(and(eq(media.promptId, input.id), eq(media.userId, ctx.user)));
+
+        const mediaIds = rows.map((mediaRow) => mediaRow.id);
+        if (mediaIds.length > 0) {
+          await tx
+            .update(generationUsage)
+            .set({ status: "refunded", updatedAt: new Date() })
+            .where(
+              and(
+                inArray(generationUsage.mediaId, mediaIds),
+                eq(generationUsage.status, "reserved"),
+              ),
+            );
+        }
+
+        await tx
+          .delete(prompts)
+          .where(and(eq(prompts.id, input.id), eq(prompts.userId, ctx.user)));
+
+        return rows;
+      });
 
       const keys = mediaRows
         .filter((r) => !r.reusedBy)
@@ -448,13 +475,6 @@ export const promptRouter = createTRPCRouter({
           );
         });
       }
-
-      // The `onDelete: "cascade"` on images.promptId handles child rows.
-      // The `onDelete: "set null" on referenceImages.reused_from handles
-      // dangling references
-      await db
-        .delete(prompts)
-        .where(and(eq(prompts.id, input.id), eq(prompts.userId, ctx.user)));
 
       return { success: true };
     }),
