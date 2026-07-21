@@ -66,6 +66,20 @@ export const SUPPORTED_MODELS = [
     isArchived: false,
   },
   {
+    slug: "dreamina-seedream-5-0-pro",
+    humanName: "Seedream 5.0 Pro",
+    provider: "Dreamina",
+    kind: "video",
+    isArchived: false,
+  },
+  {
+    slug: "dreamina-seedream-5-0-mini",
+    humanName: "Seedream 5.0 Mini",
+    provider: "Dreamina",
+    kind: "video",
+    isArchived: false,
+  },
+  {
     slug: "dreamina-seedance-2-0",
     humanName: "Seedance 2.0",
     provider: "Dreamina",

@@ -11,6 +11,8 @@ const ARK_TASKS_ENDPOINT = `${ARK_BASE_URL}/contents/generations/tasks`;
 const SLUG_TO_MODELARK_ID = {
   "dreamina-seedance-2-0": "dreamina-seedance-2-0-260128",
   "dreamina-seedance-2-0-fast": "dreamina-seedance-2-0-fast-260128",
+  "dreamina-seedream-5-0-pro": "seedream-5-0-260128",
+  "dreamina-seedream-5-0-mini": "dola-seedream-5-0-pro-260628",
 } as const;
 
 export type SeedanceSlug = keyof typeof SLUG_TO_MODELARK_ID;
