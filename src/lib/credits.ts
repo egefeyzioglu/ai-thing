@@ -8,6 +8,9 @@ export const MODEL_CREDIT_BASE = {
   "gemini-3-pro-image-preview": 25,
 } as const;
 
+const DOLA_SEEDREAM_LITE_SLUG = "dola-seedream-5-0-lite";
+const DOLA_SEEDREAM_PRO_SLUG = "dola-seedream-5-0-pro";
+
 // USD per video at 16:9, 5s output, no reference-video input — sourced from
 // Modelark's "Price examples" table. We treat 1 credit ≈ 1 USD cent (so
 // $0.76 → 76 credits for a 5s 720p Seedance 2.0 video), scale linearly with
@@ -50,7 +53,18 @@ export function calculateGenerationCredits(args: {
   aspectRatio?: string | null;
   videoResolution?: string | null;
   duration?: number | null;
+  referenceImageCount?: number;
 }): number {
+  if (args.model === DOLA_SEEDREAM_LITE_SLUG) {
+    return Math.ceil(0.035 * CREDITS_PER_USD);
+  }
+  if (args.model === DOLA_SEEDREAM_PRO_SLUG) {
+    // Pro output is $0.045 up to 2.36 MP and $0.09 above it. Its supported
+    // 1K outputs fall in the first tier and 2K outputs in the second.
+    const outputUsd = args.resolution === "2K" ? 0.09 : 0.045;
+    const inputUsd = Math.max(0, (args.referenceImageCount ?? 0) - 1) * 0.003;
+    return Math.ceil((outputUsd + inputUsd) * CREDITS_PER_USD);
+  }
   if (args.model in VIDEO_BASE_USD_PER_5S_SEGMENT) {
     return calculateVideoGenerationCredits({
       model: args.model,

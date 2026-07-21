@@ -6,7 +6,7 @@ import {
   type GenerationCostEventStatus,
 } from "src/server/db/schema";
 
-export const COST_PRICING_VERSION = "2026-05-22";
+export const COST_PRICING_VERSION = "2026-07-21";
 
 const TOKENS_PER_MILLION = 1_000_000;
 
@@ -93,6 +93,14 @@ const MODELARK_PRICING = {
   },
 } as const;
 
+const DOLA_SEEDREAM_LITE_SLUG = "dola-seedream-5-0-lite";
+const DOLA_SEEDREAM_PRO_SLUG = "dola-seedream-5-0-pro";
+const DOLA_SEEDREAM_LITE_OUTPUT_USD_MICROS = 35_000;
+const DOLA_SEEDREAM_PRO_LOW_OUTPUT_USD_MICROS = 45_000;
+const DOLA_SEEDREAM_PRO_HIGH_OUTPUT_USD_MICROS = 90_000;
+const DOLA_SEEDREAM_PRO_EXTRA_INPUT_USD_MICROS = 3_000;
+const DOLA_SEEDREAM_PRO_OUTPUT_TIER_PIXELS = 2_360_000;
+
 const ANTHROPIC_PRICING = {
   "claude-opus-4-8": {
     inputUsdMicrosPerMillion: 5_000_000,
@@ -119,10 +127,29 @@ type ModelarkUsage = {
   total_tokens?: number;
 };
 
+type ModelarkImageUsage = {
+  generated_images?: number;
+  input_images?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+};
+
 function normalizeModelarkUsage(value: unknown): ModelarkUsage | null {
   if (!isRecord(value)) return null;
   return {
     completion_tokens: readNumber(value, "completion_tokens"),
+    total_tokens: readNumber(value, "total_tokens"),
+  };
+}
+
+function normalizeModelarkImageUsage(
+  value: unknown,
+): ModelarkImageUsage | null {
+  if (!isRecord(value)) return null;
+  return {
+    generated_images: readNumber(value, "generated_images"),
+    input_images: readNumber(value, "input_images"),
+    output_tokens: readNumber(value, "output_tokens"),
     total_tokens: readNumber(value, "total_tokens"),
   };
 }
@@ -151,6 +178,7 @@ type CostFallbackContext = {
   resolution?: string | null;
   aspectRatio?: string | null;
   outputImageCount?: number;
+  referenceImageCount?: number;
   size?: string | null;
   quality?: string | null;
   background?: string | null;
@@ -165,6 +193,7 @@ function pricingContext(context: CostFallbackContext): Record<string, unknown> {
   return {
     resolution: context.resolution,
     outputImageCount: context.outputImageCount,
+    referenceImageCount: context.referenceImageCount,
     size: context.size,
     quality: context.quality,
   };
@@ -1028,11 +1057,82 @@ function calculateGeminiCost(args: {
   };
 }
 
-function calculateModelarkVideoCost(args: {
+function calculateModelarkCost(args: {
   model: string;
   usageRaw: unknown;
   fallbackContext: CostFallbackContext;
 }): CostFields {
+  if (
+    args.model === DOLA_SEEDREAM_LITE_SLUG ||
+    args.model === DOLA_SEEDREAM_PRO_SLUG
+  ) {
+    const usage = normalizeModelarkImageUsage(args.usageRaw);
+    const assumptions: string[] = [];
+    const outputImageCount =
+      usage?.generated_images ?? args.fallbackContext.outputImageCount ?? 1;
+    if (usage?.generated_images === undefined) {
+      assumptions.push("missing_modelark_generated_images");
+    }
+
+    let imageOutputCost: number;
+    let imageInputCost = 0;
+    let outputUsdMicrosPerPiece: number;
+    if (args.model === DOLA_SEEDREAM_LITE_SLUG) {
+      outputUsdMicrosPerPiece = DOLA_SEEDREAM_LITE_OUTPUT_USD_MICROS;
+      imageOutputCost = outputImageCount * outputUsdMicrosPerPiece;
+    } else {
+      const outputPixelsPerImage =
+        usage?.output_tokens === undefined || outputImageCount === 0
+          ? undefined
+          : (usage.output_tokens * 256) / outputImageCount;
+      const usesHighOutputTier =
+        outputPixelsPerImage === undefined
+          ? args.fallbackContext.resolution === "2K"
+          : outputPixelsPerImage > DOLA_SEEDREAM_PRO_OUTPUT_TIER_PIXELS;
+      if (outputPixelsPerImage === undefined) {
+        assumptions.push("missing_modelark_output_tokens");
+      }
+      outputUsdMicrosPerPiece = usesHighOutputTier
+        ? DOLA_SEEDREAM_PRO_HIGH_OUTPUT_USD_MICROS
+        : DOLA_SEEDREAM_PRO_LOW_OUTPUT_USD_MICROS;
+      imageOutputCost = outputImageCount * outputUsdMicrosPerPiece;
+
+      const inputImageCount =
+        usage?.input_images ?? args.fallbackContext.referenceImageCount ?? 0;
+      if (usage?.input_images === undefined) {
+        assumptions.push("missing_modelark_input_images");
+      }
+      imageInputCost =
+        Math.max(0, inputImageCount - 1) *
+        DOLA_SEEDREAM_PRO_EXTRA_INPUT_USD_MICROS;
+    }
+
+    return {
+      status: assumptions.length ? "estimated" : "recorded",
+      costUsdMicros: imageInputCost + imageOutputCost,
+      outputTokens: usage?.output_tokens,
+      totalTokens: usage?.total_tokens,
+      outputImageCount,
+      fallbackReason: assumptions.length ? assumptions.join(",") : null,
+      costCalculationRaw: {
+        pricingVersion: COST_PRICING_VERSION,
+        provider: "modelark",
+        model: args.model,
+        pricingContext: {
+          ...pricingContext(args.fallbackContext),
+          outputUsdMicrosPerPiece,
+          extraInputUsdMicrosPerPiece:
+            args.model === DOLA_SEEDREAM_PRO_SLUG
+              ? DOLA_SEEDREAM_PRO_EXTRA_INPUT_USD_MICROS
+              : 0,
+        },
+        assumptions,
+        usage,
+        lineItems: { imageInputCost, imageOutputCost },
+      },
+    };
+  }
+
   const pricing =
     MODELARK_PRICING[args.model as keyof typeof MODELARK_PRICING];
   if (!pricing) return unsupportedModelCost(args.model);
@@ -1118,7 +1218,7 @@ function calculateCost(args: {
   fallbackContext: CostFallbackContext;
 }): CostFields {
   if (args.provider === "modelark") {
-    return calculateModelarkVideoCost({
+    return calculateModelarkCost({
       model: args.model,
       usageRaw: args.usageRaw,
       fallbackContext: args.fallbackContext,

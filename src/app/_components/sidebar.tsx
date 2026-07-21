@@ -515,6 +515,8 @@ type SidebarProps = {
   hasOpenAIModelSelected: boolean;
   hasGeminiModelSelected: boolean;
   hasOnlySeedanceFastSelected: boolean;
+  disabledImageResolutions: ReadonlySet<ResolutionOption>;
+  maxImageReferenceImages?: number;
   isMacOS: boolean | null;
   promptComposerRef: RefObject<PromptComposerHandle | null>;
   hasSelectedProject: boolean;
@@ -583,6 +585,8 @@ export function Sidebar({
   hasOpenAIModelSelected,
   hasGeminiModelSelected,
   hasOnlySeedanceFastSelected,
+  disabledImageResolutions,
+  maxImageReferenceImages,
   isMacOS,
   promptComposerRef,
   hasSelectedProject,
@@ -652,6 +656,14 @@ export function Sidebar({
           "First and last frames are now reference images so you can add more.",
         );
       }
+    } else if (
+      maxImageReferenceImages !== undefined &&
+      selectedReferenceImages.length >= maxImageReferenceImages
+    ) {
+      toast.error(
+        `The selected model accepts at most ${maxImageReferenceImages} reference images`,
+      );
+      return;
     }
     onSelectedReferenceImagesChange([...selectedReferenceImages, id]);
   };
@@ -843,6 +855,12 @@ export function Sidebar({
                 </span>
               </div>
             )}
+            {mode === "image" && maxImageReferenceImages !== undefined && (
+              <div className="flex items-center gap-1 px-2 pb-1 text-[11px] text-(--muted-foreground)">
+                <ImageIcon className="size-3 opacity-80" strokeWidth={1.5} />
+                {selectedReferenceImages.length}/{maxImageReferenceImages}
+              </div>
+            )}
           </CollapsibleContent>
         </Collapsible>
         <Field>
@@ -942,7 +960,8 @@ export function Sidebar({
             <div className="flex flex-row gap-2">
               {RESOLUTION_OPTIONS.map((resolutionOption) => {
                 const isDisabled =
-                  resolutionOption === "512" && hasOnlyOpenAIModelsSelected;
+                  (resolutionOption === "512" && hasOnlyOpenAIModelsSelected) ||
+                  disabledImageResolutions.has(resolutionOption);
 
                 return (
                   <button

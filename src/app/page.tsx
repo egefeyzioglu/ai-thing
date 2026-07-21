@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -133,6 +134,8 @@ const GEMINI_MODEL_SLUGS = new Set<PromptModelSlug>([
 const SEEDANCE_FAST_SLUGS = new Set<PromptModelSlug>([
   "dreamina-seedance-2-0-fast",
 ]);
+const DOLA_SEEDREAM_LITE_SLUG: PromptModelSlug = "dola-seedream-5-0-lite";
+const DOLA_SEEDREAM_PRO_SLUG: PromptModelSlug = "dola-seedream-5-0-pro";
 
 function hasDismissedPushPermissionPrompt() {
   try {
@@ -178,6 +181,35 @@ export default function Home() {
   const duration = generationDetails.duration;
   const aspect = generationDetails.aspect;
   const runs = generationDetails.runs;
+  const hasDolaSeedreamLiteSelected = selectedModels.includes(
+    DOLA_SEEDREAM_LITE_SLUG,
+  );
+  const hasDolaSeedreamProSelected = selectedModels.includes(
+    DOLA_SEEDREAM_PRO_SLUG,
+  );
+  const maxImageReferenceImages = hasDolaSeedreamProSelected
+    ? 10
+    : hasDolaSeedreamLiteSelected
+      ? 14
+      : undefined;
+  const disabledImageResolutions = useMemo(() => {
+    const disabled = new Set<ResolutionOption>();
+    if (hasDolaSeedreamLiteSelected) {
+      disabled.add("512");
+      disabled.add("1K");
+    }
+    if (hasDolaSeedreamProSelected) {
+      disabled.add("512");
+      disabled.add("4K");
+    }
+    return disabled;
+  }, [hasDolaSeedreamLiteSelected, hasDolaSeedreamProSelected]);
+  const modeRef = useRef(mode);
+  const maxImageReferenceImagesRef = useRef(maxImageReferenceImages);
+  useLayoutEffect(() => {
+    modeRef.current = mode;
+    maxImageReferenceImagesRef.current = maxImageReferenceImages;
+  });
   const [advanced, setAdvanced] = useSessionStorage("imageGenerationAdvanced");
   const [videoAdvanced, setVideoAdvanced] = useSessionStorage(
     "videoGenerationAdvanced",
@@ -526,11 +558,30 @@ export default function Home() {
         if (createdReferenceIds.length > 0) {
           await utils.referenceImage.getReferenceImages.invalidate();
           setSelectedReferenceImages((prev) => {
+            const currentMode = modeRef.current;
+            const currentMaxImageReferenceImages =
+              maxImageReferenceImagesRef.current;
             const dedupedNew = createdReferenceIds.filter(
               (id) => !prev.includes(id),
             );
-            if (mode !== "video") {
-              return [...prev, ...dedupedNew];
+            if (currentMode !== "video") {
+              const accepted =
+                currentMaxImageReferenceImages === undefined
+                  ? dedupedNew
+                  : dedupedNew.slice(
+                      0,
+                      Math.max(
+                        0,
+                        currentMaxImageReferenceImages - prev.length,
+                      ),
+                    );
+              const rejected = dedupedNew.length - accepted.length;
+              if (rejected > 0) {
+                toast.error(
+                  `${rejected} uploaded image${rejected === 1 ? " was" : "s were"} not selected — the selected model accepts at most ${currentMaxImageReferenceImages} reference images`,
+                );
+              }
+              return [...prev, ...accepted];
             }
             const remaining = Math.max(
               0,
@@ -605,6 +656,19 @@ export default function Home() {
     const trimmedPrompt = (promptComposerRef.current?.getValue() ?? "").trim();
     if (!trimmedPrompt || selectedModels.length === 0 || !selectedProjectId)
       return;
+    const referenceImageLimit =
+      mode === "video"
+        ? MAX_VIDEO_REFERENCE_IMAGES
+        : maxImageReferenceImages;
+    if (
+      referenceImageLimit !== undefined &&
+      selectedReferenceImages.length > referenceImageLimit
+    ) {
+      toast.error(
+        `The selected output and models accept at most ${referenceImageLimit} reference images`,
+      );
+      return;
+    }
     if (generateButtonLockedRef.current) return;
     if (!effectiveBypassMonthlyQuota && usage?.isOverQuota) {
       toast.error(
@@ -908,6 +972,7 @@ export default function Home() {
           aspectRatio: aspect,
           videoResolution,
           duration,
+          referenceImageCount: selectedReferenceImages.length,
         }),
     0,
   );
@@ -940,6 +1005,31 @@ export default function Home() {
       setResolution("1K");
     }
   }, [hasOnlyOpenAIModelsSelected, resolution, setResolution]);
+
+  useEffect(() => {
+    if (disabledImageResolutions.has(resolution)) {
+      setResolution("2K");
+    }
+  }, [disabledImageResolutions, resolution, setResolution]);
+
+  useEffect(() => {
+    const referenceImageLimit =
+      mode === "video"
+        ? MAX_VIDEO_REFERENCE_IMAGES
+        : maxImageReferenceImages;
+    if (
+      referenceImageLimit === undefined ||
+      selectedReferenceImages.length <= referenceImageLimit
+    ) {
+      return;
+    }
+    setSelectedReferenceImages((current) =>
+      current.slice(0, referenceImageLimit),
+    );
+    toast.info(
+      `Reference selection was limited to ${referenceImageLimit} images for the selected output and models.`,
+    );
+  }, [maxImageReferenceImages, mode, selectedReferenceImages.length]);
 
   useEffect(() => {
     if (hasOnlySeedanceFastSelected && videoResolution === "1080p") {
@@ -1077,6 +1167,8 @@ export default function Home() {
         hasOpenAIModelSelected={hasOpenAIModelSelected}
         hasGeminiModelSelected={hasGeminiModelSelected}
         hasOnlySeedanceFastSelected={hasOnlySeedanceFastSelected}
+        disabledImageResolutions={disabledImageResolutions}
+        maxImageReferenceImages={maxImageReferenceImages}
         isMacOS={isMacOS}
         promptComposerRef={promptComposerRef}
         hasSelectedProject={Boolean(selectedProjectId)}

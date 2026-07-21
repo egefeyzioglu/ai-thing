@@ -25,6 +25,11 @@ import {
   submitSeedanceTask,
   type SeedanceReferenceInput,
 } from "src/server/media/seedance";
+import {
+  generateSeedreamImage,
+  resolveSeedreamSize,
+  type SeedreamSlug,
+} from "src/server/media/seedream";
 import { signUploadThingUrl, utapi, UTFile } from "src/server/uploadthing";
 import {
   createReservedUsage,
@@ -122,7 +127,7 @@ type GeneratedImage = {
   base64: string;
   mimeType: string;
   cost: {
-    provider: "openai" | "gemini";
+    provider: "openai" | "gemini" | "modelark";
     providerRequestId?: string | null;
     providerModel?: string | null;
     operation: GenerationCostEventOperation;
@@ -135,6 +140,7 @@ type GenerationCostFallbackContext = {
   resolution?: string | null;
   aspectRatio?: string | null;
   outputImageCount?: number;
+  referenceImageCount?: number;
   size?: string | null;
   quality?: string | null;
   background?: string | null;
@@ -323,6 +329,9 @@ function imageGenerationErrorCode(error: unknown, message: string) {
     return "openai_images_api_error";
   }
   if (message.startsWith("Gemini API error")) return "gemini_api_error";
+  if (message.startsWith("Modelark Seedream API error")) {
+    return "modelark_seedream_api_error";
+  }
   if (message.startsWith("UploadThing upload failed")) return "upload_failed";
   if (message.includes("did not contain an image")) return "empty_image_response";
   if (message.startsWith("Unsupported model")) return "unsupported_model";
@@ -714,6 +723,46 @@ async function generateImageGeminiModel(
   };
 }
 
+async function generateImageSeedream(
+  model: SeedreamSlug,
+  userId: string,
+  prompt: string,
+  referenceImageIds?: string[],
+  resolution?: string,
+  aspectRatio?: string,
+): Promise<GeneratedImage> {
+  const ownedReferenceImages = await loadOwnedReferenceImages(
+    userId,
+    referenceImageIds,
+  );
+  const imageUrls = ownedReferenceImages.flatMap((image) =>
+    image.url ? [image.url] : [],
+  );
+  if (imageUrls.length !== ownedReferenceImages.length) {
+    throw new Error("Failed to resolve one or more reference images");
+  }
+  const size = resolveSeedreamSize(model, resolution, aspectRatio);
+  const generated = await generateSeedreamImage({
+    slug: model,
+    prompt,
+    imageUrls,
+    size,
+  });
+
+  return {
+    base64: generated.base64,
+    mimeType: generated.mimeType,
+    cost: {
+      provider: "modelark",
+      providerRequestId: generated.providerRequestId,
+      providerModel: generated.providerModel,
+      operation: imageUrls.length > 0 ? "image_edit" : "image_generation",
+      usageRaw: generated.usageRaw,
+      fallbackContext: { size, referenceImageCount: imageUrls.length },
+    },
+  };
+}
+
 function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   const buf = Buffer.from(b64, "base64");
   const out = new Uint8Array(new ArrayBuffer(buf.byteLength));
@@ -790,6 +839,16 @@ async function generateForModel(
         resolution,
         aspectRatio,
         advanced,
+      );
+    case "dola-seedream-5-0-lite":
+    case "dola-seedream-5-0-pro":
+      return generateImageSeedream(
+        model,
+        userId,
+        prompt,
+        referenceImageIds,
+        resolution,
+        aspectRatio,
       );
     default:
       throw new Error(`Unsupported model: ${model}`);
@@ -916,6 +975,9 @@ export const mediaRouter = createTRPCRouter({
           message: "Prompt not found",
         });
       }
+      const referenceImageIds = parseReferenceImageIds(
+        promptRow.referenceImages,
+      );
 
       const canBypassMonthlyQuota = input.requestQuotaBypass
         ? await currentUserCanBypassLimits()
@@ -1149,6 +1211,7 @@ export const mediaRouter = createTRPCRouter({
             model: mediaRow.model,
             resolution: promptRow.resolution,
             aspectRatio: promptRow.aspectRatio,
+            referenceImageCount: referenceImageIds.length,
           });
 
           return { claimed, usageId: usageRow.id };
@@ -1201,6 +1264,7 @@ export const mediaRouter = createTRPCRouter({
           model: mediaRow.model,
           resolution: promptRow.resolution,
           aspectRatio: promptRow.aspectRatio,
+          referenceImageCount: referenceImageIds.length,
         });
 
         return { claimed, usageId: usageRow.id };
@@ -1217,10 +1281,6 @@ export const mediaRouter = createTRPCRouter({
       }
 
       console.log("[runGeneration] starting generation for model:", mediaRow.model);
-
-      const referenceImageIds = parseReferenceImageIds(
-        promptRow.referenceImages,
-      );
 
       try {
         const generated = await generateForModel(
