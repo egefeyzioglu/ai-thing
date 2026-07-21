@@ -66,17 +66,17 @@ export const SUPPORTED_MODELS = [
     isArchived: false,
   },
   {
-    slug: "dreamina-seedream-5-0-pro",
-    humanName: "Seedream 5.0 Pro",
-    provider: "Dreamina",
-    kind: "video",
+    slug: "dola-seedream-5-0-lite",
+    humanName: "Dola Seedream 5.0 Lite",
+    provider: "Dola",
+    kind: "image",
     isArchived: false,
   },
   {
-    slug: "dreamina-seedream-5-0-mini",
-    humanName: "Seedream 5.0 Mini",
-    provider: "Dreamina",
-    kind: "video",
+    slug: "dola-seedream-5-0-pro",
+    humanName: "Dola Seedream 5.0 Pro",
+    provider: "Dola",
+    kind: "image",
     isArchived: false,
   },
   {
@@ -119,6 +119,22 @@ export const VIDEO_REFERENCE_ROLES = ["first", "last", "refimg"] as const;
 export type VideoReferenceRole = (typeof VIDEO_REFERENCE_ROLES)[number];
 
 export const MAX_VIDEO_REFERENCE_IMAGES = 9;
+
+const DOLA_SEEDREAM_IMAGE_CAPABILITIES: Partial<
+  Record<
+    ModelSlug,
+    { resolutions: ReadonlySet<string>; maxReferenceImages: number }
+  >
+> = {
+  "dola-seedream-5-0-lite": {
+    resolutions: new Set(["2K", "4K"]),
+    maxReferenceImages: 14,
+  },
+  "dola-seedream-5-0-pro": {
+    resolutions: new Set(["1K", "2K"]),
+    maxReferenceImages: 10,
+  },
+} as const;
 
 export const promptRouter = createTRPCRouter({
   getModels: protectedProcedure.query(() => {
@@ -241,6 +257,28 @@ export const promptRouter = createTRPCRouter({
               "First/last frames can't be combined with reference images",
           });
         }
+      } else {
+        for (const model of models) {
+          const capabilities = DOLA_SEEDREAM_IMAGE_CAPABILITIES[model];
+          if (!capabilities) continue;
+          if (
+            !input.resolution ||
+            !capabilities.resolutions.has(input.resolution)
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `${SUPPORTED_MODEL_BY_SLUG[model].humanName} does not support ${input.resolution ?? "the selected resolution"}`,
+            });
+          }
+          if (
+            referenceImagesNormalized.length > capabilities.maxReferenceImages
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `${SUPPORTED_MODEL_BY_SLUG[model].humanName} accepts at most ${capabilities.maxReferenceImages} reference images`,
+            });
+          }
+        }
       }
 
       const [project] = await db
@@ -360,6 +398,7 @@ export const promptRouter = createTRPCRouter({
               aspectRatio: input.aspectRatio,
               videoResolution: input.videoResolution,
               duration: input.duration,
+              referenceImageCount: referenceImageIds.length,
             }),
             usageType: isVideo
               ? ("video_generation" as const)

@@ -259,6 +259,7 @@ export function calculateUsageRowCredits(args: {
   aspectRatio?: string | null;
   videoResolution?: string | null;
   duration?: number | null;
+  referenceImageCount?: number;
 }) {
   return calculateGenerationCredits(args);
 }
@@ -271,6 +272,7 @@ export async function createReservedUsage(tx: UsageDb, args: {
   aspectRatio?: string | null;
   videoResolution?: string | null;
   duration?: number | null;
+  referenceImageCount?: number;
   credits?: number;
   usageType?: GenerationUsage["usageType"];
 }): Promise<GenerationUsage> {
