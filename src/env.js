@@ -24,7 +24,11 @@ export const env = createEnv({
     HONEYCOMB_API_KEY: z.string().min(1).optional(),
     HONEYCOMB_DATASET: z.string().min(1).optional(),
     HONEYCOMB_API_HOST: z.string().url().default("https://api.honeycomb.io"),
-    CRON_SECRET: z.string().min(16).optional(),
+    CRON_SECRET: z
+      .string()
+      .min(16)
+      .refine((value) => value !== "replace-with-a-random-secret")
+      .optional(),
   },
 
   /**

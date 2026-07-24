@@ -70,6 +70,7 @@ const SECRET_PATTERNS = [
   /\bBearer\s+[A-Za-z0-9._~+/=-]+\b/gi,
   /https?:\/\/[^\s]+(?:token|signature|x-amz-signature)=[^\s&]+/gi,
 ];
+const HONEYCOMB_REQUEST_TIMEOUT_MS = 5_000;
 
 function redactMessage(value: string): string {
   let redacted = value.slice(0, 1_000);
@@ -170,7 +171,7 @@ async function sendToHoneycomb(event: WideEvent): Promise<void> {
           "X-Honeycomb-Team": env.HONEYCOMB_API_KEY,
         },
         method: "POST",
-        signal: AbortSignal.timeout(2_000),
+        signal: AbortSignal.timeout(HONEYCOMB_REQUEST_TIMEOUT_MS),
       },
     );
 
