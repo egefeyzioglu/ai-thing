@@ -20,7 +20,9 @@ export async function GET(request: Request) {
       readinessQuery,
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
-          readinessQuery.cancel();
+          void Promise.resolve(readinessQuery.cancel()).catch(() => {
+            // The timeout response is authoritative even if query cancellation fails.
+          });
           reject(new Error("Database readiness check timed out"));
         }, READINESS_TIMEOUT_MS);
       }),
@@ -30,6 +32,7 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         database: "ok",
+        requestId,
         status: "ready",
         version: process.env.VERCEL_GIT_COMMIT_SHA ?? "unknown",
       },
