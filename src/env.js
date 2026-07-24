@@ -21,6 +21,10 @@ export const env = createEnv({
     ARK_API_KEY: z.string().min(1),
     UPLOADTHING_TOKEN: z.string().min(1),
     CLERK_SECRET_KEY: z.string().min(1),
+    HONEYCOMB_API_KEY: z.string().min(1).optional(),
+    HONEYCOMB_DATASET: z.string().min(1).optional(),
+    HONEYCOMB_API_HOST: z.string().url().default("https://api.honeycomb.io"),
+    CRON_SECRET: z.string().min(16).optional(),
   },
 
   /**
@@ -50,8 +54,14 @@ export const env = createEnv({
     ARK_API_KEY: process.env.ARK_API_KEY,
     UPLOADTHING_TOKEN: process.env.UPLOADTHING_TOKEN,
     CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
-    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
-    NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN,
+    HONEYCOMB_API_KEY: process.env.HONEYCOMB_API_KEY,
+    HONEYCOMB_DATASET: process.env.HONEYCOMB_DATASET,
+    HONEYCOMB_API_HOST: process.env.HONEYCOMB_API_HOST,
+    CRON_SECRET: process.env.CRON_SECRET,
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:
+      process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+    NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:
+      process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN,
     NEXT_PUBLIC_POSTHOG_API_HOST: process.env.NEXT_PUBLIC_POSTHOG_API_HOST,
     NEXT_PUBLIC_POSTHOG_UI_HOST: process.env.NEXT_PUBLIC_POSTHOG_UI_HOST,
     NEXT_PUBLIC_REFRESH_NOTIFY_DEBUG:
