@@ -3,7 +3,10 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { MONTHLY_CREDIT_LIMIT } from "src/lib/credits";
-import { getEffectiveImageResolution } from "src/lib/image-resolution";
+import {
+  getEffectiveImageResolution,
+  IMAGE_RESOLUTION_OPTIONS,
+} from "src/lib/image-resolution";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import {
@@ -165,7 +168,7 @@ export const promptRouter = createTRPCRouter({
             ]),
           )
           .optional(),
-        resolution: z.string().optional(),
+        resolution: z.enum(IMAGE_RESOLUTION_OPTIONS).optional(),
         aspectRatio: z.string().optional(),
         // image-only
         quality: z.enum(["auto", "low", "medium", "high"]).optional(),

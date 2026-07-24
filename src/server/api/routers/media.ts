@@ -1347,10 +1347,10 @@ export const mediaRouter = createTRPCRouter({
             operation: generated.cost.operation,
             usageRaw: generated.cost.usageRaw,
             fallbackContext: {
+              ...generated.cost.fallbackContext,
               resolution: effectiveResolution,
               aspectRatio: promptRow.aspectRatio,
               outputImageCount: 1,
-              ...generated.cost.fallbackContext,
             },
           }).catch((err) => {
             console.error(
@@ -1376,10 +1376,10 @@ export const mediaRouter = createTRPCRouter({
           operation: generated.cost.operation,
           usageRaw: generated.cost.usageRaw,
           fallbackContext: {
+            ...generated.cost.fallbackContext,
             resolution: effectiveResolution,
             aspectRatio: promptRow.aspectRatio,
             outputImageCount: 1,
-            ...generated.cost.fallbackContext,
           },
         }).catch((err) => {
           console.error("[runGeneration] failed to record generation cost:", err);

@@ -23,6 +23,13 @@ export function getEffectiveImageResolution(
   requestedResolution: string | null | undefined,
 ): string | undefined {
   if (!requestedResolution) return undefined;
+  if (
+    !IMAGE_RESOLUTION_OPTIONS.includes(
+      requestedResolution as ImageResolution,
+    )
+  ) {
+    return undefined;
+  }
 
   const supportedResolutions = MODEL_IMAGE_RESOLUTIONS[model];
   if (!supportedResolutions?.length) return requestedResolution;
@@ -34,7 +41,6 @@ export function getEffectiveImageResolution(
 
   const requestedPixels =
     RESOLUTION_PIXELS[requestedResolution as ImageResolution];
-  if (!requestedPixels) return requestedResolution;
 
   return supportedResolutions.reduce((closest, candidate) => {
     const closestDistance = Math.abs(
