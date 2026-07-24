@@ -1327,16 +1327,16 @@ export const mediaRouter = createTRPCRouter({
       });
 
       if (!claimResult.claimed) {
-        generationEvent.set({
-          disposition: "contended",
-          finalStatus: mediaRow.status,
-        });
         console.log("[runGeneration] claim failed, another worker claimed it");
         const [current] = await db
           .select()
           .from(media)
           .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
           .limit(1);
+        generationEvent.set({
+          disposition: "contended",
+          finalStatus: current?.status ?? mediaRow.status,
+        });
         return signMediaRow(current ?? mediaRow);
       }
 
@@ -1388,7 +1388,24 @@ export const mediaRouter = createTRPCRouter({
               err,
             );
           });
-          await markUsageStatus(claimResult.usageId, "refunded");
+          const didRefund = await markUsageStatus(
+            claimResult.usageId,
+            "refunded",
+          ).catch((refundError) => {
+            console.error(
+              "[runGeneration] failed to refund canceled generation:",
+              refundError,
+            );
+            return false;
+          });
+          generationEvent
+            .fail(new DOMException("Generation canceled", "AbortError"))
+            .set({
+              disposition: "canceled",
+              finalStatus: "failed",
+              provider: generated.cost.provider,
+              usageStatus: didRefund ? "refunded" : "refund_failed",
+            });
           return signMediaRow({
             ...mediaRow,
             status: "failed",
@@ -1439,7 +1456,24 @@ export const mediaRouter = createTRPCRouter({
               err,
             );
           });
-          await markUsageStatus(claimResult.usageId, "refunded");
+          const didRefund = await markUsageStatus(
+            claimResult.usageId,
+            "refunded",
+          ).catch((refundError) => {
+            console.error(
+              "[runGeneration] failed to refund canceled generation:",
+              refundError,
+            );
+            return false;
+          });
+          generationEvent
+            .fail(new DOMException("Generation canceled", "AbortError"))
+            .set({
+              disposition: "canceled",
+              finalStatus: "failed",
+              provider: generated.cost.provider,
+              usageStatus: didRefund ? "refunded" : "refund_failed",
+            });
           return signMediaRow({
             ...mediaRow,
             status: "failed",

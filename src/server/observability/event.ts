@@ -1,6 +1,7 @@
 import "server-only";
 
 import { TRPCError } from "@trpc/server";
+import { after } from "next/server";
 
 import { env } from "src/env";
 
@@ -70,10 +71,20 @@ const SECRET_PATTERNS = [
   /\bBearer\s+[A-Za-z0-9._~+/=-]+\b/gi,
   /https?:\/\/[^\s]+(?:token|signature|x-amz-signature)=[^\s&]+/gi,
 ];
+const ASSIGNMENT_SECRET_PATTERN =
+  /\b(?:api[_-]?key|access[_-]?token|password)\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi;
+const URL_USERINFO_PATTERN = /\b([a-z][a-z0-9+.-]*:\/\/)[^/\s:@]+:[^@\s/]+@/gi;
+const HONEYCOMB_BATCH_SIZE = 50;
+const HONEYCOMB_MAX_QUEUED_EVENTS = 1_000;
 const HONEYCOMB_REQUEST_TIMEOUT_MS = 5_000;
+const pendingEvents: WideEvent[] = [];
+let flushScheduled = false;
 
 function redactMessage(value: string): string {
-  let redacted = value.slice(0, 1_000);
+  let redacted = value
+    .slice(0, 1_000)
+    .replace(URL_USERINFO_PATTERN, "$1[REDACTED]@")
+    .replace(ASSIGNMENT_SECRET_PATTERN, "[REDACTED]");
   for (const pattern of SECRET_PATTERNS) {
     redacted = redacted.replace(pattern, "[REDACTED]");
   }
@@ -153,22 +164,21 @@ function classifyError(
   };
 }
 
-async function sendToHoneycomb(event: WideEvent): Promise<void> {
-  if (!env.HONEYCOMB_API_KEY || !env.HONEYCOMB_DATASET) {
-    if (env.NODE_ENV !== "production") {
-      console.info(JSON.stringify(event));
-    }
-    return;
-  }
+async function sendBatchToHoneycomb(events: WideEvent[]): Promise<void> {
+  const apiKey = env.HONEYCOMB_API_KEY;
+  const dataset = env.HONEYCOMB_DATASET;
+  if (!apiKey || !dataset) return;
 
   try {
     const response = await fetch(
-      `${env.HONEYCOMB_API_HOST}/1/events/${encodeURIComponent(env.HONEYCOMB_DATASET)}`,
+      `${env.HONEYCOMB_API_HOST}/1/batch/${encodeURIComponent(dataset)}`,
       {
-        body: JSON.stringify(event),
+        body: JSON.stringify(
+          events.map((event) => ({ data: event, time: event.timestamp })),
+        ),
         headers: {
           "Content-Type": "application/json",
-          "X-Honeycomb-Team": env.HONEYCOMB_API_KEY,
+          "X-Honeycomb-Team": apiKey,
         },
         method: "POST",
         signal: AbortSignal.timeout(HONEYCOMB_REQUEST_TIMEOUT_MS),
@@ -177,16 +187,48 @@ async function sendToHoneycomb(event: WideEvent): Promise<void> {
 
     if (!response.ok) {
       console.error("[observability] Honeycomb rejected event", {
-        eventId: event.eventId,
+        eventIds: events.map((event) => event.eventId),
         status: response.status,
       });
     }
   } catch (error) {
     console.error("[observability] Failed to emit Honeycomb event", {
-      eventId: event.eventId,
+      eventIds: events.map((event) => event.eventId),
       error: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+async function flushHoneycombQueue(): Promise<void> {
+  while (pendingEvents.length > 0) {
+    const batch = pendingEvents.splice(0, HONEYCOMB_BATCH_SIZE);
+    await sendBatchToHoneycomb(batch);
+  }
+}
+
+function scheduleHoneycombEvent(event: WideEvent): void {
+  if (!env.HONEYCOMB_API_KEY || !env.HONEYCOMB_DATASET) {
+    if (env.NODE_ENV !== "production") console.info(JSON.stringify(event));
+    return;
+  }
+
+  if (pendingEvents.length >= HONEYCOMB_MAX_QUEUED_EVENTS) {
+    const dropped = pendingEvents.shift();
+    console.error("[observability] Honeycomb event queue overflow", {
+      droppedEventId: dropped?.eventId,
+    });
+  }
+  pendingEvents.push(event);
+  if (flushScheduled) return;
+
+  flushScheduled = true;
+  after(async () => {
+    try {
+      await flushHoneycombQueue();
+    } finally {
+      flushScheduled = false;
+    }
+  });
 }
 
 export class WideEventBuilder {
@@ -222,7 +264,7 @@ export class WideEventBuilder {
     if (this.#emitted) return;
     this.#emitted = true;
 
-    await sendToHoneycomb({
+    scheduleHoneycombEvent({
       schemaVersion: 1,
       eventId: this.#eventId,
       eventName: this.#eventName,

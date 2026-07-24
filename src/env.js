@@ -23,7 +23,19 @@ export const env = createEnv({
     CLERK_SECRET_KEY: z.string().min(1),
     HONEYCOMB_API_KEY: z.string().min(1).optional(),
     HONEYCOMB_DATASET: z.string().min(1).optional(),
-    HONEYCOMB_API_HOST: z.string().url().default("https://api.honeycomb.io"),
+    HONEYCOMB_API_HOST: z
+      .string()
+      .url()
+      .refine((value) => {
+        const url = new URL(value);
+        return (
+          url.protocol === "https:" ||
+          (process.env.NODE_ENV !== "production" &&
+            url.protocol === "http:" &&
+            ["localhost", "127.0.0.1", "::1"].includes(url.hostname))
+        );
+      }, "Honeycomb API host must use HTTPS (HTTP is allowed only for localhost outside production)")
+      .default("https://api.honeycomb.io"),
     CRON_SECRET: z
       .string()
       .min(16)

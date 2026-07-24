@@ -13,20 +13,16 @@ export async function GET(request: Request) {
     timeoutMs: READINESS_TIMEOUT_MS,
   });
 
+  const readinessQuery = client`select 1`;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
-      client.begin(async (sql) => {
-        await sql.unsafe(
-          `set local statement_timeout = '${READINESS_TIMEOUT_MS}ms'`,
-        );
-        await sql`select 1`;
-      }),
+      readinessQuery,
       new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(
-          () => reject(new Error("Database readiness check timed out")),
-          READINESS_TIMEOUT_MS,
-        );
+        timeoutId = setTimeout(() => {
+          readinessQuery.cancel();
+          reject(new Error("Database readiness check timed out"));
+        }, READINESS_TIMEOUT_MS);
       }),
     ]);
     event.set({ database: "ok" });

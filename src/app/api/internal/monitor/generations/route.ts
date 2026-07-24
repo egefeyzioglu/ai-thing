@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 
-import { and, eq, lt } from "drizzle-orm";
+import { and, asc, eq, lt } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { env } from "src/env";
@@ -45,43 +45,61 @@ export async function GET(request: Request) {
   const usageCutoff = new Date(now.getTime() - 20 * MINUTE_MS);
 
   try {
-    const [pendingRows, runningRows, reservedRows] = await Promise.all([
-      db
-        .select({ id: media.id, updatedAt: media.updatedAt })
-        .from(media)
-        .where(
-          and(eq(media.status, "pending"), lt(media.updatedAt, pendingCutoff)),
-        )
-        .limit(MAX_REPORTED_IDS + 1),
-      db
-        .select({
-          id: media.id,
-          type: media.type,
-          updatedAt: media.updatedAt,
-        })
-        .from(media)
-        .where(
-          and(eq(media.status, "running"), lt(media.updatedAt, imageCutoff)),
-        )
-        .limit(MAX_REPORTED_IDS + 1),
-      db
-        .select({ id: generationUsage.id, mediaId: generationUsage.mediaId })
-        .from(generationUsage)
-        .where(
-          and(
-            eq(generationUsage.status, "reserved"),
-            lt(generationUsage.updatedAt, usageCutoff),
-          ),
-        )
-        .limit(MAX_REPORTED_IDS + 1),
-    ]);
-
-    const runningImages = runningRows.filter(
-      (row) => row.type === "image" && row.updatedAt < imageCutoff,
-    );
-    const runningVideos = runningRows.filter(
-      (row) => row.type === "video" && row.updatedAt < videoCutoff,
-    );
+    const [pendingRows, runningImages, runningVideos, reservedRows] =
+      await Promise.all([
+        db
+          .select({ id: media.id, updatedAt: media.updatedAt })
+          .from(media)
+          .where(
+            and(
+              eq(media.status, "pending"),
+              lt(media.updatedAt, pendingCutoff),
+            ),
+          )
+          .orderBy(asc(media.updatedAt))
+          .limit(MAX_REPORTED_IDS + 1),
+        db
+          .select({
+            id: media.id,
+            updatedAt: media.updatedAt,
+          })
+          .from(media)
+          .where(
+            and(
+              eq(media.status, "running"),
+              eq(media.type, "image"),
+              lt(media.updatedAt, imageCutoff),
+            ),
+          )
+          .orderBy(asc(media.updatedAt))
+          .limit(MAX_REPORTED_IDS + 1),
+        db
+          .select({
+            id: media.id,
+            updatedAt: media.updatedAt,
+          })
+          .from(media)
+          .where(
+            and(
+              eq(media.status, "running"),
+              eq(media.type, "video"),
+              lt(media.updatedAt, videoCutoff),
+            ),
+          )
+          .orderBy(asc(media.updatedAt))
+          .limit(MAX_REPORTED_IDS + 1),
+        db
+          .select({ id: generationUsage.id, mediaId: generationUsage.mediaId })
+          .from(generationUsage)
+          .where(
+            and(
+              eq(generationUsage.status, "reserved"),
+              lt(generationUsage.updatedAt, usageCutoff),
+            ),
+          )
+          .orderBy(asc(generationUsage.updatedAt))
+          .limit(MAX_REPORTED_IDS + 1),
+      ]);
     const reportedCounts = {
       pendingTooLong: pendingRows.length,
       reservedUsageTooLong: reservedRows.length,
