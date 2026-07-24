@@ -3,6 +3,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { MONTHLY_CREDIT_LIMIT } from "src/lib/credits";
+import { getEffectiveImageResolution } from "src/lib/image-resolution";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import {
@@ -123,15 +124,13 @@ export const MAX_VIDEO_REFERENCE_IMAGES = 9;
 const DOLA_SEEDREAM_IMAGE_CAPABILITIES: Partial<
   Record<
     ModelSlug,
-    { resolutions: ReadonlySet<string>; maxReferenceImages: number }
+    { maxReferenceImages: number }
   >
 > = {
   "dola-seedream-5-0-lite": {
-    resolutions: new Set(["2K", "4K"]),
     maxReferenceImages: 14,
   },
   "dola-seedream-5-0-pro": {
-    resolutions: new Set(["1K", "2K"]),
     maxReferenceImages: 10,
   },
 } as const;
@@ -262,15 +261,6 @@ export const promptRouter = createTRPCRouter({
           const capabilities = DOLA_SEEDREAM_IMAGE_CAPABILITIES[model];
           if (!capabilities) continue;
           if (
-            !input.resolution ||
-            !capabilities.resolutions.has(input.resolution)
-          ) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: `${SUPPORTED_MODEL_BY_SLUG[model].humanName} does not support ${input.resolution ?? "the selected resolution"}`,
-            });
-          }
-          if (
             referenceImagesNormalized.length > capabilities.maxReferenceImages
           ) {
             throw new TRPCError({
@@ -390,11 +380,22 @@ export const promptRouter = createTRPCRouter({
             userId: ctx.user,
             mediaId: mediaRow.id,
             model: mediaRow.model,
-            resolution: persistedResolution,
+            requestedResolution: isVideo ? null : input.resolution,
+            resolution: isVideo
+              ? persistedResolution
+              : getEffectiveImageResolution(
+                  mediaRow.model,
+                  input.resolution,
+                ),
             aspectRatio: input.aspectRatio,
             credits: calculateUsageRowCredits({
               model: mediaRow.model,
-              resolution: input.resolution,
+              resolution: isVideo
+                ? input.resolution
+                : getEffectiveImageResolution(
+                    mediaRow.model,
+                    input.resolution,
+                  ),
               aspectRatio: input.aspectRatio,
               videoResolution: input.videoResolution,
               duration: input.duration,

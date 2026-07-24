@@ -15,6 +15,13 @@
       "when": 1780286581044,
       "tag": "0001_young_hardball",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784861131733,
+      "tag": "0002_shocking_vapor",
+      "breakpoints": true
     }
   ]
 }

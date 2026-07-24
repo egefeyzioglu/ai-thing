@@ -3,6 +3,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { MONTHLY_CREDIT_LIMIT } from "src/lib/credits";
+import { getEffectiveImageResolution } from "src/lib/image-resolution";
 import { extensionFor } from "src/lib/utils";
 
 import { env } from "src/env";
@@ -1204,6 +1205,10 @@ export const mediaRouter = createTRPCRouter({
         return signMediaRow(updated ?? mediaRow);
       }
 
+      const effectiveResolution = getEffectiveImageResolution(
+        mediaRow.model,
+        promptRow.resolution,
+      );
       const claimResult = await db.transaction(async (tx) => {
         if (input.retry) {
           await lockUserUsage(tx, ctx.user);
@@ -1232,7 +1237,8 @@ export const mediaRouter = createTRPCRouter({
             userId: ctx.user,
             mediaId: mediaRow.id,
             model: mediaRow.model,
-            resolution: promptRow.resolution,
+            requestedResolution: promptRow.resolution,
+            resolution: effectiveResolution,
             aspectRatio: promptRow.aspectRatio,
             referenceImageCount: referenceImageIds.length,
           });
@@ -1285,7 +1291,8 @@ export const mediaRouter = createTRPCRouter({
           userId: ctx.user,
           mediaId: mediaRow.id,
           model: mediaRow.model,
-          resolution: promptRow.resolution,
+          requestedResolution: promptRow.resolution,
+          resolution: effectiveResolution,
           aspectRatio: promptRow.aspectRatio,
           referenceImageCount: referenceImageIds.length,
         });
@@ -1311,7 +1318,7 @@ export const mediaRouter = createTRPCRouter({
           ctx.user,
           promptRow.text,
           referenceImageIds,
-          promptRow.resolution ?? undefined,
+          effectiveResolution,
           promptRow.aspectRatio ?? undefined,
           {
             quality: promptRow.quality,
@@ -1340,7 +1347,7 @@ export const mediaRouter = createTRPCRouter({
             operation: generated.cost.operation,
             usageRaw: generated.cost.usageRaw,
             fallbackContext: {
-              resolution: promptRow.resolution,
+              resolution: effectiveResolution,
               aspectRatio: promptRow.aspectRatio,
               outputImageCount: 1,
               ...generated.cost.fallbackContext,
@@ -1369,7 +1376,7 @@ export const mediaRouter = createTRPCRouter({
           operation: generated.cost.operation,
           usageRaw: generated.cost.usageRaw,
           fallbackContext: {
-            resolution: promptRow.resolution,
+            resolution: effectiveResolution,
             aspectRatio: promptRow.aspectRatio,
             outputImageCount: 1,
             ...generated.cost.fallbackContext,
