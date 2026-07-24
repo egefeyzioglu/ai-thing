@@ -180,6 +180,7 @@ export const generationUsage = createTable(
       .text("media_id")
       .references(() => media.id, { onDelete: "set null" }),
     model: d.text("model").notNull(),
+    requestedResolution: d.text("requested_resolution"),
     resolution: d.text("resolution"),
     aspectRatio: d.text("aspect_ratio"),
     credits: d.integer("credits").notNull(),

@@ -268,6 +268,7 @@ export async function createReservedUsage(tx: UsageDb, args: {
   userId: string;
   mediaId?: string | null;
   model: string;
+  requestedResolution?: string | null;
   resolution?: string | null;
   aspectRatio?: string | null;
   videoResolution?: string | null;
@@ -284,6 +285,7 @@ export async function createReservedUsage(tx: UsageDb, args: {
       userId: args.userId,
       mediaId: args.mediaId,
       model: args.model,
+      requestedResolution: args.requestedResolution,
       resolution: args.videoResolution ?? args.resolution,
       aspectRatio: args.aspectRatio,
       credits,

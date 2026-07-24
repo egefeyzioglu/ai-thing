@@ -1,0 +1,1 @@
+ALTER TABLE "ai-thing_generation_usage" ADD COLUMN "requested_resolution" text;
