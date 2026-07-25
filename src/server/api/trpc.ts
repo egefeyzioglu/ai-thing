@@ -11,6 +11,11 @@ import superjson from "superjson";
 import { ZodError } from "zod";
 
 import { auth } from "@clerk/nextjs/server";
+import {
+  createTraceContext,
+  parseTraceparent,
+  type TraceContext,
+} from "src/lib/observability/trace";
 import { createWideEvent } from "src/server/observability/event";
 
 /**
@@ -30,6 +35,9 @@ export const createTRPCContext = async (options?: { headers?: Headers }) => {
   return {
     auth: await auth(),
     requestId: options?.headers?.get("x-request-id") ?? crypto.randomUUID(),
+    traceContext: parseTraceparent(
+      options?.headers?.get("traceparent") ?? null,
+    ),
   };
 };
 
@@ -84,12 +92,19 @@ export const createTRPCRouter = t.router;
  * network latency that would occur in production but not in local development.
  */
 const timingMiddleware = t.middleware(async ({ ctx, next, path }) => {
+  const traceContext: TraceContext = createTraceContext(
+    ctx.traceContext ?? undefined,
+  );
   let event: ReturnType<typeof createWideEvent> | undefined;
   try {
-    event = createWideEvent("trpc.procedure", {
-      requestId: ctx.requestId,
-      userId: ctx.auth.userId ?? undefined,
-    }).set({ procedure: path });
+    event = createWideEvent(
+      "trpc.procedure",
+      {
+        requestId: ctx.requestId,
+        userId: ctx.auth.userId ?? undefined,
+      },
+      { trace: traceContext },
+    ).set({ procedure: path });
   } catch (instrumentationError) {
     console.error(
       "[trpc] failed to initialize procedure event",
@@ -104,7 +119,7 @@ const timingMiddleware = t.middleware(async ({ ctx, next, path }) => {
   }
 
   try {
-    const result = await next();
+    const result = await next({ ctx: { ...ctx, traceContext } });
     event?.set({ result: result.ok ? "ok" : "error" });
     if (!result.ok) event?.fail(result.error);
     return result;

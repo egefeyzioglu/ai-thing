@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 
+import {
+  createTraceContext,
+  parseTraceparent,
+} from "src/lib/observability/trace";
 import { client } from "src/server/db";
 import { createWideEvent } from "src/server/observability/event";
 
@@ -9,9 +13,15 @@ const READINESS_TIMEOUT_MS = 2_000;
 
 export async function GET(request: Request) {
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
-  const event = createWideEvent("health.readiness", { requestId }).set({
-    timeoutMs: READINESS_TIMEOUT_MS,
-  });
+  const event = createWideEvent(
+    "health.readiness",
+    { requestId },
+    {
+      trace: createTraceContext(
+        parseTraceparent(request.headers.get("traceparent")) ?? undefined,
+      ),
+    },
+  ).set({ timeoutMs: READINESS_TIMEOUT_MS });
 
   const readinessQuery = client`select 1`;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;

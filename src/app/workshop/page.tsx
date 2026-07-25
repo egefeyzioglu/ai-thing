@@ -56,6 +56,7 @@ import {
 } from "src/components/ui/tooltip";
 import { useActiveProject } from "src/app/_hooks/use-active-project";
 import { useLocalStorage, type LocalStorageValue } from "src/lib/localStorage";
+import { tracedFetch } from "src/lib/observability/browser";
 import { useUploadThing } from "src/lib/uploadthing";
 import { cn } from "src/lib/utils";
 import {
@@ -1616,20 +1617,24 @@ export default function WorkshopPage() {
     streamAbortControllerRef.current = abortController;
 
     try {
-      const response = await fetch("/api/workshop/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: abortController.signal,
-        body: JSON.stringify({
-          projectId,
-          threadId: selectedThreadId ?? undefined,
-          content: prompt,
-          model,
-          reasoningEffort: selectedReasoningEffort,
-          requestQuotaBypass: effectiveBypassMonthlyQuota,
-          referenceImageIds,
-        }),
-      });
+      const response = await tracedFetch(
+        "/api/workshop/send",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: abortController.signal,
+          body: JSON.stringify({
+            projectId,
+            threadId: selectedThreadId ?? undefined,
+            content: prompt,
+            model,
+            reasoningEffort: selectedReasoningEffort,
+            requestQuotaBypass: effectiveBypassMonthlyQuota,
+            referenceImageIds,
+          }),
+        },
+        { finishOnBody: true, name: "browser.workshop.stream" },
+      );
 
       if (!response.ok || !response.body) {
         throw new Error("Failed to generate assistant response");

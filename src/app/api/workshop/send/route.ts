@@ -4,6 +4,10 @@ import {
   sendWorkshopMessage,
   workshopSendInputSchema,
 } from "src/server/api/routers/workshop";
+import {
+  createTraceContext,
+  parseTraceparent,
+} from "src/lib/observability/trace";
 import { createWideEvent } from "src/server/observability/event";
 
 function encodeEvent(event: string, data: unknown) {
@@ -16,6 +20,9 @@ export async function POST(req: Request) {
     incomingRequestId && incomingRequestId.length > 0
       ? incomingRequestId
       : crypto.randomUUID();
+  const traceContext = createTraceContext(
+    parseTraceparent(req.headers.get("traceparent")) ?? undefined,
+  );
   const { isAuthenticated, userId } = await auth();
   if (!isAuthenticated || !userId) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -39,7 +46,11 @@ export async function POST(req: Request) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const event = createWideEvent("workshop.stream", { requestId, userId });
+      const event = createWideEvent(
+        "workshop.stream",
+        { requestId, userId },
+        { trace: traceContext },
+      );
       const send = (event: string, data: unknown) => {
         controller.enqueue(encoder.encode(encodeEvent(event, data)));
       };

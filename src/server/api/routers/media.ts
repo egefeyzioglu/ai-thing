@@ -3,6 +3,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { MONTHLY_CREDIT_LIMIT } from "src/lib/credits";
+import { createTraceContext } from "src/lib/observability/trace";
 import { extensionFor } from "src/lib/utils";
 
 import { env } from "src/env";
@@ -945,11 +946,15 @@ export const mediaRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input, signal }): Promise<Media> => {
-      const generationEvent = createWideEvent("generation.run", {
-        mediaId: input.mediaId,
-        requestId: ctx.requestId,
-        userId: ctx.user,
-      }).set({ retry: input.retry ?? false });
+      const generationEvent = createWideEvent(
+        "generation.run",
+        {
+          mediaId: input.mediaId,
+          requestId: ctx.requestId,
+          userId: ctx.user,
+        },
+        { trace: createTraceContext(ctx.traceContext) },
+      ).set({ retry: input.retry ?? false });
 
       try {
       console.log("[runGeneration] input:", { mediaId: input.mediaId, retry: input.retry });
@@ -1614,11 +1619,15 @@ export const mediaRouter = createTRPCRouter({
   pollMediaGeneration: protectedProcedure
     .input(z.object({ mediaId: z.string().min(1) }))
     .mutation(async ({ ctx, input }): Promise<Media> => {
-      const pollEvent = createWideEvent("generation.video.poll", {
-        mediaId: input.mediaId,
-        requestId: ctx.requestId,
-        userId: ctx.user,
-      });
+      const pollEvent = createWideEvent(
+        "generation.video.poll",
+        {
+          mediaId: input.mediaId,
+          requestId: ctx.requestId,
+          userId: ctx.user,
+        },
+        { trace: createTraceContext(ctx.traceContext) },
+      );
 
       try {
       const [mediaRow] = await db

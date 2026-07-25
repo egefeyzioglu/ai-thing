@@ -4,6 +4,10 @@ import { and, asc, eq, lt } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { env } from "src/env";
+import {
+  createTraceContext,
+  parseTraceparent,
+} from "src/lib/observability/trace";
 import { db } from "src/server/db";
 import { generationUsage, media } from "src/server/db/schema";
 import { createWideEvent } from "src/server/observability/event";
@@ -37,7 +41,15 @@ export async function GET(request: Request) {
   }
 
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
-  const event = createWideEvent("monitor.stuck_generations", { requestId });
+  const event = createWideEvent(
+    "monitor.stuck_generations",
+    { requestId },
+    {
+      trace: createTraceContext(
+        parseTraceparent(request.headers.get("traceparent")) ?? undefined,
+      ),
+    },
+  );
   const now = new Date();
   const pendingCutoff = new Date(now.getTime() - 5 * MINUTE_MS);
   const imageCutoff = new Date(now.getTime() - 10 * MINUTE_MS);

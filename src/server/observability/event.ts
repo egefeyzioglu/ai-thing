@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { after } from "next/server";
 
 import { env } from "src/env";
+import { type TraceContext } from "src/lib/observability/trace";
 
 type JsonPrimitive = boolean | number | string | null;
 export type JsonValue =
@@ -47,8 +48,10 @@ export type WideEvent = {
   requestId?: string;
   schemaVersion: 1;
   service: "ai-thing";
+  spanId?: string;
   timestamp: string;
   traceId?: string;
+  parentSpanId?: string;
   usageId?: string;
   userId?: string;
 };
@@ -60,11 +63,16 @@ type EventContext = Partial<
     | "provider"
     | "providerRequestId"
     | "requestId"
-    | "traceId"
     | "usageId"
     | "userId"
   >
 >;
+
+type EventOptions = {
+  durationMs?: number;
+  startedAt?: Date;
+  trace?: TraceContext;
+};
 
 const SECRET_PATTERNS = [
   /\b(?:sk|key|token|secret)[-_][A-Za-z0-9_-]{12,}\b/gi,
@@ -174,7 +182,21 @@ async function sendBatchToHoneycomb(events: WideEvent[]): Promise<void> {
       `${env.HONEYCOMB_API_HOST}/1/batch/${encodeURIComponent(dataset)}`,
       {
         body: JSON.stringify(
-          events.map((event) => ({ data: event, time: event.timestamp })),
+          events.map((event) => ({
+            data: {
+              ...event,
+              duration_ms: event.durationMs,
+              name: event.eventName,
+              ...(event.traceId && {
+                "trace.trace_id": event.traceId,
+                "trace.span_id": event.spanId,
+                ...(event.parentSpanId && {
+                  "trace.parent_id": event.parentSpanId,
+                }),
+              }),
+            },
+            time: event.timestamp,
+          })),
         ),
         headers: {
           "Content-Type": "application/json",
@@ -236,14 +258,23 @@ export class WideEventBuilder {
   readonly #context: EventContext;
   readonly #eventId = crypto.randomUUID();
   readonly #eventName: string;
-  readonly #startedAt = Date.now();
+  readonly #durationMs: number | undefined;
+  readonly #startedAt: number;
+  readonly #trace: TraceContext | undefined;
   #emitted = false;
   #error: WideEventError | undefined;
   #outcome: EventOutcome = "success";
 
-  constructor(eventName: string, context: EventContext = {}) {
+  constructor(
+    eventName: string,
+    context: EventContext = {},
+    options: EventOptions = {},
+  ) {
     this.#eventName = eventName;
     this.#context = context;
+    this.#durationMs = options.durationMs;
+    this.#startedAt = options.startedAt?.getTime() ?? Date.now();
+    this.#trace = options.trace;
   }
 
   set(attributes: Record<string, JsonValue | undefined>): this {
@@ -260,6 +291,11 @@ export class WideEventBuilder {
     return this;
   }
 
+  outcome(outcome: EventOutcome): this {
+    this.#outcome = outcome;
+    return this;
+  }
+
   async emit(): Promise<void> {
     if (this.#emitted) return;
     this.#emitted = true;
@@ -268,14 +304,21 @@ export class WideEventBuilder {
       schemaVersion: 1,
       eventId: this.#eventId,
       eventName: this.#eventName,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(this.#startedAt).toISOString(),
       service: "ai-thing",
       environment: env.NODE_ENV,
       release: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
       operation: this.#eventName,
       outcome: this.#outcome,
-      durationMs: Date.now() - this.#startedAt,
+      durationMs: this.#durationMs ?? Date.now() - this.#startedAt,
       ...this.#context,
+      ...(this.#trace && {
+        traceId: this.#trace.traceId,
+        spanId: this.#trace.spanId,
+        ...(this.#trace.parentSpanId && {
+          parentSpanId: this.#trace.parentSpanId,
+        }),
+      }),
       ...(this.#error && { error: this.#error }),
       attributes: this.#attributes,
     });
@@ -285,6 +328,7 @@ export class WideEventBuilder {
 export function createWideEvent(
   eventName: string,
   context: EventContext = {},
+  options: EventOptions = {},
 ): WideEventBuilder {
-  return new WideEventBuilder(eventName, context);
+  return new WideEventBuilder(eventName, context, options);
 }

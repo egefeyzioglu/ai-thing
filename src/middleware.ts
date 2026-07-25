@@ -7,6 +7,7 @@ const isPublicRoute = createRouteMatcher([
   "/api/uploadthing",
   "/api/health/(.*)",
   "/api/internal/monitor/generations",
+  "/api/observability/spans",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
