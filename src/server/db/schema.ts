@@ -9,6 +9,17 @@ import { index, pgTableCreator, uniqueIndex } from "drizzle-orm/pg-core";
  */
 export const createTable = pgTableCreator((name) => `ai-thing_${name}`);
 
+export const observabilityRateLimits = createTable(
+  "observability_rate_limit",
+  (d) => ({
+    key: d.text("key").primaryKey(),
+    count: d.integer("count").notNull(),
+    windowStartedAt: d
+      .timestamp("window_started_at", { withTimezone: true })
+      .notNull(),
+  }),
+);
+
 export const projects = createTable(
   "project",
   (d) => ({

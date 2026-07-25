@@ -1,7 +1,10 @@
 import { auth } from "@clerk/nextjs/server";
+import { sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { db } from "src/server/db";
+import { observabilityRateLimits } from "src/server/db/schema";
 import { createWideEvent } from "src/server/observability/event";
 
 const MAX_BROWSER_SPAN_BYTES = 16_384;
@@ -9,9 +12,7 @@ const MAX_CLOCK_SKEW_MS = 5 * 60_000;
 const MAX_GLOBAL_SPANS_PER_MINUTE = 2_000;
 const MAX_SPAN_DURATION_MS = 3_600_000;
 const MAX_SPANS_PER_USER_PER_MINUTE = 120;
-const rateLimits = new Map<string, { count: number; windowStartedAt: number }>();
-let globalRateLimit = { count: 0, windowStartedAt: Date.now() };
-let lastRateLimitCleanup = Date.now();
+const RATE_LIMIT_WINDOW_MS = 60_000;
 
 const hexId = (length: number) =>
   z.string().regex(new RegExp(`^[0-9a-f]{${length}}$`));
@@ -129,35 +130,45 @@ async function readBodyWithinLimit(
   return new TextDecoder().decode(bytes);
 }
 
+async function incrementRateLimit(key: string, now: Date): Promise<number> {
+  const windowCutoff = new Date(now.getTime() - RATE_LIMIT_WINDOW_MS);
+  const [limit] = await db
+    .insert(observabilityRateLimits)
+    .values({ count: 1, key, windowStartedAt: now })
+    .onConflictDoUpdate({
+      target: observabilityRateLimits.key,
+      set: {
+        count: sql<number>`case
+          when ${observabilityRateLimits.windowStartedAt} <= ${windowCutoff}
+            then 1
+          else ${observabilityRateLimits.count} + 1
+        end`,
+        windowStartedAt: sql<Date>`case
+          when ${observabilityRateLimits.windowStartedAt} <= ${windowCutoff}
+            then ${now}
+          else ${observabilityRateLimits.windowStartedAt}
+        end`,
+      },
+    })
+    .returning({ count: observabilityRateLimits.count });
+  return limit?.count ?? Number.POSITIVE_INFINITY;
+}
+
 export async function POST(request: Request) {
   const { isAuthenticated, userId } = await auth();
   if (!isAuthenticated || !userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const now = Date.now();
-  if (now - lastRateLimitCleanup >= 60_000) {
-    for (const [key, limit] of rateLimits) {
-      if (now - limit.windowStartedAt >= 60_000) rateLimits.delete(key);
-    }
-    lastRateLimitCleanup = now;
-  }
-  const currentLimit = rateLimits.get(userId);
-  if (!currentLimit || now - currentLimit.windowStartedAt >= 60_000) {
-    rateLimits.set(userId, { count: 1, windowStartedAt: now });
-  } else if (currentLimit.count >= MAX_SPANS_PER_USER_PER_MINUTE) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
-  } else {
-    currentLimit.count += 1;
-  }
-
-  if (now - globalRateLimit.windowStartedAt >= 60_000) {
-    globalRateLimit = { count: 0, windowStartedAt: now };
-  }
-  if (globalRateLimit.count >= MAX_GLOBAL_SPANS_PER_MINUTE) {
+  const now = new Date();
+  const userCount = await incrementRateLimit(`user:${userId}`, now);
+  if (userCount > MAX_SPANS_PER_USER_PER_MINUTE) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
-  globalRateLimit.count += 1;
+  const globalCount = await incrementRateLimit("global", now);
+  if (globalCount > MAX_GLOBAL_SPANS_PER_MINUTE) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
 
   const contentLength = Number(request.headers.get("content-length") ?? "0");
   if (

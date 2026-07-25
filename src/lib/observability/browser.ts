@@ -75,8 +75,11 @@ export async function tracedFetch(
   },
 ): Promise<Response> {
   const trace = createTraceContext(options.parent);
-  const headers = new Headers(init.headers);
+  const requestInput = input instanceof Request ? input : undefined;
+  const headers = new Headers(requestInput?.headers);
+  new Headers(init.headers).forEach((value, key) => headers.set(key, value));
   headers.set("traceparent", formatTraceparent(trace));
+  const httpMethod = init.method ?? requestInput?.method ?? "GET";
   const startedAt = new Date();
   const startedAtMs = performance.now();
 
@@ -90,7 +93,7 @@ export async function tracedFetch(
         attributes: {
           ...options.attributes,
           ...attributes,
-          httpMethod: init.method ?? "GET",
+          httpMethod,
           httpStatusCode: response.status,
         },
         durationMs: performance.now() - startedAtMs,
@@ -140,7 +143,7 @@ export async function tracedFetch(
       attributes: {
         ...options.attributes,
         errorName: error instanceof Error ? error.name : "UnknownError",
-        httpMethod: init.method ?? "GET",
+        httpMethod,
       },
       durationMs: performance.now() - startedAtMs,
       name: options.name,
