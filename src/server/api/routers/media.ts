@@ -3,6 +3,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { MONTHLY_CREDIT_LIMIT } from "src/lib/credits";
+import { createTraceContext } from "src/lib/observability/trace";
 import { getEffectiveImageResolution } from "src/lib/image-resolution";
 import { extensionFor } from "src/lib/utils";
 
@@ -20,6 +21,7 @@ import {
 } from "src/server/db/schema";
 import { recordGenerationCostEvent } from "src/server/generation-costs";
 import { currentUserCanBypassLimits } from "src/server/limits";
+import { createWideEvent } from "src/server/observability/event";
 import {
   isSeedanceSlug,
   pollSeedanceTask,
@@ -945,6 +947,17 @@ export const mediaRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input, signal }): Promise<Media> => {
+      const generationEvent = createWideEvent(
+        "generation.run",
+        {
+          mediaId: input.mediaId,
+          requestId: ctx.requestId,
+          userId: ctx.user,
+        },
+        { trace: createTraceContext(ctx.traceContext) },
+      ).set({ retry: input.retry ?? false });
+
+      try {
       console.log("[runGeneration] input:", { mediaId: input.mediaId, retry: input.retry });
 
       const [mediaRow] = await db
@@ -959,14 +972,27 @@ export const mediaRouter = createTRPCRouter({
           message: "Media row not found",
         });
       }
+      generationEvent.set({
+        mediaType: mediaRow.type,
+        model: mediaRow.model,
+        startingStatus: mediaRow.status,
+      });
 
       console.log("[runGeneration] media row found:", { status: mediaRow.status, model: mediaRow.model, error: mediaRow.error });
 
       if (mediaRow.status === "succeeded") {
+        generationEvent.set({
+          disposition: "already_terminal",
+          finalStatus: "succeeded",
+        });
         console.log("[runGeneration] already succeeded, returning early");
         return signMediaRow(mediaRow);
       }
       if (mediaRow.status === "failed" && !input.retry) {
+        generationEvent.set({
+          disposition: "already_terminal",
+          finalStatus: "failed",
+        });
         console.log("[runGeneration] status=failed but retry not set, returning early");
         return signMediaRow(mediaRow);
       }
@@ -1153,6 +1179,10 @@ export const mediaRouter = createTRPCRouter({
             .from(media)
             .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
             .limit(1);
+          generationEvent.set({
+            disposition: "contended",
+            finalStatus: current?.status ?? mediaRow.status,
+          });
           return signMediaRow(current ?? mediaRow);
         }
 
@@ -1202,6 +1232,14 @@ export const mediaRouter = createTRPCRouter({
           "for media:",
           mediaRow.id,
         );
+        generationEvent.set({
+          disposition: "submitted",
+          finalStatus: "running",
+          provider: "modelark",
+          providerRequestId: task.taskId,
+          usageId: videoClaim.usageId ?? null,
+          usageStatus: "reserved",
+        });
         return signMediaRow(updated ?? mediaRow);
       }
 
@@ -1307,6 +1345,10 @@ export const mediaRouter = createTRPCRouter({
           .from(media)
           .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
           .limit(1);
+        generationEvent.set({
+          disposition: "contended",
+          finalStatus: current?.status ?? mediaRow.status,
+        });
         return signMediaRow(current ?? mediaRow);
       }
 
@@ -1358,7 +1400,24 @@ export const mediaRouter = createTRPCRouter({
               err,
             );
           });
-          await markUsageStatus(claimResult.usageId, "refunded");
+          const didRefund = await markUsageStatus(
+            claimResult.usageId,
+            "refunded",
+          ).catch((refundError) => {
+            console.error(
+              "[runGeneration] failed to refund canceled generation:",
+              refundError,
+            );
+            return false;
+          });
+          generationEvent
+            .fail(new DOMException("Generation canceled", "AbortError"))
+            .set({
+              disposition: "canceled",
+              finalStatus: "failed",
+              provider: generated.cost.provider,
+              usageStatus: didRefund ? "refunded" : "refund_failed",
+            });
           return signMediaRow({
             ...mediaRow,
             status: "failed",
@@ -1409,7 +1468,24 @@ export const mediaRouter = createTRPCRouter({
               err,
             );
           });
-          await markUsageStatus(claimResult.usageId, "refunded");
+          const didRefund = await markUsageStatus(
+            claimResult.usageId,
+            "refunded",
+          ).catch((refundError) => {
+            console.error(
+              "[runGeneration] failed to refund canceled generation:",
+              refundError,
+            );
+            return false;
+          });
+          generationEvent
+            .fail(new DOMException("Generation canceled", "AbortError"))
+            .set({
+              disposition: "canceled",
+              finalStatus: "failed",
+              provider: generated.cost.provider,
+              usageStatus: didRefund ? "refunded" : "refund_failed",
+            });
           return signMediaRow({
             ...mediaRow,
             status: "failed",
@@ -1435,6 +1511,11 @@ export const mediaRouter = createTRPCRouter({
             provider: generated.cost.provider,
           },
         });
+        generationEvent.set({
+          finalStatus: "succeeded",
+          provider: generated.cost.provider,
+          usageStatus: didConsume ? "consumed" : "consume_failed",
+        });
         console.log("[runGeneration] done, status: succeeded");
         return signMediaRow(updated);
       } catch (err) {
@@ -1442,13 +1523,39 @@ export const mediaRouter = createTRPCRouter({
           signal?.aborted ||
           (err instanceof Error && err.name === "AbortError")
         ) {
-          await markUsageStatus(claimResult.usageId, "refunded");
-          return signMediaRow({
-            ...mediaRow,
-            status: "failed",
-            error: "Generation canceled",
+          const [cancelled] = await db
+            .update(media)
+            .set({
+              status: "failed",
+              error: "Generation canceled",
+              updatedAt: new Date(),
+            })
+            .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
+            .returning();
+          const didRefund = await markUsageStatus(
+            claimResult.usageId,
+            "refunded",
+          ).catch((refundError) => {
+            console.error(
+              "[runGeneration] failed to refund canceled generation:",
+              refundError,
+            );
+            return false;
           });
+          generationEvent.fail(err, "generation").set({
+            disposition: "canceled",
+            finalStatus: "failed",
+            usageStatus: didRefund ? "refunded" : "refund_failed",
+          });
+          return signMediaRow(
+            cancelled ?? {
+              ...mediaRow,
+              status: "failed",
+              error: "Generation canceled",
+            },
+          );
         }
+        generationEvent.fail(err, "generation");
         console.error("[runGeneration] generation/upload failed:", err);
         const message = err instanceof Error ? err.message : String(err);
         const [updated] = await db
@@ -1488,8 +1595,25 @@ export const mediaRouter = createTRPCRouter({
             error_snippet: redactErrorMessage(message),
           },
         });
+        generationEvent.set({
+          finalStatus: "failed",
+          usageStatus: didRefund ? "refunded" : "refund_failed",
+        });
         console.log("[runGeneration] done, status: failed, error:", message);
         return signMediaRow(updated);
+      }
+      } catch (error) {
+        generationEvent.fail(error);
+        throw error;
+      } finally {
+        try {
+          await generationEvent.emit();
+        } catch (emitError) {
+          console.error(
+            "[runGeneration] failed to emit generation event:",
+            emitError,
+          );
+        }
       }
     }),
 
@@ -1503,6 +1627,17 @@ export const mediaRouter = createTRPCRouter({
   pollMediaGeneration: protectedProcedure
     .input(z.object({ mediaId: z.string().min(1) }))
     .mutation(async ({ ctx, input }): Promise<Media> => {
+      const pollEvent = createWideEvent(
+        "generation.video.poll",
+        {
+          mediaId: input.mediaId,
+          requestId: ctx.requestId,
+          userId: ctx.user,
+        },
+        { trace: createTraceContext(ctx.traceContext) },
+      );
+
+      try {
       const [mediaRow] = await db
         .select()
         .from(media)
@@ -1514,6 +1649,12 @@ export const mediaRouter = createTRPCRouter({
           message: "Media row not found",
         });
       }
+      pollEvent.set({
+        model: mediaRow.model,
+        provider: "modelark",
+        providerRequestId: mediaRow.providerStatus,
+        startingStatus: mediaRow.status,
+      });
 
       if (mediaRow.type !== "video") {
         throw new TRPCError({
@@ -1523,6 +1664,10 @@ export const mediaRouter = createTRPCRouter({
       }
 
       if (mediaRow.status !== "running" || !mediaRow.providerStatus) {
+        pollEvent.set({
+          disposition: "already_terminal",
+          finalStatus: mediaRow.status,
+        });
         return signMediaRow(mediaRow);
       }
 
@@ -1530,6 +1675,10 @@ export const mediaRouter = createTRPCRouter({
       try {
         task = await pollSeedanceTask(mediaRow.providerStatus);
       } catch (err) {
+        pollEvent.fail(err, "provider_poll").set({
+          disposition: "transient_poll_failure",
+          finalStatus: "running",
+        });
         console.error(
           "[pollMediaGeneration] seedance poll error (transient):",
           err,
@@ -1538,6 +1687,11 @@ export const mediaRouter = createTRPCRouter({
       }
 
       if (task.status === "queued" || task.status === "running") {
+        pollEvent.set({
+          disposition: "provider_running",
+          finalStatus: "running",
+          providerStatus: task.status,
+        });
         const [updated] = await db
           .update(media)
           .set({ updatedAt: new Date() })
@@ -1570,6 +1724,13 @@ export const mediaRouter = createTRPCRouter({
 
       if (task.status === "failed" || task.status === "cancelled") {
         const message = task.error?.message ?? `Modelark task ${task.status}`;
+        pollEvent
+          .fail(new Error(message), "provider_poll")
+          .set({
+            disposition: "provider_terminal_failure",
+            finalStatus: "failed",
+            providerStatus: task.status,
+          });
         const [updated] = await db
           .update(media)
           .set({
@@ -1595,6 +1756,15 @@ export const mediaRouter = createTRPCRouter({
 
       // task.status === "succeeded"
       if (!task.videoUrl) {
+        pollEvent
+          .fail(
+            new Error("Modelark task succeeded but returned no video URL"),
+            "provider_poll",
+          )
+          .set({
+            disposition: "provider_response_invalid",
+            finalStatus: "failed",
+          });
         const [updated] = await db
           .update(media)
           .set({
@@ -1699,14 +1869,15 @@ export const mediaRouter = createTRPCRouter({
           .where(and(eq(media.id, mediaRow.id), eq(media.userId, ctx.user)))
           .returning();
 
-        if (reservedUsage) {
-          await markUsageStatus(reservedUsage.id, "consumed").catch((err) =>
-            console.error(
-              "[pollMediaGeneration] failed to consume video usage:",
-              err,
-            ),
-          );
-        }
+        const didConsume = reservedUsage
+          ? await markUsageStatus(reservedUsage.id, "consumed").catch((err) => {
+              console.error(
+                "[pollMediaGeneration] failed to consume video usage:",
+                err,
+              );
+              return false;
+            })
+          : false;
 
         await getPostHogClient().captureImmediate({
           distinctId: ctx.user,
@@ -1719,8 +1890,19 @@ export const mediaRouter = createTRPCRouter({
           },
         });
 
+        pollEvent.set({
+          disposition: "finalized",
+          finalStatus: "succeeded",
+          providerStatus: task.status,
+          usageId: reservedUsage?.id ?? null,
+          usageStatus: didConsume ? "consumed" : "missing",
+        });
         return signMediaRow(updated ?? mediaRow);
       } catch (err) {
+        pollEvent.fail(err, "finalization").set({
+          disposition: "finalization_failure",
+          finalStatus: "failed",
+        });
         console.error("[pollMediaGeneration] finalization failed:", err);
         const message = err instanceof Error ? err.message : String(err);
         const [updated] = await db
@@ -1734,6 +1916,19 @@ export const mediaRouter = createTRPCRouter({
           .returning();
         await refundReservedUsage();
         return signMediaRow(updated ?? mediaRow);
+      }
+      } catch (error) {
+        pollEvent.fail(error);
+        throw error;
+      } finally {
+        try {
+          await pollEvent.emit();
+        } catch (emitError) {
+          console.error(
+            "[pollMediaGeneration] failed to emit poll event:",
+            emitError,
+          );
+        }
       }
     }),
 });

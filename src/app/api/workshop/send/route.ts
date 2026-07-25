@@ -4,12 +4,25 @@ import {
   sendWorkshopMessage,
   workshopSendInputSchema,
 } from "src/server/api/routers/workshop";
+import {
+  createTraceContext,
+  parseTraceparent,
+} from "src/lib/observability/trace";
+import { createWideEvent } from "src/server/observability/event";
 
 function encodeEvent(event: string, data: unknown) {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
 export async function POST(req: Request) {
+  const incomingRequestId = req.headers.get("x-request-id")?.trim();
+  const requestId =
+    incomingRequestId && incomingRequestId.length > 0
+      ? incomingRequestId
+      : crypto.randomUUID();
+  const traceContext = createTraceContext(
+    parseTraceparent(req.headers.get("traceparent")) ?? undefined,
+  );
   const { isAuthenticated, userId } = await auth();
   if (!isAuthenticated || !userId) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -24,12 +37,20 @@ export async function POST(req: Request) {
 
   const parsed = workshopSendInputSchema.safeParse(body);
   if (!parsed.success) {
-    return Response.json({ error: "Invalid workshop message" }, { status: 400 });
+    return Response.json(
+      { error: "Invalid workshop message" },
+      { status: 400 },
+    );
   }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      const event = createWideEvent(
+        "workshop.stream",
+        { requestId, userId },
+        { trace: traceContext },
+      );
       const send = (event: string, data: unknown) => {
         controller.enqueue(encoder.encode(encodeEvent(event, data)));
       };
@@ -47,9 +68,12 @@ export async function POST(req: Request) {
           },
         });
 
+        event.set({
+          threadId: result.thread.id,
+        });
         send("done", result);
       } catch (error) {
-        console.error("[workshop.stream] failed to send message", error);
+        event.fail(error, "send_message");
         send("error", {
           message:
             error instanceof Error
@@ -57,7 +81,19 @@ export async function POST(req: Request) {
               : "Failed to generate assistant response",
         });
       } finally {
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // A disconnected client must not prevent completion telemetry.
+        }
+        try {
+          await event.emit();
+        } catch (emitError) {
+          console.error(
+            "[workshop.stream] failed to emit completion event",
+            emitError,
+          );
+        }
       }
     },
   });
@@ -68,6 +104,7 @@ export async function POST(req: Request) {
       Connection: "keep-alive",
       "Content-Type": "text/event-stream; charset=utf-8",
       "X-Accel-Buffering": "no",
+      "X-Request-Id": requestId,
     },
   });
 }

@@ -1,13 +1,14 @@
 "use client";
 
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
-import { httpBatchStreamLink, loggerLink } from "@trpc/client";
+import { httpLink, loggerLink } from "@trpc/client";
 import { createTRPCReact } from "@trpc/react-query";
 import { type inferRouterInputs, type inferRouterOutputs } from "@trpc/server";
 import { useState } from "react";
 import SuperJSON from "superjson";
 
 import { isExpectedTRPCError } from "src/lib/trpc-errors";
+import { tracedFetch } from "src/lib/observability/browser";
 import { type AppRouter } from "src/server/api/root";
 import { createQueryClient } from "./query-client";
 
@@ -61,9 +62,14 @@ export function TRPCReactProvider(props: { children: React.ReactNode }) {
             );
           },
         }),
-        httpBatchStreamLink({
+        httpLink({
           transformer: SuperJSON,
           url: getBaseUrl() + "/api/trpc",
+          fetch: (input, init) =>
+            tracedFetch(input, init, {
+              finishOnBody: true,
+              name: "browser.trpc.request",
+            }),
           headers: () => {
             const headers = new Headers();
             headers.set("x-trpc-source", "nextjs-react");
