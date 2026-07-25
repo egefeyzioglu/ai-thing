@@ -204,11 +204,12 @@ export async function POST(request: Request) {
       { requestId: span.requestId, userId },
       {
         durationMs: span.durationMs,
+        source: "browser",
         startedAt: span.startedAt,
         trace: span.trace,
       },
     )
-      .set({ ...span.attributes, source: "browser" })
+      .set(span.attributes)
       .outcome(span.outcome)
       .emit();
   } catch (error) {

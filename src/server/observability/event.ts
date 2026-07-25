@@ -49,6 +49,7 @@ export type WideEvent = {
   schemaVersion: 1;
   service: "ai-thing";
   spanId?: string;
+  telemetrySource: "browser" | "server";
   timestamp: string;
   traceId?: string;
   parentSpanId?: string;
@@ -70,6 +71,7 @@ type EventContext = Partial<
 
 type EventOptions = {
   durationMs?: number;
+  source?: WideEvent["telemetrySource"];
   startedAt?: Date;
   trace?: TraceContext;
 };
@@ -259,6 +261,7 @@ export class WideEventBuilder {
   readonly #eventId = crypto.randomUUID();
   readonly #eventName: string;
   readonly #durationMs: number | undefined;
+  readonly #source: WideEvent["telemetrySource"];
   readonly #startedAt: number;
   readonly #trace: TraceContext | undefined;
   #emitted = false;
@@ -273,6 +276,7 @@ export class WideEventBuilder {
     this.#eventName = eventName;
     this.#context = context;
     this.#durationMs = options.durationMs;
+    this.#source = options.source ?? "server";
     this.#startedAt = options.startedAt?.getTime() ?? Date.now();
     this.#trace = options.trace;
   }
@@ -306,6 +310,7 @@ export class WideEventBuilder {
       eventName: this.#eventName,
       timestamp: new Date(this.#startedAt).toISOString(),
       service: "ai-thing",
+      telemetrySource: this.#source,
       environment: env.NODE_ENV,
       release: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
       operation: this.#eventName,
