@@ -21,6 +21,11 @@ import {
 import Image from "next/image";
 import clsx from "clsx";
 import { toast } from "sonner";
+import {
+  getEffectiveImageResolution,
+  IMAGE_RESOLUTION_OPTIONS,
+  type ImageResolution,
+} from "src/lib/image-resolution";
 
 import {
   Collapsible,
@@ -63,12 +68,13 @@ import { UsageModal } from "./usage-modal";
 export type PromptModelSlug =
   RouterInputs["prompt"]["createWithGenerations"]["models"][number];
 export type OutputMode = "image" | "video";
-export type ResolutionOption = "512" | "1K" | "2K" | "4K";
+export type ResolutionOption = ImageResolution;
 export type VideoResolution = "480p" | "720p" | "1080p";
 export type VideoDuration = 5 | 10;
 export type VideoMotion = "auto" | "low" | "high";
 
-export const RESOLUTION_OPTIONS: ResolutionOption[] = ["512", "1K", "2K", "4K"];
+export const RESOLUTION_OPTIONS: readonly ResolutionOption[] =
+  IMAGE_RESOLUTION_OPTIONS;
 export const VIDEO_RESOLUTION_OPTIONS: VideoResolution[] = [
   "480p",
   "720p",
@@ -515,7 +521,6 @@ type SidebarProps = {
   hasOpenAIModelSelected: boolean;
   hasGeminiModelSelected: boolean;
   hasOnlySeedanceFastSelected: boolean;
-  disabledImageResolutions: ReadonlySet<ResolutionOption>;
   maxImageReferenceImages?: number;
   isMacOS: boolean | null;
   promptComposerRef: RefObject<PromptComposerHandle | null>;
@@ -534,7 +539,6 @@ type SidebarProps = {
   isLoadingModels: boolean;
   activeModels: RouterOutputs["prompt"]["getModels"];
   archivedModels: RouterOutputs["prompt"]["getModels"];
-  hasOnlyOpenAIModelsSelected: boolean;
   totalGenerations: number;
   userFullName: string | null | undefined;
   usage: RouterOutputs["usage"]["getCurrent"] | undefined;
@@ -585,7 +589,6 @@ export function Sidebar({
   hasOpenAIModelSelected,
   hasGeminiModelSelected,
   hasOnlySeedanceFastSelected,
-  disabledImageResolutions,
   maxImageReferenceImages,
   isMacOS,
   promptComposerRef,
@@ -602,7 +605,6 @@ export function Sidebar({
   isLoadingModels,
   activeModels,
   archivedModels,
-  hasOnlyOpenAIModelsSelected,
   totalGenerations,
   userFullName,
   usage,
@@ -959,27 +961,17 @@ export function Sidebar({
             </FieldLabel>
             <div className="flex flex-row gap-2">
               {RESOLUTION_OPTIONS.map((resolutionOption) => {
-                const isDisabled =
-                  (resolutionOption === "512" && hasOnlyOpenAIModelsSelected) ||
-                  disabledImageResolutions.has(resolutionOption);
-
                 return (
                   <button
                     key={resolutionOption}
-                    disabled={isDisabled}
-                    aria-disabled={isDisabled}
                     className={clsx(
-                      "grow rounded-md border border-1 px-2 py-1 text-sm",
+                      "grow cursor-pointer rounded-md border border-1 px-2 py-1 text-sm hover:bg-gray-900",
                       resolution === resolutionOption
                         ? "bg-blue-500 text-(--foreground)"
                         : "text-(--muted-foreground)",
-                      isDisabled
-                        ? "cursor-not-allowed opacity-40"
-                        : "cursor-pointer hover:bg-gray-900",
                     )}
                     onClick={(e) => {
                       e.preventDefault();
-                      if (isDisabled) return;
                       onResolutionChange(resolutionOption);
                     }}
                   >
@@ -988,6 +980,30 @@ export function Sidebar({
                 );
               })}
             </div>
+            {(() => {
+              const models = [...activeModels, ...archivedModels];
+              const adjustments = selectedModels.flatMap((slug) => {
+                const effectiveResolution = getEffectiveImageResolution(
+                  slug,
+                  resolution,
+                );
+                if (!effectiveResolution || effectiveResolution === resolution) {
+                  return [];
+                }
+                return [
+                  `${models.find((model) => model.slug === slug)?.name ?? slug}: ${effectiveResolution}`,
+                ];
+              });
+              return adjustments.length > 0 ? (
+                <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-500">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                  <span>
+                    Closest supported resolution will be used for{" "}
+                    {adjustments.join(", ")}.
+                  </span>
+                </p>
+              ) : null;
+            })()}
           </Field>
         )}
         {mode === "video" && (

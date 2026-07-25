@@ -1,6 +1,6 @@
 {
-  "id": "c87a537e-9ef5-4668-af9d-735366e7abd6",
-  "prevId": "9dae1bff-a0ae-43c0-b0a7-1f13d65ee2aa",
+  "id": "72557b29-5d17-4d63-a33d-23d43ec112d5",
+  "prevId": "c87a537e-9ef5-4668-af9d-735366e7abd6",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -621,6 +621,37 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.ai-thing_observability_rate_limit": {
+      "name": "ai-thing_observability_rate_limit",
+      "schema": "",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "count": {
+          "name": "count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "window_started_at": {
+          "name": "window_started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

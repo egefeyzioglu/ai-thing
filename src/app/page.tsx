@@ -5,7 +5,6 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -22,6 +21,7 @@ import {
   AlertDialogTitle,
 } from "src/components/ui/alert-dialog";
 import { calculateGenerationCredits } from "src/lib/credits";
+import { getEffectiveImageResolution } from "src/lib/image-resolution";
 import { notifyPromptDone } from "src/lib/notify";
 import { isExpectedTRPCError } from "src/lib/trpc-errors";
 import { useUploadThing } from "src/lib/uploadthing";
@@ -192,18 +192,6 @@ export default function Home() {
     : hasDolaSeedreamLiteSelected
       ? 14
       : undefined;
-  const disabledImageResolutions = useMemo(() => {
-    const disabled = new Set<ResolutionOption>();
-    if (hasDolaSeedreamLiteSelected) {
-      disabled.add("512");
-      disabled.add("1K");
-    }
-    if (hasDolaSeedreamProSelected) {
-      disabled.add("512");
-      disabled.add("4K");
-    }
-    return disabled;
-  }, [hasDolaSeedreamLiteSelected, hasDolaSeedreamProSelected]);
   const modeRef = useRef(mode);
   const maxImageReferenceImagesRef = useRef(maxImageReferenceImages);
   useLayoutEffect(() => {
@@ -1008,7 +996,7 @@ export default function Home() {
       runs *
         calculateGenerationCredits({
           model,
-          resolution,
+          resolution: getEffectiveImageResolution(model, resolution),
           aspectRatio: aspect,
           videoResolution,
           duration,
@@ -1020,9 +1008,6 @@ export default function Home() {
     models?.filter((model) => !model.isArchived && model.kind === mode) ?? [];
   const archivedModels =
     models?.filter((model) => model.isArchived && model.kind === mode) ?? [];
-  const hasOnlyOpenAIModelsSelected =
-    selectedModels.length > 0 &&
-    selectedModels.every((model) => OPENAI_MODEL_SLUGS.has(model));
   const hasOpenAIModelSelected = selectedModels.some((model) =>
     OPENAI_MODEL_SLUGS.has(model),
   );
@@ -1039,18 +1024,6 @@ export default function Home() {
     promptsQuery.error && promptsQuery.error.data?.code !== "NOT_FOUND"
       ? promptsQuery.error.message
       : undefined;
-
-  useEffect(() => {
-    if (hasOnlyOpenAIModelsSelected && resolution === "512") {
-      setResolution("1K");
-    }
-  }, [hasOnlyOpenAIModelsSelected, resolution, setResolution]);
-
-  useEffect(() => {
-    if (disabledImageResolutions.has(resolution)) {
-      setResolution("2K");
-    }
-  }, [disabledImageResolutions, resolution, setResolution]);
 
   useEffect(() => {
     const referenceImageLimit =
@@ -1207,7 +1180,6 @@ export default function Home() {
         hasOpenAIModelSelected={hasOpenAIModelSelected}
         hasGeminiModelSelected={hasGeminiModelSelected}
         hasOnlySeedanceFastSelected={hasOnlySeedanceFastSelected}
-        disabledImageResolutions={disabledImageResolutions}
         maxImageReferenceImages={maxImageReferenceImages}
         isMacOS={isMacOS}
         promptComposerRef={promptComposerRef}
@@ -1226,7 +1198,6 @@ export default function Home() {
         isLoadingModels={isLoadingModels}
         activeModels={activeModels}
         archivedModels={archivedModels}
-        hasOnlyOpenAIModelsSelected={hasOnlyOpenAIModelsSelected}
         totalGenerations={totalGenerations}
         userFullName={user.user?.fullName}
         usage={usage}

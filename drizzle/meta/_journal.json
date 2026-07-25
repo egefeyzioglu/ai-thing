@@ -19,8 +19,15 @@
     {
       "idx": 2,
       "version": "7",
-      "when": 1784951820617,
-      "tag": "0002_sweet_mentor",
+      "when": 1784861131733,
+      "tag": "0002_shocking_vapor",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784953588874,
+      "tag": "0003_exotic_vargas",
       "breakpoints": true
     }
   ]
