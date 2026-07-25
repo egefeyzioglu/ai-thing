@@ -81,7 +81,11 @@ export async function POST(req: Request) {
               : "Failed to generate assistant response",
         });
       } finally {
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // A disconnected client must not prevent completion telemetry.
+        }
         try {
           await event.emit();
         } catch (emitError) {

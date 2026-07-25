@@ -90,13 +90,13 @@ let flushScheduled = false;
 
 function redactMessage(value: string): string {
   let redacted = value
-    .slice(0, 1_000)
+    .slice(0, 2_000)
     .replace(URL_USERINFO_PATTERN, "$1[REDACTED]@")
     .replace(ASSIGNMENT_SECRET_PATTERN, "[REDACTED]");
   for (const pattern of SECRET_PATTERNS) {
     redacted = redacted.replace(pattern, "[REDACTED]");
   }
-  return redacted;
+  return redacted.slice(0, 1_000);
 }
 
 function classifyError(

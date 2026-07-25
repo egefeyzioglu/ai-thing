@@ -1536,6 +1536,7 @@ export const mediaRouter = createTRPCRouter({
             return false;
           });
           generationEvent.fail(err, "generation").set({
+            disposition: "canceled",
             finalStatus: "failed",
             usageStatus: didRefund ? "refunded" : "refund_failed",
           });

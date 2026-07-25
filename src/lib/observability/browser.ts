@@ -9,12 +9,20 @@ import {
 type BrowserSpan = {
   attributes: Record<string, boolean | number | string | null>;
   durationMs: number;
-  name: string;
+  name:
+    | "browser.javascript.error"
+    | "browser.promise.unhandled_rejection"
+    | "browser.trpc.request"
+    | "browser.workshop.stream";
   outcome: "success" | "expected_error" | "unexpected_error";
   requestId?: string;
   startedAt: string;
   trace: TraceContext;
 };
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
 
 function emitBrowserSpan(span: BrowserSpan): void {
   const body = JSON.stringify(span);
@@ -37,7 +45,9 @@ function emitBrowserSpan(span: BrowserSpan): void {
 }
 
 export function recordBrowserEvent(
-  name: `browser.${string}`,
+  name:
+    | "browser.javascript.error"
+    | "browser.promise.unhandled_rejection",
   options: {
     attributes?: BrowserSpan["attributes"];
     outcome?: BrowserSpan["outcome"];
@@ -60,7 +70,7 @@ export async function tracedFetch(
   options: {
     attributes?: BrowserSpan["attributes"];
     finishOnBody?: boolean;
-    name: string;
+    name: "browser.trpc.request" | "browser.workshop.stream";
     parent?: TraceContext;
   },
 ): Promise<Response> {
@@ -105,7 +115,7 @@ export async function tracedFetch(
               controller.enqueue(result.value);
             }
           } catch (error) {
-            finish("unexpected_error", {
+            finish(isAbortError(error) ? "expected_error" : "unexpected_error", {
               errorName: error instanceof Error ? error.name : "UnknownError",
             });
             controller.error(error);
@@ -134,10 +144,7 @@ export async function tracedFetch(
       },
       durationMs: performance.now() - startedAtMs,
       name: options.name,
-      outcome:
-        error instanceof DOMException && error.name === "AbortError"
-          ? "expected_error"
-          : "unexpected_error",
+      outcome: isAbortError(error) ? "expected_error" : "unexpected_error",
       startedAt: startedAt.toISOString(),
       trace,
     });

@@ -5,37 +5,93 @@ import { z } from "zod";
 import { createWideEvent } from "src/server/observability/event";
 
 const MAX_BROWSER_SPAN_BYTES = 16_384;
+const MAX_CLOCK_SKEW_MS = 5 * 60_000;
+const MAX_GLOBAL_SPANS_PER_MINUTE = 2_000;
+const MAX_SPAN_DURATION_MS = 3_600_000;
 const MAX_SPANS_PER_USER_PER_MINUTE = 120;
 const rateLimits = new Map<string, { count: number; windowStartedAt: number }>();
+let globalRateLimit = { count: 0, windowStartedAt: Date.now() };
 let lastRateLimitCleanup = Date.now();
 
 const hexId = (length: number) =>
   z.string().regex(new RegExp(`^[0-9a-f]{${length}}$`));
 
-const browserSpanSchema = z
-  .object({
-    attributes: z
-      .record(
-        z.string(),
-        z.union([z.boolean(), z.number(), z.string(), z.null()]),
-      )
-      .refine((attributes) => Object.keys(attributes).length <= 30),
-    durationMs: z.number().finite().min(0).max(3_600_000),
-    name: z
-      .string()
-      .regex(/^browser\.[a-z0-9_.-]+$/)
-      .max(100),
-    outcome: z.enum(["success", "expected_error", "unexpected_error"]),
-    requestId: z.string().uuid().optional(),
-    startedAt: z.coerce.date(),
-    trace: z.object({
+const commonSpanShape = {
+  durationMs: z.number().finite().min(0).max(MAX_SPAN_DURATION_MS),
+  outcome: z.enum(["success", "expected_error", "unexpected_error"]),
+  requestId: z.string().uuid().optional(),
+  startedAt: z.coerce.date(),
+  trace: z
+    .object({
       parentSpanId: hexId(16).optional(),
       spanId: hexId(16),
       traceFlags: hexId(2),
       traceId: hexId(32),
-    }),
-  })
-  .strict();
+    })
+    .strict(),
+};
+const errorName = z.string().min(1).max(100);
+const httpMethod = z.enum(["GET", "POST"]);
+const httpStatusCode = z.number().int().min(100).max(599);
+
+const browserSpanSchema = z
+  .discriminatedUnion("name", [
+    z
+      .object({
+        ...commonSpanShape,
+        attributes: z
+          .object({
+            errorName: errorName.optional(),
+            httpMethod,
+            httpStatusCode: httpStatusCode.optional(),
+          })
+          .strict(),
+        name: z.literal("browser.trpc.request"),
+      })
+      .strict(),
+    z
+      .object({
+        ...commonSpanShape,
+        attributes: z
+          .object({
+            canceled: z.boolean().optional(),
+            errorName: errorName.optional(),
+            httpMethod,
+            httpStatusCode: httpStatusCode.optional(),
+          })
+          .strict(),
+        name: z.literal("browser.workshop.stream"),
+      })
+      .strict(),
+    z
+      .object({
+        ...commonSpanShape,
+        attributes: z.object({ errorName }).strict(),
+        name: z.literal("browser.javascript.error"),
+      })
+      .strict(),
+    z
+      .object({
+        ...commonSpanShape,
+        attributes: z.object({ errorName }).strict(),
+        name: z.literal("browser.promise.unhandled_rejection"),
+      })
+      .strict(),
+  ])
+  .superRefine((span, context) => {
+    const now = Date.now();
+    const startedAt = span.startedAt.getTime();
+    if (
+      startedAt > now + MAX_CLOCK_SKEW_MS ||
+      startedAt < now - MAX_SPAN_DURATION_MS - MAX_CLOCK_SKEW_MS
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Span timestamp is outside the accepted window",
+        path: ["startedAt"],
+      });
+    }
+  });
 
 async function readBodyWithinLimit(
   request: Request,
@@ -94,6 +150,14 @@ export async function POST(request: Request) {
   } else {
     currentLimit.count += 1;
   }
+
+  if (now - globalRateLimit.windowStartedAt >= 60_000) {
+    globalRateLimit = { count: 0, windowStartedAt: now };
+  }
+  if (globalRateLimit.count >= MAX_GLOBAL_SPANS_PER_MINUTE) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
+  globalRateLimit.count += 1;
 
   const contentLength = Number(request.headers.get("content-length") ?? "0");
   if (

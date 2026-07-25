@@ -10,9 +10,15 @@ import { createWideEvent } from "src/server/observability/event";
 export const dynamic = "force-dynamic";
 
 const READINESS_TIMEOUT_MS = 2_000;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function GET(request: Request) {
-  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+  const rawRequestId = request.headers.get("x-request-id");
+  const requestId =
+    rawRequestId && UUID_PATTERN.test(rawRequestId)
+      ? rawRequestId
+      : crypto.randomUUID();
   const event = createWideEvent(
     "health.readiness",
     { requestId },

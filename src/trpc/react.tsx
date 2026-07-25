@@ -66,7 +66,10 @@ export function TRPCReactProvider(props: { children: React.ReactNode }) {
           transformer: SuperJSON,
           url: getBaseUrl() + "/api/trpc",
           fetch: (input, init) =>
-            tracedFetch(input, init, { name: "browser.trpc.request" }),
+            tracedFetch(input, init, {
+              finishOnBody: true,
+              name: "browser.trpc.request",
+            }),
           headers: () => {
             const headers = new Headers();
             headers.set("x-trpc-source", "nextjs-react");
