@@ -21,8 +21,15 @@ export const env = createEnv({
     ARK_API_KEY: z.string().min(1),
     UPLOADTHING_TOKEN: z.string().min(1),
     CLERK_SECRET_KEY: z.string().min(1),
-    HONEYCOMB_API_KEY: z.string().min(1).optional(),
-    HONEYCOMB_DATASET: z.string().min(1).optional(),
+    HONEYCOMB_API_KEY: z.string().min(1),
+    HONEYCOMB_DATASET: z.preprocess(
+      (value) =>
+        value ??
+        ((process.env.NODE_ENV ?? "development") === "development"
+          ? "dev"
+          : value),
+      z.string().min(1),
+    ),
     HONEYCOMB_API_HOST: z
       .string()
       .url()
