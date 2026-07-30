@@ -22,7 +22,6 @@ export const env = createEnv({
     UPLOADTHING_TOKEN: z.string().min(1),
     CLERK_SECRET_KEY: z.string().min(1),
     HONEYCOMB_API_KEY: z.string().min(1),
-    HONEYCOMB_QUERY_API_KEY: z.string().min(1).optional(),
     HONEYCOMB_DATASET: z.preprocess(
       (value) =>
         value ??
@@ -44,6 +43,8 @@ export const env = createEnv({
         );
       }, "Honeycomb API host must use HTTPS (HTTP is allowed only for localhost outside production)")
       .default("https://api.honeycomb.io"),
+    TELEMETRY_DATABASE_URL: z.string().url().optional(),
+    TELEMETRY_DIRECT_URL: z.string().url().optional(),
     CRON_SECRET: z
       .string()
       .min(16)
@@ -79,9 +80,10 @@ export const env = createEnv({
     UPLOADTHING_TOKEN: process.env.UPLOADTHING_TOKEN,
     CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
     HONEYCOMB_API_KEY: process.env.HONEYCOMB_API_KEY,
-    HONEYCOMB_QUERY_API_KEY: process.env.HONEYCOMB_QUERY_API_KEY,
     HONEYCOMB_DATASET: process.env.HONEYCOMB_DATASET,
     HONEYCOMB_API_HOST: process.env.HONEYCOMB_API_HOST,
+    TELEMETRY_DATABASE_URL: process.env.TELEMETRY_DATABASE_URL,
+    TELEMETRY_DIRECT_URL: process.env.TELEMETRY_DIRECT_URL,
     CRON_SECRET: process.env.CRON_SECRET,
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,

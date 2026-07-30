@@ -1,10 +1,13 @@
 import "server-only";
 
 import { TRPCError } from "@trpc/server";
+import { lt } from "drizzle-orm";
 import { after } from "next/server";
 
 import { env } from "src/env";
 import { type TraceContext } from "src/lib/observability/trace";
+import { getTelemetryDb } from "src/server/telemetry/db";
+import { telemetrySpans } from "src/server/telemetry/schema";
 
 type JsonPrimitive = boolean | number | string | null;
 export type JsonValue =
@@ -87,8 +90,11 @@ const URL_USERINFO_PATTERN = /\b([a-z][a-z0-9+.-]*:\/\/)[^/\s:@]+:[^@\s/]+@/gi;
 const HONEYCOMB_BATCH_SIZE = 50;
 const HONEYCOMB_MAX_QUEUED_EVENTS = 1_000;
 const HONEYCOMB_REQUEST_TIMEOUT_MS = 5_000;
+const TELEMETRY_RETENTION_DAYS = 30;
+const TELEMETRY_RETENTION_SWEEP_INTERVAL_MS = 24 * 60 * 60_000;
 const pendingEvents: WideEvent[] = [];
 let flushScheduled = false;
+let lastRetentionSweepAt = 0;
 
 function redactMessage(value: string): string {
   let redacted = value
@@ -223,15 +229,67 @@ async function sendBatchToHoneycomb(events: WideEvent[]): Promise<void> {
   }
 }
 
-async function flushHoneycombQueue(): Promise<void> {
-  while (pendingEvents.length > 0) {
-    const batch = pendingEvents.splice(0, HONEYCOMB_BATCH_SIZE);
-    await sendBatchToHoneycomb(batch);
+async function persistBatchToTelemetry(events: WideEvent[]): Promise<void> {
+  const telemetryDb = getTelemetryDb();
+  if (!telemetryDb) return;
+
+  try {
+    await telemetryDb
+      .insert(telemetrySpans)
+      .values(
+        events.map((event) => ({
+          eventId: event.eventId,
+          traceId: event.traceId,
+          spanId: event.spanId,
+          parentSpanId: event.parentSpanId,
+          startedAt: new Date(event.timestamp),
+          durationMs: event.durationMs,
+          operation: event.operation,
+          outcome: event.outcome,
+          service: event.service,
+          source: event.telemetrySource,
+          environment: event.environment,
+          release: event.release,
+          userId: event.userId,
+          error: event.error,
+          attributes: event.attributes,
+        })),
+      )
+      .onConflictDoNothing();
+
+    const now = Date.now();
+    if (now - lastRetentionSweepAt >= TELEMETRY_RETENTION_SWEEP_INTERVAL_MS) {
+      lastRetentionSweepAt = now;
+      const cutoff = new Date(
+        now - TELEMETRY_RETENTION_DAYS * 24 * 60 * 60_000,
+      );
+      await telemetryDb
+        .delete(telemetrySpans)
+        .where(lt(telemetrySpans.startedAt, cutoff));
+    }
+  } catch (error) {
+    console.error("[observability] Failed to persist telemetry batch", {
+      eventIds: events.map((event) => event.eventId),
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
-function scheduleHoneycombEvent(event: WideEvent): void {
-  if (!env.HONEYCOMB_API_KEY || !env.HONEYCOMB_DATASET) {
+async function flushEventQueue(): Promise<void> {
+  while (pendingEvents.length > 0) {
+    const batch = pendingEvents.splice(0, HONEYCOMB_BATCH_SIZE);
+    await Promise.all([
+      sendBatchToHoneycomb(batch),
+      persistBatchToTelemetry(batch),
+    ]);
+  }
+}
+
+function scheduleTelemetryEvent(event: WideEvent): void {
+  if (
+    (!env.HONEYCOMB_API_KEY || !env.HONEYCOMB_DATASET) &&
+    !env.TELEMETRY_DATABASE_URL
+  ) {
     if (env.NODE_ENV !== "production") console.info(JSON.stringify(event));
     return;
   }
@@ -248,7 +306,7 @@ function scheduleHoneycombEvent(event: WideEvent): void {
   flushScheduled = true;
   after(async () => {
     try {
-      await flushHoneycombQueue();
+      await flushEventQueue();
     } finally {
       flushScheduled = false;
     }
@@ -304,7 +362,7 @@ export class WideEventBuilder {
     if (this.#emitted) return;
     this.#emitted = true;
 
-    scheduleHoneycombEvent({
+    scheduleTelemetryEvent({
       schemaVersion: 1,
       eventId: this.#eventId,
       eventName: this.#eventName,
