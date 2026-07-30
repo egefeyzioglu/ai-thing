@@ -33,6 +33,7 @@ import {
   resolveSeedreamSize,
   type SeedreamSlug,
 } from "src/server/media/seedream";
+import { prepareSeedreamReferenceImage } from "src/server/media/seedream-reference";
 import { signUploadThingUrl, utapi, UTFile } from "src/server/uploadthing";
 import {
   createReservedUsage,
@@ -755,12 +756,12 @@ async function generateImageSeedream(
     userId,
     referenceImageIds,
   );
-  const imageUrls = ownedReferenceImages.flatMap((image) =>
-    image.url ? [image.url] : [],
+  const preparedReferenceImages = await Promise.all(
+    ownedReferenceImages.map((image) =>
+      prepareSeedreamReferenceImage({ image, userId, signal }),
+    ),
   );
-  if (imageUrls.length !== ownedReferenceImages.length) {
-    throw new Error("Failed to resolve one or more reference images");
-  }
+  const imageUrls = preparedReferenceImages.map((image) => image.url);
   const size = resolveSeedreamSize(model, resolution, aspectRatio);
   const generated = await generateSeedreamImage({
     slug: model,
