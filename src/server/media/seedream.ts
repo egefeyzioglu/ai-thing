@@ -4,7 +4,6 @@ import { env } from "src/env";
 
 const SEEDREAM_GENERATIONS_ENDPOINT =
   "https://ark.ap-southeast.bytepluses.com/api/v3/images/generations";
-const SEEDREAM_REQUEST_TIMEOUT_MS = 120_000;
 
 const SLUG_TO_MODELARK_ID = {
   "dola-seedream-5-0-lite": "seedream-5-0-260128",
@@ -12,6 +11,11 @@ const SLUG_TO_MODELARK_ID = {
 } as const;
 
 export type SeedreamSlug = keyof typeof SLUG_TO_MODELARK_ID;
+
+const SEEDREAM_REQUEST_TIMEOUT_MS = {
+  "dola-seedream-5-0-lite": 120_000,
+  "dola-seedream-5-0-pro": 240_000,
+} as const satisfies Record<SeedreamSlug, number>;
 
 export function modelarkSeedreamModelIdForSlug(slug: SeedreamSlug): string {
   return SLUG_TO_MODELARK_ID[slug];
@@ -126,15 +130,15 @@ export async function generateSeedreamImage(args: {
         ? imageUrls
         : undefined;
   const providerModel = modelarkSeedreamModelIdForSlug(args.slug);
+  const timeoutSignal = AbortSignal.timeout(
+    SEEDREAM_REQUEST_TIMEOUT_MS[args.slug],
+  );
   const response = await fetch(SEEDREAM_GENERATIONS_ENDPOINT, {
     method: "POST",
     headers: authHeaders(),
     signal: args.signal
-      ? AbortSignal.any([
-          args.signal,
-          AbortSignal.timeout(SEEDREAM_REQUEST_TIMEOUT_MS),
-        ])
-      : AbortSignal.timeout(SEEDREAM_REQUEST_TIMEOUT_MS),
+      ? AbortSignal.any([args.signal, timeoutSignal])
+      : timeoutSignal,
     body: JSON.stringify({
       model: providerModel,
       prompt: args.prompt,
