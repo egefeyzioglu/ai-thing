@@ -1620,6 +1620,7 @@ export default function TelemetryPage() {
               />
               {selectedTrace ? (
                 <TraceInspector
+                  key={selectedTrace.id}
                   onClose={() => setSelectedTrace(null)}
                   trace={selectedTrace}
                 />
