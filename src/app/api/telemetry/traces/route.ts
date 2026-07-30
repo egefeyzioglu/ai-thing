@@ -12,6 +12,7 @@ import {
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { currentUserCanViewTelemetry } from "src/server/telemetry/auth";
 import { getTelemetryDb } from "src/server/telemetry/db";
 import { telemetrySpans } from "src/server/telemetry/schema";
 
@@ -25,6 +26,9 @@ export async function GET(request: Request) {
   const { isAuthenticated } = await auth();
   if (!isAuthenticated) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!(await currentUserCanViewTelemetry())) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const parsed = searchParamsSchema.safeParse(
