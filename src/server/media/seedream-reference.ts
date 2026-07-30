@@ -35,18 +35,15 @@ export type PreparedSeedreamReference = {
 };
 
 function orientedDimensions(metadata: Metadata): ReferenceImageDimensions {
-  if (!metadata.width || !metadata.height) {
+  const { width, height } = metadata.autoOrient;
+  if (!width || !height) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: "Reference image dimensions could not be determined",
     });
   }
 
-  const swapsAxes =
-    metadata.orientation !== undefined && metadata.orientation >= 5;
-  return swapsAxes
-    ? { width: metadata.height, height: metadata.width }
-    : { width: metadata.width, height: metadata.height };
+  return { width, height };
 }
 
 async function downloadReferenceImage(
@@ -307,36 +304,46 @@ export async function prepareSeedreamReferenceImage(args: {
       );
     }
 
-    const claim = await db.transaction(async (tx) => {
-      const [current] = await tx
-        .select()
-        .from(referenceImages)
-        .where(eq(referenceImages.id, args.image.id))
-        .for("update")
-        .limit(1);
-      if (!current) return { status: "missing" } as const;
+    const claim = await db
+      .transaction(async (tx) => {
+        const [current] = await tx
+          .select()
+          .from(referenceImages)
+          .where(eq(referenceImages.id, args.image.id))
+          .for("update")
+          .limit(1);
+        if (!current) return { status: "missing" } as const;
 
-      if (hasCachedDerivative(current)) {
-        return { status: "contended", image: current } as const;
-      }
+        if (hasCachedDerivative(current)) {
+          return { status: "contended", image: current } as const;
+        }
 
-      await tx
-        .update(referenceImages)
-        .set({
-          width: original.width,
-          height: original.height,
-          seedreamUrl: uploaded.data.ufsUrl,
-          seedreamKey: uploaded.data.key,
-          seedreamWidth: outputInfo.width,
-          seedreamHeight: outputInfo.height,
-          seedreamResizePolicy: SEEDREAM_RESIZE_POLICY,
-        })
-        .where(eq(referenceImages.id, args.image.id));
-      return {
-        status: "claimed",
-        previousKey: current.seedreamKey,
-      } as const;
-    });
+        await tx
+          .update(referenceImages)
+          .set({
+            width: original.width,
+            height: original.height,
+            seedreamUrl: uploaded.data.ufsUrl,
+            seedreamKey: uploaded.data.key,
+            seedreamWidth: outputInfo.width,
+            seedreamHeight: outputInfo.height,
+            seedreamResizePolicy: SEEDREAM_RESIZE_POLICY,
+          })
+          .where(eq(referenceImages.id, args.image.id));
+        return {
+          status: "claimed",
+          previousKey: current.seedreamKey,
+        } as const;
+      })
+      .catch(async (error) => {
+        await utapi.deleteFiles(uploaded.data.key).catch((cleanupError) => {
+          console.error(
+            "[seedream] failed to delete unclaimed reference derivative",
+            cleanupError,
+          );
+        });
+        throw error;
+      });
 
     if (claim.status !== "claimed") {
       await utapi.deleteFiles(uploaded.data.key);
