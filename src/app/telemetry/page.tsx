@@ -1191,10 +1191,15 @@ function TraceInspector({
           spans={liveSpans}
         />
       )}
-      {tab === "attributes" && <Attributes spans={liveSpans} trace={trace} />}
+      {tab === "attributes" && (
+        <Attributes key={trace.id} spans={liveSpans} trace={trace} />
+      )}
       {tab === "events" && (
         <div className="overflow-auto p-3">
           <div className="rounded-lg border border-white/[0.07] bg-black/20 p-3 font-mono text-[10px] leading-6 text-zinc-500">
+            {spansLoading && (
+              <div className="text-zinc-600">Loading span events…</div>
+            )}
             {spansError && <div className="text-amber-300">{spansError}</div>}
             {spansTruncated && (
               <div className="text-amber-300">
