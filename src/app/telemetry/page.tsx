@@ -922,6 +922,9 @@ function Waterfall({
 }
 
 function Attributes({ spans, trace }: { spans: LiveSpan[]; trace: Trace }) {
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
   const attributes = [
     ["trace.trace_id", trace.id],
     ["operation", trace.route],
@@ -940,9 +943,23 @@ function Attributes({ spans, trace }: { spans: LiveSpan[]; trace: Trace }) {
         </span>
         <button
           type="button"
+          onClick={() => {
+            void navigator.clipboard
+              .writeText(
+                JSON.stringify(Object.fromEntries(attributes), null, 2),
+              )
+              .then(
+                () => setCopyStatus("copied"),
+                () => setCopyStatus("failed"),
+              );
+          }}
           className="text-[10px] text-violet-400 hover:text-violet-300"
         >
-          Copy as JSON
+          {copyStatus === "copied"
+            ? "Copied"
+            : copyStatus === "failed"
+              ? "Copy failed"
+              : "Copy as JSON"}
         </button>
       </div>
       <div className="overflow-hidden rounded-lg border border-white/[0.07]">
@@ -964,7 +981,13 @@ function Attributes({ spans, trace }: { spans: LiveSpan[]; trace: Trace }) {
   );
 }
 
-function TraceInspector({ trace }: { trace: Trace }) {
+function TraceInspector({
+  onClose,
+  trace,
+}: {
+  onClose: () => void;
+  trace: Trace;
+}) {
   const [tab, setTab] = useState<"waterfall" | "attributes" | "events">(
     "waterfall",
   );
@@ -1050,6 +1073,7 @@ function TraceInspector({ trace }: { trace: Trace }) {
             size="icon-sm"
             className="text-zinc-600 hover:bg-white/5"
             aria-label="Close trace inspector"
+            onClick={onClose}
             title="Close trace inspector"
           >
             <PanelRightClose />
@@ -1591,7 +1615,10 @@ export default function TelemetryPage() {
                 truncated={tracesTruncated}
               />
               {selectedTrace ? (
-                <TraceInspector trace={selectedTrace} />
+                <TraceInspector
+                  onClose={() => setSelectedTrace(null)}
+                  trace={selectedTrace}
+                />
               ) : (
                 <aside className="bg-background flex w-[clamp(420px,35vw,520px)] shrink-0 items-center justify-center border-l border-white/[0.08] p-8 text-center">
                   <div>

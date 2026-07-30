@@ -1,6 +1,6 @@
 import "server-only";
 
-import { lt } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 
 import { getTelemetryDb } from "./db";
 import { telemetrySpans } from "./schema";
@@ -14,10 +14,14 @@ export async function deleteExpiredTelemetry(): Promise<number | null> {
   const cutoff = new Date(
     Date.now() - TELEMETRY_RETENTION_DAYS * 24 * 60 * 60_000,
   );
-  const deleted = await telemetryDb
-    .delete(telemetrySpans)
-    .where(lt(telemetrySpans.startedAt, cutoff))
-    .returning({ eventId: telemetrySpans.eventId });
+  const deleted = await telemetryDb.execute<{ count: number }>(sql`
+    WITH deleted AS (
+      DELETE FROM ${telemetrySpans}
+      WHERE ${telemetrySpans.startedAt} < ${cutoff}
+      RETURNING 1
+    )
+    SELECT count(*)::int AS count FROM deleted
+  `);
 
-  return deleted.length;
+  return deleted[0]?.count ?? 0;
 }
