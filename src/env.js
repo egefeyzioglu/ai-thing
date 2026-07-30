@@ -43,7 +43,7 @@ export const env = createEnv({
         );
       }, "Honeycomb API host must use HTTPS (HTTP is allowed only for localhost outside production)")
       .default("https://api.honeycomb.io"),
-    TELEMETRY_DATABASE_URL: z.string().url().optional(),
+    TELEMETRY_DATABASE_URL: z.string().url(),
     TELEMETRY_DIRECT_URL: z.string().url().optional(),
     CRON_SECRET: z
       .string()
