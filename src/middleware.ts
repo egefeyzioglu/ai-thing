@@ -7,6 +7,7 @@ const isPublicRoute = createRouteMatcher([
   "/api/uploadthing",
   "/api/health/(.*)",
   "/api/internal/monitor/generations",
+  "/api/internal/telemetry/retention",
   "/api/observability/spans",
 ]);
 
