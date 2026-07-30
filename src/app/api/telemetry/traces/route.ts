@@ -19,6 +19,7 @@ const searchParamsSchema = z.object({
   preset: z.enum(["all", "errors", "slow"]).default("errors"),
   range: z.coerce.number().int().min(60).max(2_592_000).default(1_800),
 });
+const TRACE_LIMIT = 100;
 
 export async function GET(request: Request) {
   const { isAuthenticated } = await auth();
@@ -59,9 +60,11 @@ export async function GET(request: Request) {
       .from(telemetrySpans)
       .where(and(...filters))
       .orderBy(desc(telemetrySpans.startedAt))
-      .limit(100);
+      .limit(TRACE_LIMIT + 1);
+    const truncated = roots.length > TRACE_LIMIT;
+    const visibleRoots = roots.slice(0, TRACE_LIMIT);
 
-    const traceIds = roots.flatMap((span) =>
+    const traceIds = visibleRoots.flatMap((span) =>
       span.traceId ? [span.traceId] : [],
     );
     const spanCounts =
@@ -80,7 +83,8 @@ export async function GET(request: Request) {
     );
 
     return NextResponse.json({
-      traces: roots.map((span) => ({
+      truncated,
+      traces: visibleRoots.map((span) => ({
         id: span.traceId,
         shortId: span.traceId?.slice(0, 8) ?? "",
         operation: span.operation,

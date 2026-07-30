@@ -63,6 +63,7 @@ type TracePreset = "all" | "errors" | "slow";
 
 type TraceListResponse = {
   error?: string;
+  truncated?: boolean;
   traces?: Array<{
     durationMs: number;
     errorMessage: string | null;
@@ -98,6 +99,7 @@ type LiveSpan = {
 type TraceDetailResponse = {
   error?: string;
   spans?: LiveSpan[];
+  truncated?: boolean;
 };
 
 function formatDuration(durationMs: number): string {
@@ -115,6 +117,25 @@ function formatRelativeTime(timestamp: string | null): string {
   if (elapsedMs < 86_400_000)
     return `${Math.floor(elapsedMs / 3_600_000)}h ago`;
   return `${Math.floor(elapsedMs / 86_400_000)}d ago`;
+}
+
+async function parseApiResponse<T extends { error?: string }>(
+  response: Response,
+  fallbackMessage: string,
+): Promise<T> {
+  const body = (await response.json().catch(() => ({}))) as T;
+  if (!response.ok) {
+    throw new Error(body.error ?? `${fallbackMessage} (${response.status})`);
+  }
+  return body;
+}
+
+function formatRangeLabel(range: number, ratio: number): string {
+  if (ratio === 0) return "now";
+  const seconds = Math.round(range * ratio);
+  if (seconds < 3_600) return `${Math.round(seconds / 60)}m ago`;
+  if (seconds < 86_400) return `${Math.round(seconds / 3_600)}h ago`;
+  return `${Math.round(seconds / 86_400)}d ago`;
 }
 
 const traces: Trace[] = [
@@ -383,6 +404,8 @@ function NavRail({
       <div className="mt-auto flex flex-col gap-1">
         <button
           type="button"
+          aria-label="Telemetry settings"
+          title="Telemetry settings"
           className="flex size-10 items-center justify-center rounded-lg text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
         >
           <Settings2 className="size-[18px]" />
@@ -421,21 +444,25 @@ function TraceList({
   isLoading,
   onPresetChange,
   onRangeChange,
+  onRefresh,
   preset,
   range,
   selectedTrace,
   setSelectedTrace,
   traces,
+  truncated,
 }: {
   error: string | null;
   isLoading: boolean;
   onPresetChange: (preset: TracePreset) => void;
   onRangeChange: (range: number) => void;
+  onRefresh: () => void;
   preset: TracePreset;
   range: number;
   selectedTrace: Trace | null;
   setSelectedTrace: (trace: Trace) => void;
   traces: Trace[];
+  truncated: boolean;
 }) {
   const [query, setQuery] = useState("");
   const filtered = useMemo(
@@ -452,7 +479,14 @@ function TraceList({
       }),
     [preset, query, traces],
   );
-  const errorCount = traces.filter((trace) => trace.status >= 400).length;
+  const normalizedQuery = query.toLowerCase();
+  const errorCount = traces.filter(
+    (trace) =>
+      trace.status >= 400 &&
+      `${trace.route} ${trace.error} ${trace.id}`
+        .toLowerCase()
+        .includes(normalizedQuery),
+  ).length;
 
   return (
     <main className="bg-background flex min-w-[420px] flex-1 flex-col">
@@ -466,7 +500,12 @@ function TraceList({
             placeholder="Search traces by route, error, user or trace ID..."
           />
           {query && (
-            <button type="button" onClick={() => setQuery("")}>
+            <button
+              type="button"
+              aria-label="Clear trace search"
+              title="Clear trace search"
+              onClick={() => setQuery("")}
+            >
               <X className="size-3.5 text-zinc-600 hover:text-zinc-300" />
             </button>
           )}
@@ -495,7 +534,10 @@ function TraceList({
           variant="outline"
           size="icon"
           className="border-white/[0.09] bg-white/[0.03] text-zinc-500"
-          title="Refresh mock traces"
+          aria-label="Refresh traces"
+          disabled={isLoading}
+          onClick={onRefresh}
+          title="Refresh traces"
         >
           <RefreshCw />
         </Button>
@@ -554,10 +596,9 @@ function TraceList({
           </div>
         </div>
         <div className="mt-1 flex justify-between pb-2 font-mono text-[8px] text-zinc-700">
-          <span>30m ago</span>
-          <span>20m</span>
-          <span>10m</span>
-          <span>now</span>
+          {[1, 2 / 3, 1 / 3, 0].map((ratio) => (
+            <span key={ratio}>{formatRangeLabel(range, ratio)}</span>
+          ))}
         </div>
       </div>
 
@@ -660,7 +701,11 @@ function TraceList({
       </div>
       <footer className="flex h-9 items-center justify-between border-t border-white/[0.07] px-4 text-[10px] text-zinc-600">
         <span>
-          {isLoading ? "Loading traces…" : `Showing ${filtered.length} traces`}
+          {isLoading
+            ? "Loading traces…"
+            : truncated
+              ? `Showing newest ${filtered.length} traces (more available)`
+              : `Showing ${filtered.length} traces`}
         </span>
         <span className="font-mono">Newest first</span>
       </footer>
@@ -748,7 +793,21 @@ function Waterfall({
       };
     });
   }, [spans]);
-  const traceDurationMs = Math.max(...spans.map((span) => span.durationMs), 0);
+  const validSpanStarts = spans
+    .map((span) => (span.startedAt ? new Date(span.startedAt).getTime() : 0))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const traceStart =
+    validSpanStarts.length > 0 ? Math.min(...validSpanStarts) : 0;
+  const traceEnd = Math.max(
+    ...spans.map((span) => {
+      const start = span.startedAt
+        ? new Date(span.startedAt).getTime()
+        : traceStart;
+      return (Number.isFinite(start) ? start : traceStart) + span.durationMs;
+    }),
+    traceStart,
+  );
+  const traceDurationMs = Math.max(traceEnd - traceStart, 0);
   const exception = spans.find((span) => span.outcome === "unexpected_error");
 
   return (
@@ -879,7 +938,10 @@ function Attributes({ spans, trace }: { spans: LiveSpan[]; trace: Trace }) {
         <span className="text-[9px] font-semibold tracking-wider text-zinc-600 uppercase">
           Resource & span attributes
         </span>
-        <button className="text-[10px] text-violet-400 hover:text-violet-300">
+        <button
+          type="button"
+          className="text-[10px] text-violet-400 hover:text-violet-300"
+        >
           Copy as JSON
         </button>
       </div>
@@ -910,6 +972,7 @@ function TraceInspector({ trace }: { trace: Trace }) {
   const [liveSpans, setLiveSpans] = useState<LiveSpan[]>([]);
   const [spansError, setSpansError] = useState<string | null>(null);
   const [spansLoading, setSpansLoading] = useState(true);
+  const [spansTruncated, setSpansTruncated] = useState(false);
   const hasError = trace.status >= 400;
 
   useEffect(() => {
@@ -917,19 +980,22 @@ function TraceInspector({ trace }: { trace: Trace }) {
     setSpansLoading(true);
     setSpansError(null);
     setLiveSpans([]);
+    setSpansTruncated(false);
 
     void fetch(`/api/telemetry/traces/${encodeURIComponent(trace.id)}`, {
       cache: "no-store",
       signal: controller.signal,
     })
-      .then(async (response) => {
-        const body = (await response.json()) as TraceDetailResponse;
-        if (!response.ok) {
-          throw new Error(body.error ?? "Unable to load trace spans");
-        }
-        return body;
+      .then((response) =>
+        parseApiResponse<TraceDetailResponse>(
+          response,
+          "Unable to load trace spans",
+        ),
+      )
+      .then((body) => {
+        setLiveSpans(body.spans ?? []);
+        setSpansTruncated(body.truncated === true);
       })
-      .then((body) => setLiveSpans(body.spans ?? []))
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         setSpansError(
@@ -983,6 +1049,8 @@ function TraceInspector({ trace }: { trace: Trace }) {
             variant="ghost"
             size="icon-sm"
             className="text-zinc-600 hover:bg-white/5"
+            aria-label="Close trace inspector"
+            title="Close trace inspector"
           >
             <PanelRightClose />
           </Button>
@@ -990,6 +1058,8 @@ function TraceInspector({ trace }: { trace: Trace }) {
             variant="ghost"
             size="icon-sm"
             className="text-zinc-600 hover:bg-white/5"
+            aria-label="More trace actions"
+            title="More trace actions"
           >
             <MoreHorizontal />
           </Button>
@@ -1018,10 +1088,16 @@ function TraceInspector({ trace }: { trace: Trace }) {
           <button
             type="button"
             onClick={() => {
-              void navigator.clipboard.writeText(trace.id);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1200);
+              void navigator.clipboard.writeText(trace.id).then(
+                () => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1200);
+                },
+                () => undefined,
+              );
             }}
+            aria-label="Copy trace ID"
+            title="Copy trace ID"
             className="text-zinc-600 hover:text-zinc-300"
           >
             {copied ? (
@@ -1082,7 +1158,12 @@ function TraceInspector({ trace }: { trace: Trace }) {
 
       {tab === "waterfall" && (
         <Waterfall
-          error={spansError}
+          error={
+            spansError ??
+            (spansTruncated
+              ? "This trace has more than 500 spans; showing the first 500."
+              : null)
+          }
           isLoading={spansLoading}
           spans={liveSpans}
         />
@@ -1091,28 +1172,35 @@ function TraceInspector({ trace }: { trace: Trace }) {
       {tab === "events" && (
         <div className="overflow-auto p-3">
           <div className="rounded-lg border border-white/[0.07] bg-black/20 p-3 font-mono text-[10px] leading-6 text-zinc-500">
-            {liveSpans.map((span) => (
-              <div key={span.id}>
-                <span className="text-zinc-700">
-                  {span.startedAt
-                    ? new Date(span.startedAt).toLocaleTimeString()
-                    : "--:--:--"}
-                </span>{" "}
-                <span
-                  className={
-                    span.outcome === "unexpected_error"
-                      ? "text-rose-400"
-                      : "text-cyan-400"
-                  }
-                >
-                  {span.name}
-                </span>
-                {span.errorName && (
-                  <span className="text-zinc-300"> · {span.errorName}</span>
-                )}
+            {spansError && <div className="text-amber-300">{spansError}</div>}
+            {spansTruncated && (
+              <div className="text-amber-300">
+                Showing the first 500 span events.
               </div>
-            ))}
-            {!spansLoading && liveSpans.length === 0 && (
+            )}
+            {!spansError &&
+              liveSpans.map((span) => (
+                <div key={span.id}>
+                  <span className="text-zinc-700">
+                    {span.startedAt
+                      ? new Date(span.startedAt).toLocaleTimeString()
+                      : "--:--:--"}
+                  </span>{" "}
+                  <span
+                    className={
+                      span.outcome === "unexpected_error"
+                        ? "text-rose-400"
+                        : "text-cyan-400"
+                    }
+                  >
+                    {span.name}
+                  </span>
+                  {span.errorName && (
+                    <span className="text-zinc-300"> · {span.errorName}</span>
+                  )}
+                </div>
+              ))}
+            {!spansLoading && !spansError && liveSpans.length === 0 && (
               <span className="text-zinc-600">No span events found.</span>
             )}
           </div>
@@ -1204,6 +1292,8 @@ function ViewHeader({
           variant="outline"
           size="icon"
           className="border-white/[0.09] bg-white/[0.03] text-zinc-500"
+          aria-label="Refresh view"
+          title="Refresh view"
         >
           <RefreshCw />
         </Button>
@@ -1378,6 +1468,8 @@ export default function TelemetryPage() {
   const [selectedTrace, setSelectedTrace] = useState<Trace | null>(null);
   const [tracesError, setTracesError] = useState<string | null>(null);
   const [tracesLoading, setTracesLoading] = useState(true);
+  const [tracesTruncated, setTracesTruncated] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1388,13 +1480,12 @@ export default function TelemetryPage() {
       cache: "no-store",
       signal: controller.signal,
     })
-      .then(async (response) => {
-        const body = (await response.json()) as TraceListResponse;
-        if (!response.ok) {
-          throw new Error(body.error ?? "Unable to load telemetry");
-        }
-        return body;
-      })
+      .then((response) =>
+        parseApiResponse<TraceListResponse>(
+          response,
+          "Unable to load telemetry",
+        ),
+      )
       .then((body) => {
         const nextTraces = (body.traces ?? []).map<Trace>((trace) => ({
           id: trace.id,
@@ -1414,6 +1505,7 @@ export default function TelemetryPage() {
           version: trace.release ?? "—",
         }));
         setLiveTraces(nextTraces);
+        setTracesTruncated(body.truncated === true);
         setSelectedTrace((current) => {
           if (current) {
             const refreshed = nextTraces.find(
@@ -1427,6 +1519,7 @@ export default function TelemetryPage() {
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         setLiveTraces([]);
+        setTracesTruncated(false);
         setSelectedTrace(null);
         setTracesError(
           error instanceof Error ? error.message : "Unable to load telemetry",
@@ -1437,7 +1530,7 @@ export default function TelemetryPage() {
       });
 
     return () => controller.abort();
-  }, [preset, range]);
+  }, [preset, range, refreshKey]);
 
   return (
     <div className="bg-background flex h-screen min-h-[680px] w-full overflow-hidden text-zinc-200 [&_button:not(:disabled)]:cursor-pointer">
@@ -1489,11 +1582,13 @@ export default function TelemetryPage() {
                 isLoading={tracesLoading}
                 onPresetChange={setPreset}
                 onRangeChange={setRange}
+                onRefresh={() => setRefreshKey((value) => value + 1)}
                 preset={preset}
                 range={range}
                 selectedTrace={selectedTrace}
                 setSelectedTrace={setSelectedTrace}
                 traces={liveTraces}
+                truncated={tracesTruncated}
               />
               {selectedTrace ? (
                 <TraceInspector trace={selectedTrace} />

@@ -1,7 +1,6 @@
 import "server-only";
 
 import { TRPCError } from "@trpc/server";
-import { lt } from "drizzle-orm";
 import { after } from "next/server";
 
 import { env } from "src/env";
@@ -90,11 +89,8 @@ const URL_USERINFO_PATTERN = /\b([a-z][a-z0-9+.-]*:\/\/)[^/\s:@]+:[^@\s/]+@/gi;
 const HONEYCOMB_BATCH_SIZE = 50;
 const HONEYCOMB_MAX_QUEUED_EVENTS = 1_000;
 const HONEYCOMB_REQUEST_TIMEOUT_MS = 5_000;
-const TELEMETRY_RETENTION_DAYS = 30;
-const TELEMETRY_RETENTION_SWEEP_INTERVAL_MS = 24 * 60 * 60_000;
 const pendingEvents: WideEvent[] = [];
 let flushScheduled = false;
-let lastRetentionSweepAt = 0;
 
 function redactMessage(value: string): string {
   let redacted = value
@@ -256,17 +252,6 @@ async function persistBatchToTelemetry(events: WideEvent[]): Promise<void> {
         })),
       )
       .onConflictDoNothing();
-
-    const now = Date.now();
-    if (now - lastRetentionSweepAt >= TELEMETRY_RETENTION_SWEEP_INTERVAL_MS) {
-      lastRetentionSweepAt = now;
-      const cutoff = new Date(
-        now - TELEMETRY_RETENTION_DAYS * 24 * 60 * 60_000,
-      );
-      await telemetryDb
-        .delete(telemetrySpans)
-        .where(lt(telemetrySpans.startedAt, cutoff));
-    }
   } catch (error) {
     console.error("[observability] Failed to persist telemetry batch", {
       eventIds: events.map((event) => event.eventId),
