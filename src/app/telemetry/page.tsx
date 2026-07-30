@@ -63,7 +63,6 @@ type TracePreset = "all" | "errors" | "slow";
 
 type TraceListResponse = {
   error?: string;
-  queryUrl?: string | null;
   traces?: Array<{
     durationMs: number;
     errorMessage: string | null;
@@ -75,6 +74,7 @@ type TraceListResponse = {
     service: string;
     shortId: string;
     source: string;
+    spanCount: number;
     startedAt: string | null;
     userId: string | null;
   }>;
@@ -97,7 +97,6 @@ type LiveSpan = {
 
 type TraceDetailResponse = {
   error?: string;
-  queryUrl?: string | null;
   spans?: LiveSpan[];
 };
 
@@ -488,6 +487,8 @@ function TraceList({
             <SelectItem value="1800">Last 30 minutes</SelectItem>
             <SelectItem value="3600">Last hour</SelectItem>
             <SelectItem value="86400">Last 24 hours</SelectItem>
+            <SelectItem value="604800">Last 7 days</SelectItem>
+            <SelectItem value="2592000">Last 30 days</SelectItem>
           </SelectContent>
         </Select>
         <Button
@@ -1404,7 +1405,7 @@ export default function TelemetryPage() {
           service: trace.service,
           duration: formatDuration(trace.durationMs),
           durationMs: trace.durationMs,
-          spans: 0,
+          spans: trace.spanCount,
           when: formatRelativeTime(trace.startedAt),
           error: [trace.errorName, trace.errorMessage]
             .filter(Boolean)
