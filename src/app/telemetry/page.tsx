@@ -123,10 +123,11 @@ async function parseApiResponse<T extends { error?: string }>(
   response: Response,
   fallbackMessage: string,
 ): Promise<T> {
-  const body = (await response.json().catch(() => ({}))) as T;
+  const body = (await response.json().catch(() => null)) as T | null;
   if (!response.ok) {
-    throw new Error(body.error ?? `${fallbackMessage} (${response.status})`);
+    throw new Error(body?.error ?? `${fallbackMessage} (${response.status})`);
   }
+  if (!body) throw new Error(`${fallbackMessage}: malformed response`);
   return body;
 }
 
@@ -136,6 +137,12 @@ function formatRangeLabel(range: number, ratio: number): string {
   if (seconds < 3_600) return `${Math.round(seconds / 60)}m ago`;
   if (seconds < 86_400) return `${Math.round(seconds / 3_600)}h ago`;
   return `${Math.round(seconds / 86_400)}d ago`;
+}
+
+function traceMatchesQuery(trace: Trace, query: string): boolean {
+  return `${trace.route} ${trace.error} ${trace.user} ${trace.id}`
+    .toLowerCase()
+    .includes(query.toLowerCase());
 }
 
 const traces: Trace[] = [
@@ -468,24 +475,16 @@ function TraceList({
   const filtered = useMemo(
     () =>
       traces.filter((trace) => {
-        const matchesQuery = `${trace.route} ${trace.error} ${trace.id}`
-          .toLowerCase()
-          .includes(query.toLowerCase());
         const matchesPreset =
           preset === "all" ||
           (preset === "errors" && trace.status >= 400) ||
           (preset === "slow" && trace.durationMs >= 1000);
-        return matchesQuery && matchesPreset;
+        return traceMatchesQuery(trace, query) && matchesPreset;
       }),
     [preset, query, traces],
   );
-  const normalizedQuery = query.toLowerCase();
   const errorCount = traces.filter(
-    (trace) =>
-      trace.status >= 400 &&
-      `${trace.route} ${trace.error} ${trace.id}`
-        .toLowerCase()
-        .includes(normalizedQuery),
+    (trace) => trace.status >= 400 && traceMatchesQuery(trace, query),
   ).length;
 
   return (
