@@ -167,6 +167,13 @@ export const referenceImages = createTable(
     userId: d.text("user_id"),
     url: d.text("url"),
     mimeType: d.text("mime_type").notNull().default("image/png"),
+    width: d.integer("width"),
+    height: d.integer("height"),
+    seedreamUrl: d.text("seedream_url"),
+    seedreamKey: d.text("seedream_key"),
+    seedreamWidth: d.integer("seedream_width"),
+    seedreamHeight: d.integer("seedream_height"),
+    seedreamResizePolicy: d.text("seedream_resize_policy"),
     uploadedAt: d
       .timestamp("uploaded_at", { withTimezone: true })
       .notNull()

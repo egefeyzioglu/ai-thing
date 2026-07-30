@@ -29,6 +29,13 @@
       "when": 1784953588874,
       "tag": "0003_exotic_vargas",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785374314285,
+      "tag": "0004_curly_maelstrom",
+      "breakpoints": true
     }
   ]
 }

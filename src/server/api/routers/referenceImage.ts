@@ -10,6 +10,7 @@ import {
   utapi,
 } from "src/server/uploadthing";
 import { media, referenceImages } from "src/server/db/schema";
+import { inspectReferenceImage } from "src/server/media/seedream-reference";
 
 async function signReferenceImageRow<T extends { url: string | null }>(
   row: T,
@@ -67,6 +68,22 @@ export const referenceImageRouter = createTRPCRouter({
           message: "Could not sign upload URL",
         });
       });
+      const dimensions = await inspectReferenceImage(signedUrl).catch(
+        async (error) => {
+          if (error instanceof TRPCError && error.code === "BAD_REQUEST") {
+            const key = extractFileKey(input.url);
+            if (key) {
+              await utapi.deleteFiles(key).catch((deleteError) => {
+                console.error(
+                  "[createReferenceImage] failed to delete invalid upload",
+                  deleteError,
+                );
+              });
+            }
+          }
+          throw error;
+        },
+      );
 
       const [referenceImageRow] = await db
         .insert(referenceImages)
@@ -75,6 +92,8 @@ export const referenceImageRouter = createTRPCRouter({
           userId: ctx.user,
           url: input.url,
           mimeType: input.mimeType,
+          width: dimensions.width,
+          height: dimensions.height,
         })
         .returning();
 
@@ -117,6 +136,13 @@ export const referenceImageRouter = createTRPCRouter({
           } catch {
             // If the file is already gone we still want to remove the row.
           }
+        }
+      }
+      if (row.seedreamKey) {
+        try {
+          await utapi.deleteFiles(row.seedreamKey);
+        } catch {
+          // If the derivative is already gone we still want to remove the row.
         }
       }
 
@@ -198,6 +224,10 @@ export const referenceImageRouter = createTRPCRouter({
           message: `Media ${input.mediaId} is not an image and cannot be used as a reference image`,
         });
       }
+      const signedGeneratedUrl = await signUploadThingUrl(
+        generatedImageRow.url,
+      );
+      const dimensions = await inspectReferenceImage(signedGeneratedUrl);
       const newId = crypto.randomUUID();
       const [referenceImageRow] = await db
         .insert(referenceImages)
@@ -207,6 +237,8 @@ export const referenceImageRouter = createTRPCRouter({
           url: generatedImageRow.url,
           mimeType: generatedImageRow.mimeType,
           userId: ctx.user,
+          width: dimensions.width,
+          height: dimensions.height,
         })
         .onConflictDoUpdate({
           target: referenceImages.reusedFromMediaId,
