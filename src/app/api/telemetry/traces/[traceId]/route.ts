@@ -8,6 +8,7 @@ import { telemetrySpans } from "src/server/telemetry/schema";
 
 const traceIdSchema = z.string().regex(/^[0-9a-f]{32}$/);
 const RETENTION_MS = 30 * 24 * 60 * 60_000;
+const SPAN_LIMIT = 500;
 
 export async function GET(
   _request: Request,
@@ -42,10 +43,12 @@ export async function GET(
         ),
       )
       .orderBy(asc(telemetrySpans.startedAt))
-      .limit(500);
+      .limit(SPAN_LIMIT + 1);
+    const truncated = results.length > SPAN_LIMIT;
 
     return NextResponse.json({
-      spans: results.map((span) => ({
+      truncated,
+      spans: results.slice(0, SPAN_LIMIT).map((span) => ({
         id: span.spanId ?? span.eventId,
         parentId: span.parentSpanId,
         name: span.operation,

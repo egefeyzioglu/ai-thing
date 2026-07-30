@@ -1,8 +1,7 @@
 import { type Config } from "drizzle-kit";
 
-import { env } from "src/env";
-
-const url = env.TELEMETRY_DIRECT_URL ?? env.TELEMETRY_DATABASE_URL;
+const url =
+  process.env.TELEMETRY_DIRECT_URL ?? process.env.TELEMETRY_DATABASE_URL;
 if (!url) {
   throw new Error("TELEMETRY_DIRECT_URL or TELEMETRY_DATABASE_URL is required");
 }
