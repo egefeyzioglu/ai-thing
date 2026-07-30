@@ -85,6 +85,7 @@ export const MEDIA_STATUSES = [
   "failed",
 ] as const;
 export type MediaStatus = (typeof MEDIA_STATUSES)[number];
+export type SeedreamResizePolicy = "35mp-v1";
 
 export const GENERATION_USAGE_STATUSES = [
   "reserved",
@@ -173,7 +174,9 @@ export const referenceImages = createTable(
     seedreamKey: d.text("seedream_key"),
     seedreamWidth: d.integer("seedream_width"),
     seedreamHeight: d.integer("seedream_height"),
-    seedreamResizePolicy: d.text("seedream_resize_policy"),
+    seedreamResizePolicy: d
+      .text("seedream_resize_policy")
+      .$type<SeedreamResizePolicy>(),
     uploadedAt: d
       .timestamp("uploaded_at", { withTimezone: true })
       .notNull()

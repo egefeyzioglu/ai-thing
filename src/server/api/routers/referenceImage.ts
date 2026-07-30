@@ -36,18 +36,6 @@ export const referenceImageRouter = createTRPCRouter({
         typeof input.mimeType !== "string" ||
         !input.mimeType.startsWith("image/")
       ) {
-        const key = extractFileKey(input.url);
-        if (key) {
-          try {
-            await utapi.deleteFiles(key);
-          } catch (reason) {
-            console.error(
-              `Deleting image with key ${key} failed. Was deleting because no MIME type was provided/the provided MIME type is invalid`,
-              reason,
-            );
-          }
-        }
-
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Reference image MIME type must start with image/",
@@ -68,22 +56,7 @@ export const referenceImageRouter = createTRPCRouter({
           message: "Could not sign upload URL",
         });
       });
-      const dimensions = await inspectReferenceImage(signedUrl).catch(
-        async (error) => {
-          if (error instanceof TRPCError && error.code === "BAD_REQUEST") {
-            const key = extractFileKey(input.url);
-            if (key) {
-              await utapi.deleteFiles(key).catch((deleteError) => {
-                console.error(
-                  "[createReferenceImage] failed to delete invalid upload",
-                  deleteError,
-                );
-              });
-            }
-          }
-          throw error;
-        },
-      );
+      const dimensions = await inspectReferenceImage(signedUrl);
 
       const [referenceImageRow] = await db
         .insert(referenceImages)
@@ -110,15 +83,14 @@ export const referenceImageRouter = createTRPCRouter({
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       const [row] = await db
-        .select()
-        .from(referenceImages)
+        .delete(referenceImages)
         .where(
           and(
             eq(referenceImages.id, input.id),
             eq(referenceImages.userId, ctx.user),
           ),
         )
-        .limit(1);
+        .returning();
 
       if (!row) {
         throw new TRPCError({
@@ -127,7 +99,8 @@ export const referenceImageRouter = createTRPCRouter({
         });
       }
 
-      // Clean up the file from UploadThing before removing the DB row.
+      // Deleting first serializes against derivative preparation. The returned
+      // row contains the current keys and can no longer receive an update.
       if (row.url && !row.reusedFromMediaId) {
         const key = extractFileKey(row.url);
         if (key) {
@@ -145,15 +118,6 @@ export const referenceImageRouter = createTRPCRouter({
           // If the derivative is already gone we still want to remove the row.
         }
       }
-
-      await db
-        .delete(referenceImages)
-        .where(
-          and(
-            eq(referenceImages.id, input.id),
-            eq(referenceImages.userId, ctx.user),
-          ),
-        );
 
       return { success: true };
     }),
