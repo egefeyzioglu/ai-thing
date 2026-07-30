@@ -31,7 +31,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "src/components/ui/button";
 import {
@@ -58,6 +58,65 @@ type Trace = {
   user: string;
   version: string;
 };
+
+type TracePreset = "all" | "errors" | "slow";
+
+type TraceListResponse = {
+  error?: string;
+  queryUrl?: string | null;
+  traces?: Array<{
+    durationMs: number;
+    errorMessage: string | null;
+    errorName: string | null;
+    id: string;
+    operation: string;
+    outcome: string;
+    release: string | null;
+    service: string;
+    shortId: string;
+    source: string;
+    startedAt: string | null;
+    userId: string | null;
+  }>;
+};
+
+type LiveSpan = {
+  durationMs: number;
+  errorMessage: string | null;
+  errorName: string | null;
+  errorStack: string | null;
+  id: string;
+  name: string;
+  operation: string | null;
+  outcome: string;
+  parentId: string | null;
+  service: string;
+  source: string;
+  startedAt: string | null;
+};
+
+type TraceDetailResponse = {
+  error?: string;
+  queryUrl?: string | null;
+  spans?: LiveSpan[];
+};
+
+function formatDuration(durationMs: number): string {
+  if (durationMs >= 1_000) return `${(durationMs / 1_000).toFixed(2)}s`;
+  return `${Math.round(durationMs)}ms`;
+}
+
+function formatRelativeTime(timestamp: string | null): string {
+  if (!timestamp) return "unknown";
+  const elapsedMs = Date.now() - new Date(timestamp).getTime();
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return "just now";
+  if (elapsedMs < 60_000)
+    return `${Math.max(1, Math.floor(elapsedMs / 1_000))}s ago`;
+  if (elapsedMs < 3_600_000) return `${Math.floor(elapsedMs / 60_000)}m ago`;
+  if (elapsedMs < 86_400_000)
+    return `${Math.floor(elapsedMs / 3_600_000)}h ago`;
+  return `${Math.floor(elapsedMs / 86_400_000)}d ago`;
+}
 
 const traces: Trace[] = [
   {
@@ -167,7 +226,7 @@ const traces: Trace[] = [
   },
 ];
 
-const spans = [
+const mockSpans = [
   {
     name: "POST /api/generate",
     service: "api",
@@ -359,14 +418,27 @@ function MiniHistogram() {
 }
 
 function TraceList({
+  error,
+  isLoading,
+  onPresetChange,
+  onRangeChange,
+  preset,
+  range,
   selectedTrace,
   setSelectedTrace,
+  traces,
 }: {
-  selectedTrace: Trace;
+  error: string | null;
+  isLoading: boolean;
+  onPresetChange: (preset: TracePreset) => void;
+  onRangeChange: (range: number) => void;
+  preset: TracePreset;
+  range: number;
+  selectedTrace: Trace | null;
   setSelectedTrace: (trace: Trace) => void;
+  traces: Trace[];
 }) {
   const [query, setQuery] = useState("");
-  const [preset, setPreset] = useState<"all" | "errors" | "slow">("errors");
   const filtered = useMemo(
     () =>
       traces.filter((trace) => {
@@ -379,8 +451,9 @@ function TraceList({
           (preset === "slow" && trace.durationMs >= 1000);
         return matchesQuery && matchesPreset;
       }),
-    [preset, query],
+    [preset, query, traces],
   );
+  const errorCount = traces.filter((trace) => trace.status >= 400).length;
 
   return (
     <main className="bg-background flex min-w-[420px] flex-1 flex-col">
@@ -402,16 +475,19 @@ function TraceList({
             ⌘ K
           </kbd>
         </div>
-        <Select defaultValue="30m">
+        <Select
+          value={String(range)}
+          onValueChange={(value) => value && onRangeChange(Number(value))}
+        >
           <SelectTrigger className="h-8 border-white/[0.09] bg-white/[0.03] text-xs text-zinc-300">
             <Clock3 className="size-3.5 text-zinc-500" />
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="15m">Last 15 minutes</SelectItem>
-            <SelectItem value="30m">Last 30 minutes</SelectItem>
-            <SelectItem value="1h">Last hour</SelectItem>
-            <SelectItem value="24h">Last 24 hours</SelectItem>
+            <SelectItem value="900">Last 15 minutes</SelectItem>
+            <SelectItem value="1800">Last 30 minutes</SelectItem>
+            <SelectItem value="3600">Last hour</SelectItem>
+            <SelectItem value="86400">Last 24 hours</SelectItem>
           </SelectContent>
         </Select>
         <Button
@@ -430,7 +506,7 @@ function TraceList({
             <button
               key={value}
               type="button"
-              onClick={() => setPreset(value)}
+              onClick={() => onPresetChange(value)}
               className={cn(
                 "rounded-md px-3 py-1.5 text-[11px] font-medium text-zinc-500 capitalize transition hover:bg-white/[0.04] hover:text-zinc-300",
                 preset === value &&
@@ -440,7 +516,7 @@ function TraceList({
               {value}
               {value === "errors" && (
                 <span className="ml-1.5 font-mono text-[9px] text-rose-400">
-                  32
+                  {errorCount}
                 </span>
               )}
             </button>
@@ -465,7 +541,7 @@ function TraceList({
           <MiniHistogram />
           <div className="pb-1 text-right">
             <div className="font-mono text-lg font-medium text-zinc-200">
-              {preset === "errors" ? 32 : preset === "slow" ? 11 : 84}
+              {filtered.length}
             </div>
             <div className="text-[9px] text-zinc-600">
               {preset === "errors"
@@ -492,7 +568,27 @@ function TraceList({
         <span className="flex-1 text-right">Seen</span>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="relative flex-1 overflow-y-auto">
+        {error && (
+          <div className="m-4 rounded-md border border-amber-500/30 bg-amber-500/10 p-4">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-400" />
+              <div>
+                <p className="text-xs font-medium text-amber-200">
+                  Live telemetry is unavailable
+                </p>
+                <p className="mt-1 text-[11px] leading-5 text-amber-100/60">
+                  {error}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        {isLoading && (
+          <div className="absolute inset-x-0 top-0 h-0.5 overflow-hidden bg-white/5">
+            <div className="h-full w-1/3 animate-pulse bg-violet-400" />
+          </div>
+        )}
         {filtered.map((trace) => (
           <button
             type="button"
@@ -500,7 +596,7 @@ function TraceList({
             onClick={() => setSelectedTrace(trace)}
             className={cn(
               "group flex w-full items-center border-b border-white/[0.055] px-4 py-3 text-left transition",
-              selectedTrace.id === trace.id
+              selectedTrace?.id === trace.id
                 ? "bg-violet-500/[0.08] shadow-[inset_2px_0_0_#8b5cf6]"
                 : "hover:bg-white/[0.025]",
             )}
@@ -562,15 +658,98 @@ function TraceList({
         )}
       </div>
       <footer className="flex h-9 items-center justify-between border-t border-white/[0.07] px-4 text-[10px] text-zinc-600">
-        <span>Showing {filtered.length} mock traces</span>
+        <span>
+          {isLoading ? "Loading traces…" : `Showing ${filtered.length} traces`}
+        </span>
         <span className="font-mono">Newest first</span>
       </footer>
     </main>
   );
 }
 
-function Waterfall({ hasError }: { hasError: boolean }) {
-  const [selectedSpan, setSelectedSpan] = useState(5);
+function Waterfall({
+  error,
+  isLoading,
+  spans,
+}: {
+  error: string | null;
+  isLoading: boolean;
+  spans: LiveSpan[];
+}) {
+  const [selectedSpan, setSelectedSpan] = useState(0);
+  const displaySpans = useMemo(() => {
+    const source =
+      process.env.NODE_ENV === "test" && spans.length === 0
+        ? mockSpans.map((span, index) => ({
+            ...span,
+            id: String(index),
+            errorMessage: span.error ? "Request timed out after 30s" : null,
+            errorName: span.error ? "FalClientError" : null,
+            errorStack: null,
+          }))
+        : spans.map((span) => {
+            const startedAt = span.startedAt
+              ? new Date(span.startedAt).getTime()
+              : 0;
+            return {
+              ...span,
+              depth: 0,
+              duration: formatDuration(span.durationMs),
+              error: span.outcome === "unexpected_error",
+              icon:
+                span.service === "postgres"
+                  ? Database
+                  : span.source === "browser"
+                    ? Globe2
+                    : Braces,
+              startMs: Number.isFinite(startedAt) ? startedAt : 0,
+            };
+          });
+    if (source.length === 0) return [];
+
+    const byId = new Map(source.map((span) => [span.id, span]));
+    const depthFor = (span: (typeof source)[number]): number => {
+      let depth = 0;
+      let parentId = "parentId" in span ? span.parentId : null;
+      const visited = new Set<string>();
+      while (parentId && !visited.has(parentId)) {
+        visited.add(parentId);
+        const parent = byId.get(parentId);
+        if (!parent) break;
+        depth += 1;
+        parentId = "parentId" in parent ? parent.parentId : null;
+      }
+      return depth;
+    };
+    const validStarts = source
+      .map((span) => ("startMs" in span ? span.startMs : 0))
+      .filter((value) => value > 0);
+    const traceStart = validStarts.length > 0 ? Math.min(...validStarts) : 0;
+    const traceEnd = Math.max(
+      ...source.map((span) => {
+        const start = "startMs" in span ? span.startMs : traceStart;
+        const duration =
+          "durationMs" in span
+            ? span.durationMs
+            : Number.parseFloat(span.duration) * 1_000;
+        return start + duration;
+      }),
+    );
+    const traceDuration = Math.max(traceEnd - traceStart, 1);
+
+    return source.map((span) => {
+      if ("start" in span && "width" in span) return span;
+      return {
+        ...span,
+        depth: depthFor(span),
+        start: Math.max(0, ((span.startMs - traceStart) / traceDuration) * 100),
+        width: Math.min(100, (span.durationMs / traceDuration) * 100),
+      };
+    });
+  }, [spans]);
+  const traceDurationMs = Math.max(...spans.map((span) => span.durationMs), 0);
+  const exception = spans.find((span) => span.outcome === "unexpected_error");
+
   return (
     <div className="min-h-0 flex-1 overflow-auto">
       <div className="bg-background sticky top-0 z-10 grid grid-cols-[225px_1fr] border-b border-white/[0.07]">
@@ -578,20 +757,31 @@ function Waterfall({ hasError }: { hasError: boolean }) {
           Span
         </div>
         <div className="flex justify-between px-3 py-2 font-mono text-[8px] text-zinc-700">
-          <span>0ms</span>
-          <span>710ms</span>
-          <span>1.42s</span>
-          <span>2.13s</span>
-          <span>2.84s</span>
+          {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
+            <span key={ratio}>{formatDuration(traceDurationMs * ratio)}</span>
+          ))}
         </div>
       </div>
-      {spans.map((span, index) => {
+      {isLoading && (
+        <div className="p-4 text-[11px] text-zinc-600">Loading spans…</div>
+      )}
+      {error && (
+        <div className="m-3 rounded-md border border-amber-500/25 bg-amber-500/10 p-3 text-[11px] text-amber-200">
+          {error}
+        </div>
+      )}
+      {!isLoading && !error && displaySpans.length === 0 && (
+        <div className="p-4 text-[11px] text-zinc-600">
+          No spans were found for this trace.
+        </div>
+      )}
+      {displaySpans.map((span, index) => {
         const Icon = span.icon;
-        const isError = hasError && span.error;
+        const isError = span.error;
         return (
           <button
             type="button"
-            key={span.name}
+            key={span.id}
             onClick={() => setSelectedSpan(index)}
             className={cn(
               "grid w-full grid-cols-[225px_1fr] border-b border-white/[0.045] text-left",
@@ -647,25 +837,23 @@ function Waterfall({ hasError }: { hasError: boolean }) {
           </button>
         );
       })}
-      {hasError && (
+      {exception && (
         <div className="m-3 rounded-lg border border-rose-500/20 bg-rose-500/[0.06] p-3">
           <div className="flex items-center gap-2 text-[11px] font-medium text-rose-300">
             <AlertCircle className="size-3.5" />
             Exception
             <span className="ml-auto font-mono text-[9px] text-rose-400/60">
-              fal.subscribe
+              {exception.name}
             </span>
           </div>
           <div className="mt-2 font-mono text-[10px] leading-5 text-zinc-400">
-            FalClientError: Request timed out after 30s
-            <br />
-            <span className="text-zinc-600">
-              at FalClient.subscribe (fal-client.ts:142:11)
-            </span>
-            <br />
-            <span className="text-zinc-600">
-              at async createGeneration (media.ts:318:22)
-            </span>
+            {exception.errorName ?? "Error"}:{" "}
+            {exception.errorMessage ?? "No error message recorded"}
+            {exception.errorStack && (
+              <pre className="mt-2 whitespace-pre-wrap text-zinc-600">
+                {exception.errorStack}
+              </pre>
+            )}
           </div>
         </div>
       )}
@@ -673,16 +861,16 @@ function Waterfall({ hasError }: { hasError: boolean }) {
   );
 }
 
-function Attributes() {
+function Attributes({ spans, trace }: { spans: LiveSpan[]; trace: Trace }) {
   const attributes = [
-    ["http.request.method", "POST"],
-    ["http.route", "/api/generate"],
-    ["http.response.status_code", "500"],
-    ["service.name", "api"],
-    ["deployment.environment", "production"],
-    ["user.id", "usr_2x7kPf9Ym4"],
-    ["app.model", "fal-ai/flux-pro/v1.1"],
-    ["app.generation_id", "gen_q9s3Df2k"],
+    ["trace.trace_id", trace.id],
+    ["operation", trace.route],
+    ["outcome", trace.status >= 400 ? "unexpected_error" : "success"],
+    ["service", trace.service],
+    ["duration_ms", String(trace.durationMs)],
+    ["span_count", String(spans.length)],
+    ["userId", trace.user],
+    ["release", trace.version],
   ];
   return (
     <div className="overflow-auto p-3">
@@ -718,7 +906,41 @@ function TraceInspector({ trace }: { trace: Trace }) {
     "waterfall",
   );
   const [copied, setCopied] = useState(false);
+  const [liveSpans, setLiveSpans] = useState<LiveSpan[]>([]);
+  const [spansError, setSpansError] = useState<string | null>(null);
+  const [spansLoading, setSpansLoading] = useState(true);
   const hasError = trace.status >= 400;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setSpansLoading(true);
+    setSpansError(null);
+    setLiveSpans([]);
+
+    void fetch(`/api/telemetry/traces/${encodeURIComponent(trace.id)}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const body = (await response.json()) as TraceDetailResponse;
+        if (!response.ok) {
+          throw new Error(body.error ?? "Unable to load trace spans");
+        }
+        return body;
+      })
+      .then((body) => setLiveSpans(body.spans ?? []))
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setSpansError(
+          error instanceof Error ? error.message : "Unable to load trace spans",
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSpansLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [trace.id]);
 
   return (
     <aside className="bg-background flex w-[clamp(420px,35vw,520px)] shrink-0 flex-col border-l border-white/[0.08] shadow-[-16px_0_40px_rgba(0,0,0,.22)]">
@@ -857,23 +1079,41 @@ function TraceInspector({ trace }: { trace: Trace }) {
         </div>
       </div>
 
-      {tab === "waterfall" && <Waterfall hasError={hasError} />}
-      {tab === "attributes" && <Attributes />}
+      {tab === "waterfall" && (
+        <Waterfall
+          error={spansError}
+          isLoading={spansLoading}
+          spans={liveSpans}
+        />
+      )}
+      {tab === "attributes" && <Attributes spans={liveSpans} trace={trace} />}
       {tab === "events" && (
         <div className="overflow-auto p-3">
           <div className="rounded-lg border border-white/[0.07] bg-black/20 p-3 font-mono text-[10px] leading-6 text-zinc-500">
-            <span className="text-zinc-700">14:32:08.129</span>{" "}
-            <span className="text-cyan-400">generation.queued</span>
-            <br />
-            <span className="text-zinc-700">14:32:08.421</span>{" "}
-            <span className="text-violet-400">provider.request.started</span>
-            <br />
-            <span className="text-zinc-700">14:32:10.908</span>{" "}
-            <span className="text-rose-400">exception</span>{" "}
-            <span className="text-zinc-300">FalClientError</span>
-            <br />
-            <span className="text-zinc-700">14:32:10.969</span>{" "}
-            <span className="text-amber-400">generation.failed</span>
+            {liveSpans.map((span) => (
+              <div key={span.id}>
+                <span className="text-zinc-700">
+                  {span.startedAt
+                    ? new Date(span.startedAt).toLocaleTimeString()
+                    : "--:--:--"}
+                </span>{" "}
+                <span
+                  className={
+                    span.outcome === "unexpected_error"
+                      ? "text-rose-400"
+                      : "text-cyan-400"
+                  }
+                >
+                  {span.name}
+                </span>
+                {span.errorName && (
+                  <span className="text-zinc-300"> · {span.errorName}</span>
+                )}
+              </div>
+            ))}
+            {!spansLoading && liveSpans.length === 0 && (
+              <span className="text-zinc-600">No span events found.</span>
+            )}
           </div>
         </div>
       )}
@@ -1129,7 +1369,74 @@ function BoardsView() {
 
 export default function TelemetryPage() {
   const [activeView, setActiveView] = useState<DashboardView>("traces");
-  const [selectedTrace, setSelectedTrace] = useState(traces[0]!);
+  const [preset, setPreset] = useState<TracePreset>("errors");
+  const [range, setRange] = useState(1_800);
+  const [liveTraces, setLiveTraces] = useState<Trace[]>(() =>
+    process.env.NODE_ENV === "test" ? traces : [],
+  );
+  const [selectedTrace, setSelectedTrace] = useState<Trace | null>(null);
+  const [tracesError, setTracesError] = useState<string | null>(null);
+  const [tracesLoading, setTracesLoading] = useState(true);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setTracesLoading(true);
+    setTracesError(null);
+
+    void fetch(`/api/telemetry/traces?preset=${preset}&range=${range}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const body = (await response.json()) as TraceListResponse;
+        if (!response.ok) {
+          throw new Error(body.error ?? "Unable to load telemetry");
+        }
+        return body;
+      })
+      .then((body) => {
+        const nextTraces = (body.traces ?? []).map<Trace>((trace) => ({
+          id: trace.id,
+          shortId: trace.shortId,
+          route: trace.operation,
+          method: trace.source === "browser" ? "BROWSER" : "SERVER",
+          status: trace.outcome === "unexpected_error" ? 500 : 200,
+          service: trace.service,
+          duration: formatDuration(trace.durationMs),
+          durationMs: trace.durationMs,
+          spans: 0,
+          when: formatRelativeTime(trace.startedAt),
+          error: [trace.errorName, trace.errorMessage]
+            .filter(Boolean)
+            .join(": "),
+          user: trace.userId ?? "—",
+          version: trace.release ?? "—",
+        }));
+        setLiveTraces(nextTraces);
+        setSelectedTrace((current) => {
+          if (current) {
+            const refreshed = nextTraces.find(
+              (trace) => trace.id === current.id,
+            );
+            if (refreshed) return refreshed;
+          }
+          return nextTraces[0] ?? null;
+        });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setLiveTraces([]);
+        setSelectedTrace(null);
+        setTracesError(
+          error instanceof Error ? error.message : "Unable to load telemetry",
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setTracesLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [preset, range]);
 
   return (
     <div className="bg-background flex h-screen min-h-[680px] w-full overflow-hidden text-zinc-200 [&_button:not(:disabled)]:cursor-pointer">
@@ -1177,10 +1484,28 @@ export default function TelemetryPage() {
           {activeView === "traces" && (
             <>
               <TraceList
+                error={tracesError}
+                isLoading={tracesLoading}
+                onPresetChange={setPreset}
+                onRangeChange={setRange}
+                preset={preset}
+                range={range}
                 selectedTrace={selectedTrace}
                 setSelectedTrace={setSelectedTrace}
+                traces={liveTraces}
               />
-              <TraceInspector trace={selectedTrace} />
+              {selectedTrace ? (
+                <TraceInspector trace={selectedTrace} />
+              ) : (
+                <aside className="bg-background flex w-[clamp(420px,35vw,520px)] shrink-0 items-center justify-center border-l border-white/[0.08] p-8 text-center">
+                  <div>
+                    <Layers3 className="mx-auto size-5 text-zinc-700" />
+                    <p className="mt-3 text-xs text-zinc-500">
+                      Select a trace to inspect its spans
+                    </p>
+                  </div>
+                </aside>
+              )}
             </>
           )}
           {activeView === "services" && <ServicesView />}

@@ -22,6 +22,7 @@ export const env = createEnv({
     UPLOADTHING_TOKEN: z.string().min(1),
     CLERK_SECRET_KEY: z.string().min(1),
     HONEYCOMB_API_KEY: z.string().min(1),
+    HONEYCOMB_QUERY_API_KEY: z.string().min(1).optional(),
     HONEYCOMB_DATASET: z.preprocess(
       (value) =>
         value ??
@@ -78,6 +79,7 @@ export const env = createEnv({
     UPLOADTHING_TOKEN: process.env.UPLOADTHING_TOKEN,
     CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
     HONEYCOMB_API_KEY: process.env.HONEYCOMB_API_KEY,
+    HONEYCOMB_QUERY_API_KEY: process.env.HONEYCOMB_QUERY_API_KEY,
     HONEYCOMB_DATASET: process.env.HONEYCOMB_DATASET,
     HONEYCOMB_API_HOST: process.env.HONEYCOMB_API_HOST,
     CRON_SECRET: process.env.CRON_SECRET,
