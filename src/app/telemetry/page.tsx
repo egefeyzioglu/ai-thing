@@ -388,9 +388,11 @@ function NavRail({
         {items.map(({ icon: Icon, label, value }) => {
           const active = activeView === value;
           return (
-            <button
+            <Button
               key={label}
               type="button"
+              variant="ghost"
+              size={null}
               title={label}
               aria-label={label}
               aria-current={active ? "page" : undefined}
@@ -404,19 +406,21 @@ function NavRail({
                 <span className="absolute -left-[10px] h-5 w-0.5 rounded-r bg-violet-400" />
               )}
               <Icon className="size-[18px]" />
-            </button>
+            </Button>
           );
         })}
       </div>
       <div className="mt-auto flex flex-col gap-1">
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size={null}
           aria-label="Telemetry settings"
           title="Telemetry settings"
           className="flex size-10 items-center justify-center rounded-lg text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
         >
           <Settings2 className="size-[18px]" />
-        </button>
+        </Button>
         <div className="flex size-8 items-center justify-center rounded-full bg-gray-800 text-[11px] font-semibold text-gray-200 ring-1 ring-white/15">
           EG
         </div>
@@ -499,14 +503,16 @@ function TraceList({
             placeholder="Search traces by route, error, user or trace ID..."
           />
           {query && (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-xs"
               aria-label="Clear trace search"
               title="Clear trace search"
               onClick={() => setQuery("")}
             >
               <X className="size-3.5 text-zinc-600 hover:text-zinc-300" />
-            </button>
+            </Button>
           )}
           <kbd className="rounded border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 font-sans text-[9px] text-zinc-600">
             ⌘ K
@@ -545,9 +551,11 @@ function TraceList({
       <div className="border-b border-white/[0.07] px-4 pt-3">
         <div className="mb-3 flex items-center gap-1">
           {(["all", "errors", "slow"] as const).map((value) => (
-            <button
+            <Button
               key={value}
               type="button"
+              variant="ghost"
+              size={null}
               onClick={() => onPresetChange(value)}
               className={cn(
                 "rounded-md px-3 py-1.5 text-[11px] font-medium text-zinc-500 capitalize transition hover:bg-white/[0.04] hover:text-zinc-300",
@@ -561,23 +569,27 @@ function TraceList({
                   {errorCount}
                 </span>
               )}
-            </button>
+            </Button>
           ))}
         </div>
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-medium text-zinc-500">FILTERS</span>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size={null}
             className="flex items-center gap-1 rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-[10px] text-zinc-400"
           >
             environment = production <X className="size-2.5" />
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="ghost"
+            size={null}
             className="flex items-center gap-1 px-1.5 py-1 text-[10px] text-zinc-500 hover:text-zinc-300"
           >
             <Filter className="size-3" /> Add filter
-          </button>
+          </Button>
         </div>
         <div className="mt-2 flex items-end gap-4">
           <MiniHistogram />
@@ -631,12 +643,14 @@ function TraceList({
           </div>
         )}
         {filtered.map((trace) => (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size={null}
             key={trace.id}
             onClick={() => setSelectedTrace(trace)}
             className={cn(
-              "group flex w-full items-center border-b border-white/[0.055] px-4 py-3 text-left transition",
+              "group flex h-auto w-full items-center rounded-none border-b border-white/[0.055] px-4 py-3 text-left transition",
               selectedTrace?.id === trace.id
                 ? "bg-violet-500/[0.08] shadow-[inset_2px_0_0_#8b5cf6]"
                 : "hover:bg-white/[0.025]",
@@ -689,7 +703,7 @@ function TraceList({
               {trace.when}
             </div>
             <ChevronRight className="ml-2 size-3.5 text-zinc-700 opacity-0 transition group-hover:opacity-100" />
-          </button>
+          </Button>
         ))}
         {filtered.length === 0 && (
           <div className="flex h-48 flex-col items-center justify-center text-zinc-600">
@@ -838,12 +852,14 @@ function Waterfall({
         const Icon = span.icon;
         const isError = span.error;
         return (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size={null}
             key={span.id}
             onClick={() => setSelectedSpan(index)}
             className={cn(
-              "grid w-full grid-cols-[225px_1fr] border-b border-white/[0.045] text-left",
+              "grid h-auto w-full grid-cols-[225px_1fr] rounded-none border-b border-white/[0.045] p-0 text-left",
               selectedSpan === index
                 ? "bg-violet-500/[0.08]"
                 : "hover:bg-white/[0.025]",
@@ -893,7 +909,7 @@ function Waterfall({
                 {span.duration}
               </span>
             </div>
-          </button>
+          </Button>
         );
       })}
       {exception && (
@@ -940,8 +956,10 @@ function Attributes({ spans, trace }: { spans: LiveSpan[]; trace: Trace }) {
         <span className="text-[9px] font-semibold tracking-wider text-zinc-600 uppercase">
           Resource & span attributes
         </span>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size={null}
           onClick={() => {
             void navigator.clipboard
               .writeText(
@@ -959,7 +977,7 @@ function Attributes({ spans, trace }: { spans: LiveSpan[]; trace: Trace }) {
             : copyStatus === "failed"
               ? "Copy failed"
               : "Copy as JSON"}
-        </button>
+        </Button>
       </div>
       <div className="overflow-hidden rounded-lg border border-white/[0.07]">
         {attributes.map(([key, value]) => (
@@ -1108,8 +1126,10 @@ function TraceInspector({
           <code className="min-w-0 flex-1 truncate text-[9px] text-zinc-400">
             {trace.id}
           </code>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-xs"
             onClick={() => {
               void navigator.clipboard.writeText(trace.id).then(
                 () => {
@@ -1128,7 +1148,7 @@ function TraceInspector({
             ) : (
               <Copy className="size-3" />
             )}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -1140,8 +1160,10 @@ function TraceInspector({
         ].map(([value, label, icon]) => {
           const Icon = icon as typeof Layers3;
           return (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size={null}
               key={value as string}
               onClick={() =>
                 setTab(value as "waterfall" | "attributes" | "events")
@@ -1156,7 +1178,7 @@ function TraceInspector({
               {tab === value && (
                 <span className="absolute inset-x-2 bottom-0 h-px bg-violet-400" />
               )}
-            </button>
+            </Button>
           );
         })}
         <div className="ml-auto flex gap-1">
@@ -1365,10 +1387,12 @@ function ServicesView() {
           </div>
           {services.map(
             ({ name, icon: Icon, requests, errorRate, p95, health }) => (
-              <button
+              <Button
                 key={name}
                 type="button"
-                className="grid w-full grid-cols-[1.5fr_repeat(4,1fr)] items-center border-t border-white/[0.055] px-4 py-3 text-left hover:bg-white/[0.025]"
+                variant="ghost"
+                size={null}
+                className="grid h-auto w-full grid-cols-[1.5fr_repeat(4,1fr)] items-center rounded-none border-t border-white/[0.055] px-4 py-3 text-left hover:bg-white/[0.025]"
               >
                 <span className="flex items-center gap-2 text-xs font-medium text-zinc-200">
                   <span className="flex size-7 items-center justify-center rounded-md bg-violet-500/10">
@@ -1401,7 +1425,7 @@ function ServicesView() {
                   />
                   {health}
                 </span>
-              </button>
+              </Button>
             ),
           )}
         </div>
@@ -1444,9 +1468,11 @@ function BoardsView() {
             bars: [18, 24, 20, 42, 28, 55, 31, 47, 29, 38, 22, 34],
           },
         ].map((board) => (
-          <button
+          <Button
             key={board.title}
             type="button"
+            variant="ghost"
+            size={null}
             className="group flex min-h-52 flex-col rounded-md border border-white/[0.07] bg-white/[0.02] p-4 text-left transition hover:border-violet-500/25 hover:bg-gray-900"
           >
             <div className="flex w-full items-start">
@@ -1479,7 +1505,7 @@ function BoardsView() {
               <span>30m ago</span>
               <span>now</span>
             </div>
-          </button>
+          </Button>
         ))}
       </div>
     </main>
@@ -1565,41 +1591,49 @@ export default function TelemetryPage() {
       <NavRail activeView={activeView} onViewChange={setActiveView} />
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="bg-background flex h-10 shrink-0 items-center border-b border-white/[0.07] px-3">
-          <button
+          <Button
             type="button"
-            className="flex items-center gap-1.5 text-[11px] text-zinc-500 hover:text-zinc-200"
+            variant="ghost"
+            size={null}
+            className="flex h-auto items-center gap-1.5 text-[11px] text-zinc-500 hover:bg-transparent hover:text-zinc-200"
           >
             <ArrowLeft className="size-3.5" />
             AI Thing
-          </button>
+          </Button>
           <ChevronRight className="mx-2 size-3 text-zinc-700" />
-          <button
+          <Button
             type="button"
-            className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-300"
+            variant="ghost"
+            size={null}
+            className="flex h-auto items-center gap-1.5 text-[11px] font-medium text-zinc-300 hover:bg-transparent"
           >
             <Box className="size-3 text-violet-400" />
             production
             <ChevronDown className="size-3 text-zinc-600" />
-          </button>
+          </Button>
           <div className="ml-4 h-4 w-px bg-white/[0.08]" />
           <div className="ml-4 flex items-center gap-1.5 text-[10px] text-zinc-500">
             <span className="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_7px_rgba(52,211,153,.6)]" />
             All systems reporting
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size={null}
               className="flex items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.025] px-2 py-1 text-[10px] text-zinc-500 hover:text-zinc-300"
             >
               <Play className="size-2.5 fill-current" />
               Live tail
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="ghost"
+              size={null}
               className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-300"
             >
               <Server className="size-3" /> 6 services
-            </button>
+            </Button>
           </div>
         </div>
         <div className="flex min-h-0 flex-1">
