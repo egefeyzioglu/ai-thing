@@ -19,6 +19,8 @@ import { telemetrySpans } from "src/server/telemetry/schema";
 const searchParamsSchema = z.object({
   preset: z.enum(["all", "errors", "slow"]).default("errors"),
   range: z.coerce.number().int().min(60).max(2_592_000).default(1_800),
+  service: z.string().trim().min(1).max(100).optional(),
+  trace: z.string().trim().min(1).max(128).optional(),
 });
 const TRACE_LIMIT = 100;
 
@@ -46,17 +48,20 @@ export async function GET(request: Request) {
     );
   }
 
-  const { preset, range } = parsed.data;
+  const { preset, range, service, trace } = parsed.data;
   const cutoff = new Date(Date.now() - range * 1_000);
-  const filters = [
-    isNotNull(telemetrySpans.traceId),
-    isNull(telemetrySpans.parentSpanId),
-    gte(telemetrySpans.startedAt, cutoff),
-    ...(preset === "errors"
-      ? [eq(telemetrySpans.outcome, "unexpected_error" as const)]
-      : []),
-    ...(preset === "slow" ? [gte(telemetrySpans.durationMs, 1_000)] : []),
-  ];
+  const filters = trace
+    ? [eq(telemetrySpans.traceId, trace), isNull(telemetrySpans.parentSpanId)]
+    : [
+        isNotNull(telemetrySpans.traceId),
+        isNull(telemetrySpans.parentSpanId),
+        gte(telemetrySpans.startedAt, cutoff),
+        ...(service ? [eq(telemetrySpans.service, service)] : []),
+        ...(preset === "errors"
+          ? [eq(telemetrySpans.outcome, "unexpected_error" as const)]
+          : []),
+        ...(preset === "slow" ? [gte(telemetrySpans.durationMs, 1_000)] : []),
+      ];
 
   try {
     const roots = await telemetryDb

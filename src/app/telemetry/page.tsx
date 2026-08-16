@@ -13,27 +13,25 @@ import {
   Copy,
   Database,
   ExternalLink,
-  Filter,
   Gauge,
   Globe2,
   Hexagon,
   Layers3,
-  MoreHorizontal,
   PanelRightClose,
-  Play,
   RefreshCw,
   Search,
   Server,
-  Settings2,
   Share2,
   Sparkles,
   TerminalSquare,
   X,
   Zap,
 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "src/components/ui/button";
+import { Input } from "src/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -47,8 +45,8 @@ type Trace = {
   id: string;
   shortId: string;
   route: string;
-  method: string;
-  status: number;
+  outcome: string;
+  source: string;
   service: string;
   duration: string;
   durationMs: number;
@@ -102,6 +100,25 @@ type TraceDetailResponse = {
   truncated?: boolean;
 };
 
+type SummaryMetric = {
+  errorCount: number;
+  p95Ms: number;
+  requestCount: number;
+};
+
+type TelemetrySummary = {
+  bucketCount: number;
+  buckets: Array<
+    SummaryMetric & { bucket: number; operation: string; root: boolean }
+  >;
+  boards: Record<BoardId, SummaryMetric>;
+  operations: Array<SummaryMetric & { operation: string; root: boolean }>;
+  overall: SummaryMetric & { errorRate: number; serviceCount: number };
+  services: Array<SummaryMetric & { errorRate: number; service: string }>;
+};
+
+type BoardId = "production" | "generation" | "database" | "uploads";
+
 function formatDuration(durationMs: number): string {
   if (durationMs >= 1_000) return `${(durationMs / 1_000).toFixed(2)}s`;
   return `${Math.round(durationMs)}ms`;
@@ -117,6 +134,15 @@ function formatRelativeTime(timestamp: string | null): string {
   if (elapsedMs < 86_400_000)
     return `${Math.floor(elapsedMs / 3_600_000)}h ago`;
   return `${Math.floor(elapsedMs / 86_400_000)}d ago`;
+}
+
+function formatEventTime(timestamp: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "UTC",
+  }).format(new Date(timestamp));
 }
 
 async function parseApiResponse<T extends { error?: string }>(
@@ -145,13 +171,17 @@ function traceMatchesQuery(trace: Trace, query: string): boolean {
     .includes(query.toLowerCase());
 }
 
+function traceHasError(trace: Trace): boolean {
+  return trace.outcome === "unexpected_error";
+}
+
 const traces: Trace[] = [
   {
     id: "48a7c3b952e9f16a08dc764e4e5806d1",
     shortId: "48a7c3b9",
     route: "/api/generate",
-    method: "POST",
-    status: 500,
+    source: "server",
+    outcome: "unexpected_error",
     service: "api",
     duration: "2.84s",
     durationMs: 2840,
@@ -165,8 +195,8 @@ const traces: Trace[] = [
     id: "2dc6f58b108fa8dd93aca1245a8f4a77",
     shortId: "2dc6f58b",
     route: "/api/generate",
-    method: "POST",
-    status: 500,
+    source: "server",
+    outcome: "unexpected_error",
     service: "api",
     duration: "2.31s",
     durationMs: 2310,
@@ -180,8 +210,8 @@ const traces: Trace[] = [
     id: "c90e8c4b780c3a78fae0129021cf1d54",
     shortId: "c90e8c4b",
     route: "/api/uploadthing",
-    method: "POST",
-    status: 503,
+    source: "server",
+    outcome: "unexpected_error",
     service: "uploads",
     duration: "1.92s",
     durationMs: 1920,
@@ -195,8 +225,8 @@ const traces: Trace[] = [
     id: "ba149b32d0317f2c91a1d83dfdb9cf21",
     shortId: "ba149b32",
     route: "/trpc/media.list",
-    method: "GET",
-    status: 504,
+    source: "server",
+    outcome: "unexpected_error",
     service: "web",
     duration: "6.10s",
     durationMs: 6100,
@@ -210,8 +240,8 @@ const traces: Trace[] = [
     id: "e3cb7783b70c2d97af52aa88f832742b",
     shortId: "e3cb7783",
     route: "/api/generate",
-    method: "POST",
-    status: 429,
+    source: "server",
+    outcome: "expected_error",
     service: "api",
     duration: "184ms",
     durationMs: 184,
@@ -225,8 +255,8 @@ const traces: Trace[] = [
     id: "7b2f199e4d7c9b28b1ec28a86ca8a8dc",
     shortId: "7b2f199e",
     route: "/trpc/media.list",
-    method: "GET",
-    status: 200,
+    source: "server",
+    outcome: "success",
     service: "web",
     duration: "246ms",
     durationMs: 246,
@@ -240,8 +270,8 @@ const traces: Trace[] = [
     id: "1a97d2456f01c17a3eacaa58713ad167",
     shortId: "1a97d245",
     route: "/api/uploadthing",
-    method: "POST",
-    status: 200,
+    source: "server",
+    outcome: "success",
     service: "uploads",
     duration: "1.14s",
     durationMs: 1140,
@@ -410,54 +440,20 @@ function NavRail({
           );
         })}
       </div>
-      <div className="mt-auto flex flex-col gap-1">
-        <Button
-          type="button"
-          variant="ghost"
-          size={null}
-          aria-label="Telemetry settings"
-          title="Telemetry settings"
-          className="flex size-10 items-center justify-center rounded-lg text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
-        >
-          <Settings2 className="size-[18px]" />
-        </Button>
-        <div className="flex size-8 items-center justify-center rounded-full bg-gray-800 text-[11px] font-semibold text-gray-200 ring-1 ring-white/15">
-          EG
-        </div>
-      </div>
     </aside>
-  );
-}
-
-function MiniHistogram() {
-  const values = [
-    18, 25, 16, 30, 22, 45, 37, 62, 42, 68, 49, 78, 58, 40, 31, 52, 29, 48, 34,
-    22, 27, 18, 13, 21,
-  ];
-  return (
-    <div className="flex h-9 flex-1 items-end gap-[3px]">
-      {values.map((value, index) => (
-        <div
-          key={`${value}-${index}`}
-          className={cn(
-            "min-w-1 flex-1 rounded-[1px] bg-violet-400/25",
-            index > 10 && index < 15 && "bg-rose-400/60",
-          )}
-          style={{ height: `${value}%` }}
-        />
-      ))}
-    </div>
   );
 }
 
 function TraceList({
   error,
   isLoading,
+  onClearService,
   onPresetChange,
   onRangeChange,
   onRefresh,
   preset,
   range,
+  serviceFilter,
   selectedTrace,
   setSelectedTrace,
   traces,
@@ -465,11 +461,13 @@ function TraceList({
 }: {
   error: string | null;
   isLoading: boolean;
+  onClearService: () => void;
   onPresetChange: (preset: TracePreset) => void;
   onRangeChange: (range: number) => void;
   onRefresh: () => void;
   preset: TracePreset;
   range: number;
+  serviceFilter: string | null;
   selectedTrace: Trace | null;
   setSelectedTrace: (trace: Trace) => void;
   traces: Trace[];
@@ -481,14 +479,14 @@ function TraceList({
       traces.filter((trace) => {
         const matchesPreset =
           preset === "all" ||
-          (preset === "errors" && trace.status >= 400) ||
+          (preset === "errors" && traceHasError(trace)) ||
           (preset === "slow" && trace.durationMs >= 1000);
         return traceMatchesQuery(trace, query) && matchesPreset;
       }),
     [preset, query, traces],
   );
   const errorCount = traces.filter(
-    (trace) => trace.status >= 400 && traceMatchesQuery(trace, query),
+    (trace) => traceHasError(trace) && traceMatchesQuery(trace, query),
   ).length;
 
   return (
@@ -496,10 +494,11 @@ function TraceList({
       <header className="flex h-14 items-center gap-3 border-b border-white/[0.07] px-4">
         <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-white/[0.09] bg-gray-950 px-3 py-1.5 shadow-inner">
           <Search className="size-3.5 shrink-0 text-zinc-600" />
-          <input
+          <Input
+            aria-label="Search traces"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            className="min-w-0 flex-1 bg-transparent text-xs text-zinc-200 outline-none placeholder:text-zinc-600"
+            className="h-auto min-w-0 flex-1 border-0 bg-transparent p-0 text-xs text-zinc-200 shadow-none outline-none placeholder:text-zinc-600 focus-visible:ring-0 dark:bg-transparent"
             placeholder="Search traces by route, error, user or trace ID..."
           />
           {query && (
@@ -514,9 +513,6 @@ function TraceList({
               <X className="size-3.5 text-zinc-600 hover:text-zinc-300" />
             </Button>
           )}
-          <kbd className="rounded border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 font-sans text-[9px] text-zinc-600">
-            ⌘ K
-          </kbd>
         </div>
         <Select
           value={String(range)}
@@ -574,26 +570,22 @@ function TraceList({
         </div>
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-medium text-zinc-500">FILTERS</span>
-          <Button
-            type="button"
-            variant="ghost"
-            size={null}
-            className="flex items-center gap-1 rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-[10px] text-zinc-400"
-          >
-            environment = production <X className="size-2.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size={null}
-            className="flex items-center gap-1 px-1.5 py-1 text-[10px] text-zinc-500 hover:text-zinc-300"
-          >
-            <Filter className="size-3" /> Add filter
-          </Button>
+          {serviceFilter ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size={null}
+              onClick={onClearService}
+              className="flex items-center gap-1 rounded-md border border-violet-500/20 bg-violet-500/10 px-2 py-1 text-[10px] text-violet-300"
+            >
+              service = {serviceFilter} <X className="size-2.5" />
+            </Button>
+          ) : (
+            <span className="text-[10px] text-zinc-700">No service filter</span>
+          )}
         </div>
-        <div className="mt-2 flex items-end gap-4">
-          <MiniHistogram />
-          <div className="pb-1 text-right">
+        <div className="mt-2 flex justify-end">
+          <div className="text-right">
             <div className="font-mono text-lg font-medium text-zinc-200">
               {filtered.length}
             </div>
@@ -657,7 +649,7 @@ function TraceList({
             )}
           >
             <div className="flex w-[42%] min-w-0 items-start gap-2.5">
-              {trace.status >= 400 ? (
+              {traceHasError(trace) ? (
                 <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-rose-400" />
               ) : (
                 <Check className="mt-0.5 size-3.5 shrink-0 text-emerald-400" />
@@ -665,10 +657,10 @@ function TraceList({
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="truncate font-mono text-[11px] font-medium text-zinc-200">
-                    {trace.method} {trace.route}
+                    {trace.source} · {trace.route}
                   </span>
-                  <TinyPill tone={trace.status >= 400 ? "error" : "success"}>
-                    {trace.status}
+                  <TinyPill tone={traceHasError(trace) ? "error" : "success"}>
+                    {trace.outcome}
                   </TinyPill>
                 </div>
                 {trace.error && (
@@ -943,7 +935,7 @@ function Attributes({ spans, trace }: { spans: LiveSpan[]; trace: Trace }) {
   const attributes = [
     ["trace.trace_id", trace.id],
     ["operation", trace.route],
-    ["outcome", trace.status >= 400 ? "unexpected_error" : "success"],
+    ["outcome", trace.outcome],
     ["service", trace.service],
     ["duration_ms", String(trace.durationMs)],
     ["span_count", String(spans.length)],
@@ -1013,7 +1005,7 @@ function TraceInspector({
   const [spansError, setSpansError] = useState<string | null>(null);
   const [spansLoading, setSpansLoading] = useState(true);
   const [spansTruncated, setSpansTruncated] = useState(false);
-  const hasError = trace.status >= 400;
+  const hasError = traceHasError(trace);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1070,10 +1062,10 @@ function TraceInspector({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h2 className="truncate font-mono text-xs font-semibold text-zinc-100">
-                {trace.method} {trace.route}
+                {trace.source} · {trace.route}
               </h2>
               <TinyPill tone={hasError ? "error" : "success"}>
-                {trace.status}
+                {trace.outcome}
               </TinyPill>
             </div>
             <p
@@ -1094,15 +1086,6 @@ function TraceInspector({
             title="Close trace inspector"
           >
             <PanelRightClose />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="text-zinc-600 hover:bg-white/5"
-            aria-label="More trace actions"
-            title="More trace actions"
-          >
-            <MoreHorizontal />
           </Button>
         </div>
 
@@ -1187,6 +1170,12 @@ function TraceInspector({
             size="icon-xs"
             className="text-zinc-600 hover:bg-white/5"
             title="Share trace"
+            aria-label="Copy a link to this trace"
+            onClick={() => {
+              const url = new URL(window.location.href);
+              url.searchParams.set("trace", trace.id);
+              void navigator.clipboard.writeText(url.toString());
+            }}
           >
             <Share2 />
           </Button>
@@ -1195,6 +1184,12 @@ function TraceInspector({
             size="icon-xs"
             className="text-zinc-600 hover:bg-white/5"
             title="Open full page"
+            aria-label="Open this trace in a new tab"
+            onClick={() => {
+              const url = new URL(window.location.href);
+              url.searchParams.set("trace", trace.id);
+              window.open(url, "_blank", "noopener,noreferrer");
+            }}
           >
             <ExternalLink />
           </Button>
@@ -1233,7 +1228,7 @@ function TraceInspector({
                 <div key={span.id}>
                   <span className="text-zinc-700">
                     {span.startedAt
-                      ? new Date(span.startedAt).toLocaleTimeString()
+                      ? formatEventTime(span.startedAt)
                       : "--:--:--"}
                   </span>{" "}
                   <span
@@ -1260,63 +1255,94 @@ function TraceInspector({
   );
 }
 
-const services = [
+const boardDefinitions: Array<{
+  color: string;
+  description: string;
+  id: BoardId;
+  pattern: RegExp | null;
+  title: string;
+}> = [
   {
-    name: "api",
-    icon: Braces,
-    requests: "18.4k",
-    errorRate: "1.8%",
-    p95: "842ms",
-    health: "degraded",
+    id: "production",
+    title: "Production pulse",
+    description: "Errors, throughput and latency",
+    color: "bg-violet-400",
+    pattern: null,
   },
   {
-    name: "web",
-    icon: Globe2,
-    requests: "42.1k",
-    errorRate: "0.3%",
-    p95: "294ms",
-    health: "healthy",
+    id: "generation",
+    title: "Generation providers",
+    description: "Success rate and duration for generation operations",
+    color: "bg-rose-400",
+    pattern: /generat|image|fal|openai|replicate/i,
   },
   {
-    name: "postgres",
-    icon: Database,
-    requests: "31.7k",
-    errorRate: "0.1%",
-    p95: "91ms",
-    health: "healthy",
+    id: "database",
+    title: "Database health",
+    description: "Database request volume, errors and latency",
+    color: "bg-cyan-400",
+    pattern: /database|postgres|db\.|query|insert|select|update/i,
   },
   {
-    name: "uploads",
-    icon: Box,
-    requests: "8.2k",
-    errorRate: "0.9%",
-    p95: "1.2s",
-    health: "degraded",
-  },
-  {
-    name: "fal",
-    icon: Sparkles,
-    requests: "3.8k",
-    errorRate: "4.7%",
-    p95: "8.4s",
-    health: "degraded",
-  },
-  {
-    name: "worker",
-    icon: Server,
-    requests: "12.9k",
-    errorRate: "0.2%",
-    p95: "436ms",
-    health: "healthy",
+    id: "uploads",
+    title: "Upload pipeline",
+    description: "Storage latency and failed upload operations",
+    color: "bg-orange-400",
+    pattern: /upload|storage|multipart|file/i,
   },
 ];
+
+function formatCount(value: number) {
+  return new Intl.NumberFormat(undefined, { notation: "compact" }).format(
+    value,
+  );
+}
+
+function aggregateMetrics(items: SummaryMetric[]): SummaryMetric {
+  const requestCount = items.reduce((sum, item) => sum + item.requestCount, 0);
+  return {
+    errorCount: items.reduce((sum, item) => sum + item.errorCount, 0),
+    p95Ms:
+      requestCount === 0
+        ? 0
+        : items.reduce((sum, item) => sum + item.p95Ms * item.requestCount, 0) /
+          requestCount,
+    requestCount,
+  };
+}
+
+function metricsForBoard(summary: TelemetrySummary, boardId: BoardId) {
+  const board = boardDefinitions.find(({ id }) => id === boardId)!;
+  const matches = (operation: string, root: boolean) =>
+    board.pattern === null ? root : board.pattern.test(operation);
+  const operations = summary.operations.filter(({ operation, root }) =>
+    matches(operation, root),
+  );
+  const buckets = Array.from({ length: summary.bucketCount }, (_, index) =>
+    aggregateMetrics(
+      summary.buckets.filter(
+        (bucket) =>
+          bucket.bucket === index && matches(bucket.operation, bucket.root),
+      ),
+    ),
+  );
+  return { buckets, metrics: summary.boards[boardId], operations };
+}
 
 function ViewHeader({
   title,
   description,
+  isLoading,
+  onRangeChange,
+  onRefresh,
+  range,
 }: {
   title: string;
   description: string;
+  isLoading: boolean;
+  onRangeChange: (range: number) => void;
+  onRefresh: () => void;
+  range: number;
 }) {
   return (
     <div className="flex h-16 shrink-0 items-center border-b border-white/[0.07] px-5">
@@ -1327,15 +1353,21 @@ function ViewHeader({
         <p className="mt-0.5 text-[11px] text-zinc-500">{description}</p>
       </div>
       <div className="ml-auto flex items-center gap-2">
-        <Select defaultValue="30m">
+        <Select
+          value={String(range)}
+          onValueChange={(value) => value && onRangeChange(Number(value))}
+        >
           <SelectTrigger className="h-8 border-white/[0.09] bg-white/[0.03] text-xs text-zinc-300">
             <Clock3 className="size-3.5 text-zinc-500" />
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="30m">Last 30 minutes</SelectItem>
-            <SelectItem value="1h">Last hour</SelectItem>
-            <SelectItem value="24h">Last 24 hours</SelectItem>
+            <SelectItem value="900">Last 15 minutes</SelectItem>
+            <SelectItem value="1800">Last 30 minutes</SelectItem>
+            <SelectItem value="3600">Last hour</SelectItem>
+            <SelectItem value="86400">Last 24 hours</SelectItem>
+            <SelectItem value="604800">Last 7 days</SelectItem>
+            <SelectItem value="2592000">Last 30 days</SelectItem>
           </SelectContent>
         </Select>
         <Button
@@ -1343,6 +1375,8 @@ function ViewHeader({
           size="icon"
           className="border-white/[0.09] bg-white/[0.03] text-zinc-500"
           aria-label="Refresh view"
+          disabled={isLoading}
+          onClick={onRefresh}
           title="Refresh view"
         >
           <RefreshCw />
@@ -1352,162 +1386,301 @@ function ViewHeader({
   );
 }
 
-function ServicesView() {
+function SummaryState({
+  error,
+  isLoading,
+}: {
+  error: string | null;
+  isLoading: boolean;
+}) {
+  if (isLoading)
+    return <p className="p-5 text-xs text-zinc-500">Loading telemetry…</p>;
+  if (error) return <p className="p-5 text-xs text-amber-300">{error}</p>;
+  return null;
+}
+
+function ServicesView({
+  error,
+  isLoading,
+  onRangeChange,
+  onRefresh,
+  onSelectService,
+  range,
+  summary,
+}: {
+  error: string | null;
+  isLoading: boolean;
+  onRangeChange: (range: number) => void;
+  onRefresh: () => void;
+  onSelectService: (service: string) => void;
+  range: number;
+  summary: TelemetrySummary | null;
+}) {
   return (
     <main className="bg-background flex min-w-0 flex-1 flex-col">
       <ViewHeader
         title="Services"
         description="Health and performance across the application"
+        isLoading={isLoading}
+        onRangeChange={onRangeChange}
+        onRefresh={onRefresh}
+        range={range}
       />
-      <div className="grid grid-cols-3 gap-3 border-b border-white/[0.07] p-5">
-        {[
-          ["6", "Reporting services", "text-zinc-100"],
-          ["2.1%", "Overall error rate", "text-rose-300"],
-          ["612ms", "Application p95", "text-orange-300"],
-        ].map(([value, label, tone]) => (
-          <div
-            key={label}
-            className="rounded-md border border-white/[0.07] bg-white/[0.025] p-4"
-          >
-            <div className={cn("font-mono text-xl font-medium", tone)}>
-              {value}
-            </div>
-            <div className="mt-1 text-[10px] text-zinc-600">{label}</div>
-          </div>
-        ))}
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto p-5">
-        <div className="overflow-hidden rounded-md border border-white/[0.07]">
-          <div className="grid grid-cols-[1.5fr_repeat(4,1fr)] bg-white/[0.025] px-4 py-2.5 text-[9px] font-semibold tracking-wider text-zinc-600 uppercase">
-            <span>Service</span>
-            <span>Requests</span>
-            <span>Error rate</span>
-            <span>P95</span>
-            <span>Status</span>
-          </div>
-          {services.map(
-            ({ name, icon: Icon, requests, errorRate, p95, health }) => (
-              <Button
-                key={name}
-                type="button"
-                variant="ghost"
-                size={null}
-                className="grid h-auto w-full grid-cols-[1.5fr_repeat(4,1fr)] items-center rounded-none border-t border-white/[0.055] px-4 py-3 text-left hover:bg-white/[0.025]"
+      <SummaryState error={error} isLoading={isLoading} />
+      {summary && (
+        <>
+          <div className="grid grid-cols-3 gap-3 border-b border-white/[0.07] p-5">
+            {[
+              [
+                String(summary.overall.serviceCount),
+                "Reporting services",
+                "text-zinc-100",
+              ],
+              [
+                `${(summary.overall.errorRate * 100).toFixed(1)}%`,
+                "Overall error rate",
+                "text-rose-300",
+              ],
+              [
+                formatDuration(summary.overall.p95Ms),
+                "Application p95",
+                "text-orange-300",
+              ],
+            ].map(([value, label, tone]) => (
+              <div
+                key={label}
+                className="rounded-md border border-white/[0.07] bg-white/[0.025] p-4"
               >
-                <span className="flex items-center gap-2 text-xs font-medium text-zinc-200">
-                  <span className="flex size-7 items-center justify-center rounded-md bg-violet-500/10">
-                    <Icon className="size-3.5 text-violet-300" />
-                  </span>
-                  {name}
-                </span>
-                <span className="font-mono text-[11px] text-zinc-400">
-                  {requests}
-                </span>
-                <span
-                  className={cn(
-                    "font-mono text-[11px]",
-                    Number.parseFloat(errorRate) > 1
-                      ? "text-rose-300"
-                      : "text-zinc-400",
-                  )}
-                >
-                  {errorRate}
-                </span>
-                <span className="font-mono text-[11px] text-zinc-400">
-                  {p95}
-                </span>
-                <span className="flex items-center gap-1.5 text-[10px] text-zinc-400">
-                  <span
-                    className={cn(
-                      "size-1.5 rounded-full",
-                      health === "healthy" ? "bg-emerald-400" : "bg-amber-400",
-                    )}
-                  />
-                  {health}
-                </span>
-              </Button>
-            ),
-          )}
-        </div>
-      </div>
+                <div className={cn("font-mono text-xl font-medium", tone)}>
+                  {value}
+                </div>
+                <div className="mt-1 text-[10px] text-zinc-600">{label}</div>
+              </div>
+            ))}
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-5">
+            <div className="overflow-hidden rounded-md border border-white/[0.07]">
+              <div className="grid grid-cols-[1.5fr_repeat(4,1fr)] bg-white/[0.025] px-4 py-2.5 text-[9px] font-semibold tracking-wider text-zinc-600 uppercase">
+                <span>Service</span>
+                <span>Requests</span>
+                <span>Error rate</span>
+                <span>P95</span>
+                <span>Status</span>
+              </div>
+              {summary.services.map((service) => {
+                const health =
+                  service.errorRate > 0.01 ? "degraded" : "healthy";
+                return (
+                  <Button
+                    key={service.service}
+                    type="button"
+                    variant="ghost"
+                    size={null}
+                    onClick={() => onSelectService(service.service)}
+                    className="grid h-auto w-full grid-cols-[1.5fr_repeat(4,1fr)] items-center rounded-none border-t border-white/[0.055] px-4 py-3 text-left hover:bg-white/[0.025]"
+                  >
+                    <span className="flex items-center gap-2 text-xs font-medium text-zinc-200">
+                      <span className="flex size-7 items-center justify-center rounded-md bg-violet-500/10">
+                        <Server className="size-3.5 text-violet-300" />
+                      </span>
+                      {service.service}
+                    </span>
+                    <span className="font-mono text-[11px] text-zinc-400">
+                      {formatCount(service.requestCount)}
+                    </span>
+                    <span
+                      className={cn(
+                        "font-mono text-[11px]",
+                        service.errorRate > 0.01
+                          ? "text-rose-300"
+                          : "text-zinc-400",
+                      )}
+                    >
+                      {(service.errorRate * 100).toFixed(1)}%
+                    </span>
+                    <span className="font-mono text-[11px] text-zinc-400">
+                      {formatDuration(service.p95Ms)}
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+                      <span
+                        className={cn(
+                          "size-1.5 rounded-full",
+                          health === "healthy"
+                            ? "bg-emerald-400"
+                            : "bg-amber-400",
+                        )}
+                      />
+                      {health}
+                    </span>
+                  </Button>
+                );
+              })}
+              {summary.services.length === 0 && (
+                <p className="p-4 text-xs text-zinc-500">
+                  No services reported in this time range.
+                </p>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </main>
   );
 }
 
-function BoardsView() {
+function BoardsView({
+  boardId,
+  error,
+  isLoading,
+  onBoardChange,
+  onRangeChange,
+  onRefresh,
+  range,
+  summary,
+}: {
+  boardId: BoardId | null;
+  error: string | null;
+  isLoading: boolean;
+  onBoardChange: (board: BoardId | null) => void;
+  onRangeChange: (range: number) => void;
+  onRefresh: () => void;
+  range: number;
+  summary: TelemetrySummary | null;
+}) {
+  const selectedBoard = boardDefinitions.find(({ id }) => id === boardId);
+  const selectedData =
+    summary && boardId ? metricsForBoard(summary, boardId) : null;
   return (
     <main className="bg-background flex min-w-0 flex-1 flex-col">
       <ViewHeader
-        title="Boards"
-        description="Saved operational views for common investigations"
+        title={selectedBoard?.title ?? "Boards"}
+        description={
+          selectedBoard?.description ??
+          "Operational views for common investigations"
+        }
+        isLoading={isLoading}
+        onRangeChange={onRangeChange}
+        onRefresh={onRefresh}
+        range={range}
       />
-      <div className="grid min-h-0 flex-1 grid-cols-2 gap-4 overflow-auto p-5">
-        {[
-          {
-            title: "Production pulse",
-            description: "Errors, throughput and latency",
-            color: "violet",
-            bars: [34, 48, 37, 62, 45, 74, 51, 68, 41, 58, 39, 47],
-          },
-          {
-            title: "Generation providers",
-            description: "Success rate and duration by model",
-            color: "rose",
-            bars: [62, 58, 66, 53, 71, 49, 44, 38, 52, 41, 34, 46],
-          },
-          {
-            title: "Database health",
-            description: "Query volume, slow queries and locks",
-            color: "cyan",
-            bars: [21, 26, 24, 31, 28, 35, 27, 33, 25, 29, 23, 26],
-          },
-          {
-            title: "Upload pipeline",
-            description: "Storage latency and failed uploads",
-            color: "orange",
-            bars: [18, 24, 20, 42, 28, 55, 31, 47, 29, 38, 22, 34],
-          },
-        ].map((board) => (
+      <SummaryState error={error} isLoading={isLoading} />
+      {summary && !selectedBoard && (
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto p-5 md:grid-cols-2">
+          {boardDefinitions.map((board) => {
+            const data = metricsForBoard(summary, board.id);
+            const maximum = Math.max(
+              1,
+              ...data.buckets.map(({ requestCount }) => requestCount),
+            );
+            return (
+              <Button
+                key={board.id}
+                type="button"
+                variant="ghost"
+                size={null}
+                onClick={() => onBoardChange(board.id)}
+                aria-label={`${board.title}: ${formatCount(data.metrics.requestCount)} ${board.id === "production" ? "requests" : "spans"}, ${data.metrics.errorCount} errors`}
+                className="group flex min-h-52 flex-col rounded-md border border-white/[0.07] bg-white/[0.02] p-4 text-left transition hover:border-violet-500/25 hover:bg-gray-900"
+              >
+                <div className="flex w-full items-start">
+                  <div>
+                    <h2 className="text-xs font-medium text-zinc-200">
+                      {board.title}
+                    </h2>
+                    <p className="mt-1 text-[10px] text-zinc-600">
+                      {board.description}
+                    </p>
+                  </div>
+                  <ExternalLink className="ml-auto size-3.5 text-zinc-700 transition group-hover:text-zinc-400" />
+                </div>
+                <div className="mt-auto flex h-24 w-full items-end gap-2 border-b border-white/[0.06]">
+                  {data.buckets.map(({ requestCount }, index) => (
+                    <div
+                      key={index}
+                      className={cn(
+                        "flex-1 rounded-t-sm opacity-60",
+                        board.color,
+                      )}
+                      style={{ height: `${(requestCount / maximum) * 100}%` }}
+                    />
+                  ))}
+                </div>
+                <div className="mt-2 flex w-full justify-between font-mono text-[8px] text-zinc-700">
+                  <span>{formatRangeLabel(range, 1)}</span>
+                  <span>now</span>
+                </div>
+                <div className="mt-3 flex gap-4 font-mono text-[9px] text-zinc-500">
+                  <span>
+                    {formatCount(data.metrics.requestCount)}{" "}
+                    {board.id === "production" ? "requests" : "spans"}
+                  </span>
+                  <span>{data.metrics.errorCount} errors</span>
+                  <span>p95 {formatDuration(data.metrics.p95Ms)}</span>
+                </div>
+              </Button>
+            );
+          })}
+        </div>
+      )}
+      {summary && selectedBoard && selectedData && (
+        <div className="min-h-0 flex-1 overflow-auto p-5">
           <Button
-            key={board.title}
-            type="button"
             variant="ghost"
             size={null}
-            className="group flex min-h-52 flex-col rounded-md border border-white/[0.07] bg-white/[0.02] p-4 text-left transition hover:border-violet-500/25 hover:bg-gray-900"
+            onClick={() => onBoardChange(null)}
+            className="mb-4 text-xs text-zinc-400"
           >
-            <div className="flex w-full items-start">
-              <div>
-                <h2 className="text-xs font-medium text-zinc-200">
-                  {board.title}
-                </h2>
-                <p className="mt-1 text-[10px] text-zinc-600">
-                  {board.description}
-                </p>
-              </div>
-              <ExternalLink className="ml-auto size-3.5 text-zinc-700 transition group-hover:text-zinc-400" />
-            </div>
-            <div className="mt-auto flex h-24 w-full items-end gap-2 border-b border-white/[0.06]">
-              {board.bars.map((height, index) => (
-                <div
-                  key={index}
-                  className={cn(
-                    "flex-1 rounded-t-sm opacity-60",
-                    board.color === "violet" && "bg-violet-400",
-                    board.color === "rose" && "bg-rose-400",
-                    board.color === "cyan" && "bg-cyan-400",
-                    board.color === "orange" && "bg-orange-400",
-                  )}
-                  style={{ height: `${height}%` }}
-                />
-              ))}
-            </div>
-            <div className="mt-2 flex w-full justify-between font-mono text-[8px] text-zinc-700">
-              <span>30m ago</span>
-              <span>now</span>
-            </div>
+            <ArrowLeft className="size-3.5" /> All boards
           </Button>
-        ))}
-      </div>
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              [
+                formatCount(selectedData.metrics.requestCount),
+                boardId === "production" ? "Requests" : "Spans",
+              ],
+              [
+                `${selectedData.metrics.requestCount ? ((selectedData.metrics.errorCount / selectedData.metrics.requestCount) * 100).toFixed(1) : "0.0"}%`,
+                "Error rate",
+              ],
+              [formatDuration(selectedData.metrics.p95Ms), "P95 latency"],
+            ].map(([value, label]) => (
+              <div
+                key={label}
+                className="rounded-md border border-white/[0.07] bg-white/[0.025] p-4"
+              >
+                <div className="font-mono text-xl text-zinc-100">{value}</div>
+                <div className="mt-1 text-[10px] text-zinc-600">{label}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 overflow-hidden rounded-md border border-white/[0.07]">
+            {selectedData.operations.map((operation) => (
+              <div
+                key={operation.operation}
+                className="grid grid-cols-[2fr_repeat(3,1fr)] border-b border-white/[0.055] px-4 py-3 text-[11px] last:border-0"
+              >
+                <span className="truncate font-mono text-zinc-300">
+                  {operation.operation}
+                </span>
+                <span className="text-zinc-500">
+                  {formatCount(operation.requestCount)} requests
+                </span>
+                <span className="text-zinc-500">
+                  {operation.errorCount} errors
+                </span>
+                <span className="text-zinc-500">
+                  p95 {formatDuration(operation.p95Ms)}
+                </span>
+              </div>
+            ))}
+            {selectedData.operations.length === 0 && (
+              <p className="p-4 text-xs text-zinc-500">
+                No matching operations reported in this time range.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }
@@ -1516,6 +1689,10 @@ export default function TelemetryPage() {
   const [activeView, setActiveView] = useState<DashboardView>("traces");
   const [preset, setPreset] = useState<TracePreset>("errors");
   const [range, setRange] = useState(1_800);
+  const [boardId, setBoardId] = useState<BoardId | null>(null);
+  const [serviceFilter, setServiceFilter] = useState<string | null>(null);
+  const [requestedTraceId, setRequestedTraceId] = useState<string | null>(null);
+  const [urlReady, setUrlReady] = useState(false);
   const [liveTraces, setLiveTraces] = useState<Trace[]>(() =>
     process.env.NODE_ENV === "test" ? traces : [],
   );
@@ -1524,16 +1701,113 @@ export default function TelemetryPage() {
   const [tracesLoading, setTracesLoading] = useState(true);
   const [tracesTruncated, setTracesTruncated] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [summary, setSummary] = useState<TelemetrySummary | null>(null);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
 
   useEffect(() => {
+    const applyUrl = () => {
+      const params = new URLSearchParams(window.location.search);
+      const view = params.get("view");
+      const nextPreset = params.get("preset");
+      const nextRange = Number(params.get("range"));
+      const board = params.get("board");
+      setActiveView(view === "services" || view === "boards" ? view : "traces");
+      setPreset(
+        nextPreset === "all" || nextPreset === "slow" ? nextPreset : "errors",
+      );
+      setRange(
+        [900, 1800, 3600, 86400, 604800, 2592000].includes(nextRange)
+          ? nextRange
+          : 1_800,
+      );
+      setBoardId(
+        boardDefinitions.some(({ id }) => id === board)
+          ? (board as BoardId)
+          : null,
+      );
+      setServiceFilter(params.get("service"));
+      setRequestedTraceId(params.get("trace"));
+      setSelectedTrace(null);
+      setUrlReady(true);
+    };
+    applyUrl();
+    window.addEventListener("popstate", applyUrl);
+    return () => window.removeEventListener("popstate", applyUrl);
+  }, []);
+
+  useEffect(() => {
+    if (!urlReady) return;
+    const params = new URLSearchParams();
+    params.set("view", activeView);
+    params.set("range", String(range));
+    params.set("preset", preset);
+    if (serviceFilter) params.set("service", serviceFilter);
+    if (activeView === "boards" && boardId) params.set("board", boardId);
+    const traceId = selectedTrace?.id ?? requestedTraceId;
+    if (activeView === "traces" && traceId) params.set("trace", traceId);
+    window.history.replaceState(null, "", `?${params.toString()}`);
+  }, [
+    activeView,
+    boardId,
+    preset,
+    range,
+    requestedTraceId,
+    selectedTrace,
+    serviceFilter,
+    urlReady,
+  ]);
+
+  useEffect(() => {
+    if (!urlReady) return;
+    const controller = new AbortController();
+    setSummaryLoading(true);
+    setSummaryError(null);
+    void fetch(`/api/telemetry/summary?range=${range}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then((response) =>
+        parseApiResponse<TelemetrySummary & { error?: string }>(
+          response,
+          "Unable to load telemetry summary",
+        ),
+      )
+      .then(setSummary)
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setSummary(null);
+        setSummaryError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load telemetry summary",
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSummaryLoading(false);
+      });
+    return () => controller.abort();
+  }, [range, refreshKey, urlReady]);
+
+  useEffect(() => {
+    if (!urlReady) return;
     const controller = new AbortController();
     setTracesLoading(true);
     setTracesError(null);
 
-    void fetch(`/api/telemetry/traces?preset=${preset}&range=${range}`, {
-      cache: "no-store",
-      signal: controller.signal,
-    })
+    const serviceQuery = serviceFilter
+      ? `&service=${encodeURIComponent(serviceFilter)}`
+      : "";
+    const traceQuery = requestedTraceId
+      ? `&trace=${encodeURIComponent(requestedTraceId)}`
+      : "";
+    void fetch(
+      `/api/telemetry/traces?preset=${preset}&range=${range}${serviceQuery}${traceQuery}`,
+      {
+        cache: "no-store",
+        signal: controller.signal,
+      },
+    )
       .then((response) =>
         parseApiResponse<TraceListResponse>(
           response,
@@ -1545,8 +1819,8 @@ export default function TelemetryPage() {
           id: trace.id,
           shortId: trace.shortId,
           route: trace.operation,
-          method: trace.source === "browser" ? "BROWSER" : "SERVER",
-          status: trace.outcome === "unexpected_error" ? 500 : 200,
+          outcome: trace.outcome,
+          source: trace.source,
           service: trace.service,
           duration: formatDuration(trace.durationMs),
           durationMs: trace.durationMs,
@@ -1567,7 +1841,11 @@ export default function TelemetryPage() {
             );
             if (refreshed) return refreshed;
           }
-          return nextTraces[0] ?? null;
+          return (
+            nextTraces.find((trace) => trace.id === requestedTraceId) ??
+            nextTraces[0] ??
+            null
+          );
         });
       })
       .catch((error: unknown) => {
@@ -1584,78 +1862,75 @@ export default function TelemetryPage() {
       });
 
     return () => controller.abort();
-  }, [preset, range, refreshKey]);
+  }, [preset, range, refreshKey, requestedTraceId, serviceFilter, urlReady]);
 
   return (
-    <div className="bg-background flex h-screen min-h-[680px] w-full overflow-hidden text-zinc-200 [&_button:not(:disabled)]:cursor-pointer">
+    <div className="bg-background flex h-screen min-h-[680px] w-full overflow-auto text-zinc-200 [&_button:not(:disabled)]:cursor-pointer">
       <NavRail activeView={activeView} onViewChange={setActiveView} />
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="bg-background flex h-10 shrink-0 items-center border-b border-white/[0.07] px-3">
-          <Button
-            type="button"
-            variant="ghost"
-            size={null}
-            className="flex h-auto items-center gap-1.5 text-[11px] text-zinc-500 hover:bg-transparent hover:text-zinc-200"
+          <Link
+            href="/"
+            className="flex h-auto items-center gap-1.5 text-[11px] text-zinc-500 hover:text-zinc-200"
           >
             <ArrowLeft className="size-3.5" />
             AI Thing
-          </Button>
+          </Link>
           <ChevronRight className="mx-2 size-3 text-zinc-700" />
-          <Button
-            type="button"
-            variant="ghost"
-            size={null}
-            className="flex h-auto items-center gap-1.5 text-[11px] font-medium text-zinc-300 hover:bg-transparent"
-          >
+          <div className="flex h-auto items-center gap-1.5 text-[11px] font-medium text-zinc-300">
             <Box className="size-3 text-violet-400" />
             production
-            <ChevronDown className="size-3 text-zinc-600" />
-          </Button>
+          </div>
           <div className="ml-4 h-4 w-px bg-white/[0.08]" />
           <div className="ml-4 flex items-center gap-1.5 text-[10px] text-zinc-500">
             <span className="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_7px_rgba(52,211,153,.6)]" />
-            All systems reporting
+            {summaryError
+              ? "Telemetry unavailable"
+              : summaryLoading
+                ? "Loading telemetry"
+                : "Telemetry connected"}
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Button
               type="button"
               variant="ghost"
               size={null}
-              className="flex items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.025] px-2 py-1 text-[10px] text-zinc-500 hover:text-zinc-300"
-            >
-              <Play className="size-2.5 fill-current" />
-              Live tail
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size={null}
+              onClick={() => setActiveView("services")}
               className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-300"
             >
-              <Server className="size-3" /> 6 services
+              <Server className="size-3" /> {summary?.overall.serviceCount ?? 0}{" "}
+              services
             </Button>
           </div>
         </div>
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 min-w-[720px] flex-1 lg:min-w-0">
           {activeView === "traces" && (
             <>
               <TraceList
                 error={tracesError}
                 isLoading={tracesLoading}
+                onClearService={() => setServiceFilter(null)}
                 onPresetChange={setPreset}
                 onRangeChange={setRange}
                 onRefresh={() => setRefreshKey((value) => value + 1)}
                 preset={preset}
                 range={range}
+                serviceFilter={serviceFilter}
                 selectedTrace={selectedTrace}
-                setSelectedTrace={setSelectedTrace}
+                setSelectedTrace={(trace) => {
+                  setRequestedTraceId(null);
+                  setSelectedTrace(trace);
+                }}
                 traces={liveTraces}
                 truncated={tracesTruncated}
               />
               {selectedTrace ? (
                 <TraceInspector
                   key={selectedTrace.id}
-                  onClose={() => setSelectedTrace(null)}
+                  onClose={() => {
+                    setRequestedTraceId(null);
+                    setSelectedTrace(null);
+                  }}
                   trace={selectedTrace}
                 />
               ) : (
@@ -1670,8 +1945,33 @@ export default function TelemetryPage() {
               )}
             </>
           )}
-          {activeView === "services" && <ServicesView />}
-          {activeView === "boards" && <BoardsView />}
+          {activeView === "services" && (
+            <ServicesView
+              error={summaryError}
+              isLoading={summaryLoading}
+              onRangeChange={setRange}
+              onRefresh={() => setRefreshKey((value) => value + 1)}
+              onSelectService={(service) => {
+                setServiceFilter(service);
+                setPreset("all");
+                setActiveView("traces");
+              }}
+              range={range}
+              summary={summary}
+            />
+          )}
+          {activeView === "boards" && (
+            <BoardsView
+              boardId={boardId}
+              error={summaryError}
+              isLoading={summaryLoading}
+              onBoardChange={setBoardId}
+              onRangeChange={setRange}
+              onRefresh={() => setRefreshKey((value) => value + 1)}
+              range={range}
+              summary={summary}
+            />
+          )}
         </div>
       </div>
     </div>

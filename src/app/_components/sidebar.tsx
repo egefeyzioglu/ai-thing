@@ -192,7 +192,6 @@ function ModelCard({
     </div>
   );
 }
-
 function AdvancedControlLabel({
   label,
   help,
@@ -545,6 +544,7 @@ type SidebarProps = {
   isLoadingUsage: boolean;
   currentRequestCost: number;
   canBypassLimits: boolean;
+  canViewTelemetry: boolean;
   bypassMonthlyQuota: boolean;
   onBypassMonthlyQuotaChange: (value: boolean) => void;
 };
@@ -611,6 +611,7 @@ export function Sidebar({
   isLoadingUsage,
   currentRequestCost,
   canBypassLimits,
+  canViewTelemetry,
   bypassMonthlyQuota,
   onBypassMonthlyQuotaChange,
 }: SidebarProps) {
@@ -1495,6 +1496,13 @@ export function Sidebar({
         <div className="flex w-full flex-row items-center-safe justify-start gap-4 px-4">
           <UserButton>
             <UserButton.MenuItems>
+              {canViewTelemetry && (
+                <UserButton.Link
+                  href="/telemetry"
+                  label="Telemetry"
+                  labelIcon={<Gauge className="size-4" />}
+                />
+              )}
               <UserButton.Action
                 label="Usage"
                 labelIcon={<Gauge className="size-4" />}
