@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 
 import { UserButton } from "@clerk/nextjs";
 import {
+  Activity,
   Check,
   ChevronDown,
   ChevronUp,
@@ -1500,7 +1501,7 @@ export function Sidebar({
                 <UserButton.Link
                   href="/telemetry"
                   label="Telemetry"
-                  labelIcon={<Gauge className="size-4" />}
+                  labelIcon={<Activity className="size-4" />}
                 />
               )}
               <UserButton.Action

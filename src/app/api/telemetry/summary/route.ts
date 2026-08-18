@@ -1,17 +1,23 @@
 import { auth } from "@clerk/nextjs/server";
-import { and, asc, count, gte, ilike, isNull, or, sql } from "drizzle-orm";
+import { and, asc, count, gte, ilike, isNull, lt, or, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { currentUserCanViewTelemetry } from "src/server/telemetry/auth";
 import { getTelemetryDb } from "src/server/telemetry/db";
 import { telemetrySpans } from "src/server/telemetry/schema";
+import { TELEMETRY_BOARD_TERMS } from "src/lib/telemetry-boards";
 
 const searchParamsSchema = z.object({
   range: z.coerce.number().int().min(60).max(2_592_000).default(1_800),
 });
 
 const BUCKET_COUNT = 24;
+const SUMMARY_CACHE_TTL_MS = 15_000;
+const summaryCache = new Map<
+  number,
+  { expiresAt: number; value: Record<string, unknown> }
+>();
 
 export async function GET(request: Request) {
   const { isAuthenticated } = await auth();
@@ -38,45 +44,33 @@ export async function GET(request: Request) {
   }
 
   const { range } = parsed.data;
-  const cutoff = new Date(Date.now() - range * 1_000);
+  const cached = summaryCache.get(range);
+  if (cached && cached.expiresAt > Date.now()) {
+    return NextResponse.json(cached.value);
+  }
+  const endTime = new Date();
+  const cutoff = new Date(endTime.getTime() - range * 1_000);
   const bucketSeconds = Math.max(1, Math.ceil(range / BUCKET_COUNT));
-  const timeFilters = gte(telemetrySpans.startedAt, cutoff);
+  const timeFilters = and(
+    gte(telemetrySpans.startedAt, cutoff),
+    lt(telemetrySpans.startedAt, endTime),
+  );
   const rootFilters = and(isNull(telemetrySpans.parentSpanId), timeFilters);
   const isUnexpectedError = sql<number>`case when ${telemetrySpans.outcome} = 'unexpected_error' then 1 else 0 end`;
   const isRoot = sql<boolean>`${telemetrySpans.parentSpanId} is null`;
+  const matchesOperation = (terms: readonly string[]) =>
+    or(...terms.map((term) => ilike(telemetrySpans.operation, `%${term}%`)));
   const boardFilters = {
     production: rootFilters,
     generation: and(
       timeFilters,
-      or(
-        ilike(telemetrySpans.operation, "%generat%"),
-        ilike(telemetrySpans.operation, "%image%"),
-        ilike(telemetrySpans.operation, "%fal%"),
-        ilike(telemetrySpans.operation, "%openai%"),
-        ilike(telemetrySpans.operation, "%replicate%"),
-      ),
+      matchesOperation(TELEMETRY_BOARD_TERMS.generation),
     ),
     database: and(
       timeFilters,
-      or(
-        ilike(telemetrySpans.operation, "%database%"),
-        ilike(telemetrySpans.operation, "%postgres%"),
-        ilike(telemetrySpans.operation, "%db.%"),
-        ilike(telemetrySpans.operation, "%query%"),
-        ilike(telemetrySpans.operation, "%insert%"),
-        ilike(telemetrySpans.operation, "%select%"),
-        ilike(telemetrySpans.operation, "%update%"),
-      ),
+      matchesOperation(TELEMETRY_BOARD_TERMS.database),
     ),
-    uploads: and(
-      timeFilters,
-      or(
-        ilike(telemetrySpans.operation, "%upload%"),
-        ilike(telemetrySpans.operation, "%storage%"),
-        ilike(telemetrySpans.operation, "%multipart%"),
-        ilike(telemetrySpans.operation, "%file%"),
-      ),
-    ),
+    uploads: and(timeFilters, matchesOperation(TELEMETRY_BOARD_TERMS.uploads)),
   };
   const aggregate = (
     filters: NonNullable<(typeof boardFilters)[keyof typeof boardFilters]>,
@@ -145,7 +139,7 @@ export async function GET(request: Request) {
     const requestCount = Number(overall?.requestCount ?? 0);
     const errorCount = Number(overall?.errorCount ?? 0);
 
-    return NextResponse.json({
+    const summary = {
       bucketCount: BUCKET_COUNT,
       buckets: buckets.map((bucket) => ({
         bucket: Number(bucket.bucket),
@@ -192,7 +186,12 @@ export async function GET(request: Request) {
         requestCount: Number(service.requestCount),
         service: service.service,
       })),
+    };
+    summaryCache.set(range, {
+      expiresAt: Date.now() + SUMMARY_CACHE_TTL_MS,
+      value: summary,
     });
+    return NextResponse.json(summary);
   } catch (error) {
     console.error("[telemetry] Failed to load summary", {
       error: error instanceof Error ? error.message : String(error),

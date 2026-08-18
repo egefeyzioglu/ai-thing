@@ -37,6 +37,13 @@ export const telemetrySpans = pgTable(
   },
   (table) => [
     index("telemetry_span_started_at_idx").on(table.startedAt.desc()),
+    index("telemetry_span_root_started_at_idx")
+      .on(table.startedAt.desc(), table.parentSpanId)
+      .where(sql`${table.parentSpanId} is null`),
+    index("telemetry_span_operation_trgm_idx").using(
+      "gin",
+      table.operation.op("gin_trgm_ops"),
+    ),
     index("telemetry_span_trace_started_idx").on(
       table.traceId,
       table.startedAt,

@@ -15,17 +15,14 @@ import {
   ExternalLink,
   Gauge,
   Globe2,
-  Hexagon,
   Layers3,
   PanelRightClose,
   RefreshCw,
   Search,
   Server,
   Share2,
-  Sparkles,
   TerminalSquare,
   X,
-  Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -40,6 +37,10 @@ import {
   SelectValue,
 } from "src/components/ui/select";
 import { cn } from "src/lib/utils";
+import {
+  TELEMETRY_BOARD_TERMS,
+  type TelemetryBoardId,
+} from "src/lib/telemetry-boards";
 
 type Trace = {
   id: string;
@@ -117,7 +118,7 @@ type TelemetrySummary = {
   services: Array<SummaryMetric & { errorRate: number; service: string }>;
 };
 
-type BoardId = "production" | "generation" | "database" | "uploads";
+type BoardId = TelemetryBoardId;
 
 function formatDuration(durationMs: number): string {
   if (durationMs >= 1_000) return `${(durationMs / 1_000).toFixed(2)}s`;
@@ -174,197 +175,6 @@ function traceMatchesQuery(trace: Trace, query: string): boolean {
 function traceHasError(trace: Trace): boolean {
   return trace.outcome === "unexpected_error";
 }
-
-const traces: Trace[] = [
-  {
-    id: "48a7c3b952e9f16a08dc764e4e5806d1",
-    shortId: "48a7c3b9",
-    route: "/api/generate",
-    source: "server",
-    outcome: "unexpected_error",
-    service: "api",
-    duration: "2.84s",
-    durationMs: 2840,
-    spans: 18,
-    when: "12s ago",
-    error: "FalClientError: Request timed out after 30s",
-    user: "usr_2x7...Ym4",
-    version: "web@7f39a2",
-  },
-  {
-    id: "2dc6f58b108fa8dd93aca1245a8f4a77",
-    shortId: "2dc6f58b",
-    route: "/api/generate",
-    source: "server",
-    outcome: "unexpected_error",
-    service: "api",
-    duration: "2.31s",
-    durationMs: 2310,
-    spans: 16,
-    when: "1m ago",
-    error: "FalClientError: Request timed out after 30s",
-    user: "usr_8p2...Lk9",
-    version: "web@7f39a2",
-  },
-  {
-    id: "c90e8c4b780c3a78fae0129021cf1d54",
-    shortId: "c90e8c4b",
-    route: "/api/uploadthing",
-    source: "server",
-    outcome: "unexpected_error",
-    service: "uploads",
-    duration: "1.92s",
-    durationMs: 1920,
-    spans: 11,
-    when: "3m ago",
-    error: "StorageUnavailable: Failed to finalize multipart upload",
-    user: "usr_4q1...Vt2",
-    version: "web@7f39a2",
-  },
-  {
-    id: "ba149b32d0317f2c91a1d83dfdb9cf21",
-    shortId: "ba149b32",
-    route: "/trpc/media.list",
-    source: "server",
-    outcome: "unexpected_error",
-    service: "web",
-    duration: "6.10s",
-    durationMs: 6100,
-    spans: 23,
-    when: "8m ago",
-    error: "PostgresError: canceling statement due to statement timeout",
-    user: "usr_1n8...Qa7",
-    version: "web@d12f48",
-  },
-  {
-    id: "e3cb7783b70c2d97af52aa88f832742b",
-    shortId: "e3cb7783",
-    route: "/api/generate",
-    source: "server",
-    outcome: "expected_error",
-    service: "api",
-    duration: "184ms",
-    durationMs: 184,
-    spans: 9,
-    when: "14m ago",
-    error: "RateLimitError: Provider quota exceeded",
-    user: "usr_9z3...Ap5",
-    version: "web@d12f48",
-  },
-  {
-    id: "7b2f199e4d7c9b28b1ec28a86ca8a8dc",
-    shortId: "7b2f199e",
-    route: "/trpc/media.list",
-    source: "server",
-    outcome: "success",
-    service: "web",
-    duration: "246ms",
-    durationMs: 246,
-    spans: 12,
-    when: "16m ago",
-    error: "",
-    user: "usr_6w2...Jf8",
-    version: "web@d12f48",
-  },
-  {
-    id: "1a97d2456f01c17a3eacaa58713ad167",
-    shortId: "1a97d245",
-    route: "/api/uploadthing",
-    source: "server",
-    outcome: "success",
-    service: "uploads",
-    duration: "1.14s",
-    durationMs: 1140,
-    spans: 14,
-    when: "19m ago",
-    error: "",
-    user: "usr_3r5...Bc1",
-    version: "web@d12f48",
-  },
-];
-
-const mockSpans = [
-  {
-    name: "POST /api/generate",
-    service: "api",
-    start: 0,
-    width: 100,
-    duration: "2.84s",
-    depth: 0,
-    error: true,
-    icon: Globe2,
-  },
-  {
-    name: "auth.verifySession",
-    service: "api",
-    start: 2,
-    width: 8,
-    duration: "219ms",
-    depth: 1,
-    error: false,
-    icon: Hexagon,
-  },
-  {
-    name: "prompt.createWithGenerations",
-    service: "api",
-    start: 11,
-    width: 86,
-    duration: "2.44s",
-    depth: 1,
-    error: true,
-    icon: Braces,
-  },
-  {
-    name: "db.insert prompt",
-    service: "postgres",
-    start: 14,
-    width: 5,
-    duration: "142ms",
-    depth: 2,
-    error: false,
-    icon: Database,
-  },
-  {
-    name: "generation.create",
-    service: "api",
-    start: 21,
-    width: 73,
-    duration: "2.07s",
-    depth: 2,
-    error: true,
-    icon: Sparkles,
-  },
-  {
-    name: "fal.subscribe",
-    service: "fal",
-    start: 25,
-    width: 67,
-    duration: "1.91s",
-    depth: 3,
-    error: true,
-    icon: Zap,
-  },
-  {
-    name: "POST queue.fal.run",
-    service: "fal",
-    start: 28,
-    width: 63,
-    duration: "1.79s",
-    depth: 4,
-    error: true,
-    icon: Globe2,
-  },
-  {
-    name: "record generation failure",
-    service: "postgres",
-    start: 93,
-    width: 4,
-    duration: "97ms",
-    depth: 2,
-    error: false,
-    icon: Database,
-  },
-];
 
 function Logo() {
   return (
@@ -479,11 +289,12 @@ function TraceList({
       traces.filter((trace) => {
         const matchesPreset =
           preset === "all" ||
+          selectedTrace?.id === trace.id ||
           (preset === "errors" && traceHasError(trace)) ||
           (preset === "slow" && trace.durationMs >= 1000);
         return traceMatchesQuery(trace, query) && matchesPreset;
       }),
-    [preset, query, traces],
+    [preset, query, selectedTrace?.id, traces],
   );
   const errorCount = traces.filter(
     (trace) => traceHasError(trace) && traceMatchesQuery(trace, query),
@@ -729,67 +540,50 @@ function Waterfall({
 }) {
   const [selectedSpan, setSelectedSpan] = useState(0);
   const displaySpans = useMemo(() => {
-    const source =
-      process.env.NODE_ENV === "test" && spans.length === 0
-        ? mockSpans.map((span, index) => ({
-            ...span,
-            id: String(index),
-            errorMessage: span.error ? "Request timed out after 30s" : null,
-            errorName: span.error ? "FalClientError" : null,
-            errorStack: null,
-          }))
-        : spans.map((span) => {
-            const startedAt = span.startedAt
-              ? new Date(span.startedAt).getTime()
-              : 0;
-            return {
-              ...span,
-              depth: 0,
-              duration: formatDuration(span.durationMs),
-              error: span.outcome === "unexpected_error",
-              icon:
-                span.service === "postgres"
-                  ? Database
-                  : span.source === "browser"
-                    ? Globe2
-                    : Braces,
-              startMs: Number.isFinite(startedAt) ? startedAt : 0,
-            };
-          });
+    const source = spans.map((span) => {
+      const startedAt = span.startedAt ? new Date(span.startedAt).getTime() : 0;
+      return {
+        ...span,
+        depth: 0,
+        duration: formatDuration(span.durationMs),
+        error: span.outcome === "unexpected_error",
+        icon:
+          span.service === "postgres"
+            ? Database
+            : span.source === "browser"
+              ? Globe2
+              : Braces,
+        startMs: Number.isFinite(startedAt) ? startedAt : 0,
+      };
+    });
     if (source.length === 0) return [];
 
     const byId = new Map(source.map((span) => [span.id, span]));
     const depthFor = (span: (typeof source)[number]): number => {
       let depth = 0;
-      let parentId = "parentId" in span ? span.parentId : null;
+      let parentId = span.parentId;
       const visited = new Set<string>();
       while (parentId && !visited.has(parentId)) {
         visited.add(parentId);
         const parent = byId.get(parentId);
         if (!parent) break;
         depth += 1;
-        parentId = "parentId" in parent ? parent.parentId : null;
+        parentId = parent.parentId;
       }
       return depth;
     };
     const validStarts = source
-      .map((span) => ("startMs" in span ? span.startMs : 0))
+      .map((span) => span.startMs)
       .filter((value) => value > 0);
     const traceStart = validStarts.length > 0 ? Math.min(...validStarts) : 0;
     const traceEnd = Math.max(
       ...source.map((span) => {
-        const start = "startMs" in span ? span.startMs : traceStart;
-        const duration =
-          "durationMs" in span
-            ? span.durationMs
-            : Number.parseFloat(span.duration) * 1_000;
-        return start + duration;
+        return span.startMs + span.durationMs;
       }),
     );
     const traceDuration = Math.max(traceEnd - traceStart, 1);
 
     return source.map((span) => {
-      if ("start" in span && "width" in span) return span;
       return {
         ...span,
         depth: depthFor(span),
@@ -1001,6 +795,9 @@ function TraceInspector({
     "waterfall",
   );
   const [copied, setCopied] = useState(false);
+  const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
   const [liveSpans, setLiveSpans] = useState<LiveSpan[]>([]);
   const [spansError, setSpansError] = useState<string | null>(null);
   const [spansLoading, setSpansLoading] = useState(true);
@@ -1174,10 +971,25 @@ function TraceInspector({
             onClick={() => {
               const url = new URL(window.location.href);
               url.searchParams.set("trace", trace.id);
-              void navigator.clipboard.writeText(url.toString());
+              void navigator.clipboard.writeText(url.toString()).then(
+                () => {
+                  setShareStatus("copied");
+                  setTimeout(() => setShareStatus("idle"), 1200);
+                },
+                () => {
+                  setShareStatus("failed");
+                  setTimeout(() => setShareStatus("idle"), 1800);
+                },
+              );
             }}
           >
-            <Share2 />
+            {shareStatus === "copied" ? (
+              <Check className="text-emerald-400" />
+            ) : shareStatus === "failed" ? (
+              <X className="text-rose-400" />
+            ) : (
+              <Share2 />
+            )}
           </Button>
           <Button
             variant="ghost"
@@ -1259,7 +1071,6 @@ const boardDefinitions: Array<{
   color: string;
   description: string;
   id: BoardId;
-  pattern: RegExp | null;
   title: string;
 }> = [
   {
@@ -1267,28 +1078,24 @@ const boardDefinitions: Array<{
     title: "Production pulse",
     description: "Errors, throughput and latency",
     color: "bg-violet-400",
-    pattern: null,
   },
   {
     id: "generation",
     title: "Generation providers",
     description: "Success rate and duration for generation operations",
     color: "bg-rose-400",
-    pattern: /generat|image|fal|openai|replicate/i,
   },
   {
     id: "database",
     title: "Database health",
     description: "Database request volume, errors and latency",
     color: "bg-cyan-400",
-    pattern: /database|postgres|db\.|query|insert|select|update/i,
   },
   {
     id: "uploads",
     title: "Upload pipeline",
     description: "Storage latency and failed upload operations",
     color: "bg-orange-400",
-    pattern: /upload|storage|multipart|file/i,
   },
 ];
 
@@ -1312,9 +1119,11 @@ function aggregateMetrics(items: SummaryMetric[]): SummaryMetric {
 }
 
 function metricsForBoard(summary: TelemetrySummary, boardId: BoardId) {
-  const board = boardDefinitions.find(({ id }) => id === boardId)!;
+  const terms = TELEMETRY_BOARD_TERMS[boardId];
   const matches = (operation: string, root: boolean) =>
-    board.pattern === null ? root : board.pattern.test(operation);
+    terms.length === 0
+      ? root
+      : terms.some((term) => operation.toLowerCase().includes(term));
   const operations = summary.operations.filter(({ operation, root }) =>
     matches(operation, root),
   );
@@ -1693,9 +1502,7 @@ export default function TelemetryPage() {
   const [serviceFilter, setServiceFilter] = useState<string | null>(null);
   const [requestedTraceId, setRequestedTraceId] = useState<string | null>(null);
   const [urlReady, setUrlReady] = useState(false);
-  const [liveTraces, setLiveTraces] = useState<Trace[]>(() =>
-    process.env.NODE_ENV === "test" ? traces : [],
-  );
+  const [liveTraces, setLiveTraces] = useState<Trace[]>([]);
   const [selectedTrace, setSelectedTrace] = useState<Trace | null>(null);
   const [tracesError, setTracesError] = useState<string | null>(null);
   const [tracesLoading, setTracesLoading] = useState(true);
@@ -1883,7 +1690,16 @@ export default function TelemetryPage() {
           </div>
           <div className="ml-4 h-4 w-px bg-white/[0.08]" />
           <div className="ml-4 flex items-center gap-1.5 text-[10px] text-zinc-500">
-            <span className="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_7px_rgba(52,211,153,.6)]" />
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                summaryError
+                  ? "bg-rose-400 shadow-[0_0_7px_rgba(251,113,133,.6)]"
+                  : summaryLoading
+                    ? "bg-amber-400"
+                    : "bg-emerald-400 shadow-[0_0_7px_rgba(52,211,153,.6)]",
+              )}
+            />
             {summaryError
               ? "Telemetry unavailable"
               : summaryLoading
