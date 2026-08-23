@@ -13,11 +13,39 @@ const searchParamsSchema = z.object({
 });
 
 const BUCKET_COUNT = 24;
+const SUMMARY_CACHE_MAX_ENTRIES = 32;
 const SUMMARY_CACHE_TTL_MS = 15_000;
 const summaryCache = new Map<
   number,
   { expiresAt: number; value: Record<string, unknown> }
 >();
+
+function getCachedSummary(range: number): Record<string, unknown> | null {
+  const now = Date.now();
+  for (const [key, entry] of summaryCache) {
+    if (entry.expiresAt <= now) summaryCache.delete(key);
+  }
+
+  const cached = summaryCache.get(range);
+  if (!cached) return null;
+  summaryCache.delete(range);
+  summaryCache.set(range, cached);
+  return cached.value;
+}
+
+function cacheSummary(range: number, value: Record<string, unknown>): void {
+  if (
+    !summaryCache.has(range) &&
+    summaryCache.size >= SUMMARY_CACHE_MAX_ENTRIES
+  ) {
+    const oldestKey = summaryCache.keys().next().value;
+    if (oldestKey !== undefined) summaryCache.delete(oldestKey);
+  }
+  summaryCache.set(range, {
+    expiresAt: Date.now() + SUMMARY_CACHE_TTL_MS,
+    value,
+  });
+}
 
 export async function GET(request: Request) {
   const { isAuthenticated } = await auth();
@@ -44,10 +72,8 @@ export async function GET(request: Request) {
   }
 
   const { range } = parsed.data;
-  const cached = summaryCache.get(range);
-  if (cached && cached.expiresAt > Date.now()) {
-    return NextResponse.json(cached.value);
-  }
+  const cached = getCachedSummary(range);
+  if (cached) return NextResponse.json(cached);
   const endTime = new Date();
   const cutoff = new Date(endTime.getTime() - range * 1_000);
   const cutoffEpochSeconds = cutoff.getTime() / 1_000;
@@ -188,10 +214,7 @@ export async function GET(request: Request) {
         service: service.service,
       })),
     };
-    summaryCache.set(range, {
-      expiresAt: Date.now() + SUMMARY_CACHE_TTL_MS,
-      value: summary,
-    });
+    cacheSummary(range, summary);
     return NextResponse.json(summary);
   } catch (error) {
     console.error("[telemetry] Failed to load summary", {
