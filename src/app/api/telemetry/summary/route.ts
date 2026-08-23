@@ -50,6 +50,7 @@ export async function GET(request: Request) {
   }
   const endTime = new Date();
   const cutoff = new Date(endTime.getTime() - range * 1_000);
+  const cutoffEpochSeconds = cutoff.getTime() / 1_000;
   const bucketSeconds = Math.max(1, Math.ceil(range / BUCKET_COUNT));
   const timeFilters = and(
     gte(telemetrySpans.startedAt, cutoff),
@@ -100,7 +101,7 @@ export async function GET(request: Request) {
           .orderBy(sql`count(*) desc`),
         telemetryDb
           .select({
-            bucket: sql<number>`floor(extract(epoch from (${telemetrySpans.startedAt} - ${cutoff})) / ${bucketSeconds})::int`,
+            bucket: sql<number>`floor((extract(epoch from ${telemetrySpans.startedAt}) - ${cutoffEpochSeconds}) / ${bucketSeconds})::int`,
             errorCount: sql<number>`sum(${isUnexpectedError})::int`,
             p95Ms: sql<number>`coalesce(percentile_cont(0.95) within group (order by ${telemetrySpans.durationMs}), 0)::float`,
             requestCount: count(),

@@ -13,11 +13,11 @@ export async function deleteExpiredTelemetry(): Promise<number | null> {
 
   const cutoff = new Date(
     Date.now() - TELEMETRY_RETENTION_DAYS * 24 * 60 * 60_000,
-  );
+  ).toISOString();
   const deleted = await telemetryDb.execute<{ count: number }>(sql`
     WITH deleted AS (
       DELETE FROM ${telemetrySpans}
-      WHERE ${telemetrySpans.startedAt} < ${cutoff}
+      WHERE ${telemetrySpans.startedAt} < ${cutoff}::timestamptz
       RETURNING 1
     )
     SELECT count(*)::int AS count FROM deleted
