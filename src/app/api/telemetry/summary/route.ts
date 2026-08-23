@@ -51,7 +51,7 @@ export async function GET(request: Request) {
   const endTime = new Date();
   const cutoff = new Date(endTime.getTime() - range * 1_000);
   const cutoffEpochSeconds = cutoff.getTime() / 1_000;
-  const bucketSeconds = Math.max(1, Math.ceil(range / BUCKET_COUNT));
+  const bucketSeconds = range / BUCKET_COUNT;
   const timeFilters = and(
     gte(telemetrySpans.startedAt, cutoff),
     lt(telemetrySpans.startedAt, endTime),
