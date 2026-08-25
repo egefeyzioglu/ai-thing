@@ -18,7 +18,12 @@ export function getTelemetryDb(): TelemetryDb | null {
   if (!env.TELEMETRY_DATABASE_URL) return null;
   if (globalForTelemetry.telemetryDb) return globalForTelemetry.telemetryDb;
 
-  const client = postgres(env.TELEMETRY_DATABASE_URL, { prepare: false });
+  const client = postgres(env.TELEMETRY_DATABASE_URL, {
+    prepare: false,
+    // Telemetry is best-effort: fail fast instead of the 30s default so a
+    // sick telemetry database cannot stall request-scoped after() work.
+    connect_timeout: 10,
+  });
   const db = drizzle(client, { schema });
   globalForTelemetry.telemetryClient = client;
   globalForTelemetry.telemetryDb = db;

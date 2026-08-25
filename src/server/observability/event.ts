@@ -89,6 +89,7 @@ const URL_USERINFO_PATTERN = /\b([a-z][a-z0-9+.-]*:\/\/)[^/\s:@]+:[^@\s/]+@/gi;
 const HONEYCOMB_BATCH_SIZE = 50;
 const HONEYCOMB_MAX_QUEUED_EVENTS = 1_000;
 const HONEYCOMB_REQUEST_TIMEOUT_MS = 5_000;
+const TELEMETRY_PERSIST_TIMEOUT_MS = 5_000;
 const pendingEvents: WideEvent[] = [];
 let flushScheduled = false;
 
@@ -229,34 +230,52 @@ async function persistBatchToTelemetry(events: WideEvent[]): Promise<void> {
   const telemetryDb = getTelemetryDb();
   if (!telemetryDb) return;
 
+  // Unlike the Honeycomb fetch, a drizzle insert cannot take an AbortSignal,
+  // so bound the wait with a race; the loser is left to settle on the pool.
+  let timeout: NodeJS.Timeout | undefined;
   try {
-    await telemetryDb
-      .insert(telemetrySpans)
-      .values(
-        events.map((event) => ({
-          eventId: event.eventId,
-          traceId: event.traceId,
-          spanId: event.spanId,
-          parentSpanId: event.parentSpanId,
-          startedAt: new Date(event.timestamp),
-          durationMs: event.durationMs,
-          operation: event.operation,
-          outcome: event.outcome,
-          service: event.service,
-          source: event.telemetrySource,
-          environment: event.environment,
-          release: event.release,
-          userId: event.userId,
-          error: event.error,
-          attributes: event.attributes,
-        })),
-      )
-      .onConflictDoNothing();
+    await Promise.race([
+      telemetryDb
+        .insert(telemetrySpans)
+        .values(
+          events.map((event) => ({
+            eventId: event.eventId,
+            traceId: event.traceId,
+            spanId: event.spanId,
+            parentSpanId: event.parentSpanId,
+            startedAt: new Date(event.timestamp),
+            durationMs: event.durationMs,
+            operation: event.operation,
+            outcome: event.outcome,
+            service: event.service,
+            source: event.telemetrySource,
+            environment: event.environment,
+            release: event.release,
+            userId: event.userId,
+            error: event.error,
+            attributes: event.attributes,
+          })),
+        )
+        .onConflictDoNothing(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Telemetry persistence timed out after ${TELEMETRY_PERSIST_TIMEOUT_MS}ms`,
+              ),
+            ),
+          TELEMETRY_PERSIST_TIMEOUT_MS,
+        );
+      }),
+    ]);
   } catch (error) {
     console.error("[observability] Failed to persist telemetry batch", {
       eventIds: events.map((event) => event.eventId),
       error: error instanceof Error ? error.message : String(error),
     });
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
