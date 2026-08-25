@@ -1,0 +1,1 @@
+CREATE INDEX "telemetry_span_root_started_at_idx" ON "telemetry_span" USING btree ("started_at" DESC NULLS LAST,"parent_span_id") WHERE "telemetry_span"."parent_span_id" is null;

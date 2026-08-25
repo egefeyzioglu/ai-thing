@@ -5,6 +5,8 @@ import { after } from "next/server";
 
 import { env } from "src/env";
 import { type TraceContext } from "src/lib/observability/trace";
+import { getTelemetryDb } from "src/server/telemetry/db";
+import { telemetrySpans } from "src/server/telemetry/schema";
 
 type JsonPrimitive = boolean | number | string | null;
 export type JsonValue =
@@ -87,6 +89,7 @@ const URL_USERINFO_PATTERN = /\b([a-z][a-z0-9+.-]*:\/\/)[^/\s:@]+:[^@\s/]+@/gi;
 const HONEYCOMB_BATCH_SIZE = 50;
 const HONEYCOMB_MAX_QUEUED_EVENTS = 1_000;
 const HONEYCOMB_REQUEST_TIMEOUT_MS = 5_000;
+const TELEMETRY_PERSIST_TIMEOUT_MS = 5_000;
 const pendingEvents: WideEvent[] = [];
 let flushScheduled = false;
 
@@ -223,15 +226,74 @@ async function sendBatchToHoneycomb(events: WideEvent[]): Promise<void> {
   }
 }
 
-async function flushHoneycombQueue(): Promise<void> {
-  while (pendingEvents.length > 0) {
-    const batch = pendingEvents.splice(0, HONEYCOMB_BATCH_SIZE);
-    await sendBatchToHoneycomb(batch);
+async function persistBatchToTelemetry(events: WideEvent[]): Promise<void> {
+  const telemetryDb = getTelemetryDb();
+  if (!telemetryDb) return;
+
+  // Unlike the Honeycomb fetch, a drizzle insert cannot take an AbortSignal,
+  // so bound the wait with a race; the loser is left to settle on the pool.
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      telemetryDb
+        .insert(telemetrySpans)
+        .values(
+          events.map((event) => ({
+            eventId: event.eventId,
+            traceId: event.traceId,
+            spanId: event.spanId,
+            parentSpanId: event.parentSpanId,
+            startedAt: new Date(event.timestamp),
+            durationMs: event.durationMs,
+            operation: event.operation,
+            outcome: event.outcome,
+            service: event.service,
+            source: event.telemetrySource,
+            environment: event.environment,
+            release: event.release,
+            userId: event.userId,
+            error: event.error,
+            attributes: event.attributes,
+          })),
+        )
+        .onConflictDoNothing(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Telemetry persistence timed out after ${TELEMETRY_PERSIST_TIMEOUT_MS}ms`,
+              ),
+            ),
+          TELEMETRY_PERSIST_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } catch (error) {
+    console.error("[observability] Failed to persist telemetry batch", {
+      eventIds: events.map((event) => event.eventId),
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
-function scheduleHoneycombEvent(event: WideEvent): void {
-  if (!env.HONEYCOMB_API_KEY || !env.HONEYCOMB_DATASET) {
+async function flushEventQueue(): Promise<void> {
+  while (pendingEvents.length > 0) {
+    const batch = pendingEvents.splice(0, HONEYCOMB_BATCH_SIZE);
+    await Promise.all([
+      sendBatchToHoneycomb(batch),
+      persistBatchToTelemetry(batch),
+    ]);
+  }
+}
+
+function scheduleTelemetryEvent(event: WideEvent): void {
+  if (
+    (!env.HONEYCOMB_API_KEY || !env.HONEYCOMB_DATASET) &&
+    !env.TELEMETRY_DATABASE_URL
+  ) {
     if (env.NODE_ENV !== "production") console.info(JSON.stringify(event));
     return;
   }
@@ -248,7 +310,7 @@ function scheduleHoneycombEvent(event: WideEvent): void {
   flushScheduled = true;
   after(async () => {
     try {
-      await flushHoneycombQueue();
+      await flushEventQueue();
     } finally {
       flushScheduled = false;
     }
@@ -304,7 +366,7 @@ export class WideEventBuilder {
     if (this.#emitted) return;
     this.#emitted = true;
 
-    scheduleHoneycombEvent({
+    scheduleTelemetryEvent({
       schemaVersion: 1,
       eventId: this.#eventId,
       eventName: this.#eventName,

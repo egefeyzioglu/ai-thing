@@ -320,6 +320,7 @@ export default function Home() {
 
   const user = useUser();
   const canBypassLimits = user.user?.publicMetadata.canBypassLimits === true;
+  const canViewTelemetry = user.user?.publicMetadata.canViewTelemetry === true;
   const effectiveBypassMonthlyQuota = canBypassLimits && bypassMonthlyQuota;
   const utils = api.useUtils();
   const generationAbortControllersRef = useRef(
@@ -1204,6 +1205,7 @@ export default function Home() {
         isLoadingUsage={isLoadingUsage}
         currentRequestCost={currentRequestCost}
         canBypassLimits={canBypassLimits}
+        canViewTelemetry={canViewTelemetry}
         bypassMonthlyQuota={effectiveBypassMonthlyQuota}
         onBypassMonthlyQuotaChange={setBypassMonthlyQuota}
       />
