@@ -1,0 +1,560 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI thing — agent workspace (mockup)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        fontFamily: { sans: ['Geist','Inter','ui-sans-serif','system-ui','sans-serif'], mono: ['Geist Mono','JetBrains Mono','ui-monospace','monospace'] },
+        colors: {
+          bg: '#05070b', panel: '#0a0d13', card: '#10141b', card2: '#161b24',
+          line: 'rgba(255,255,255,0.08)', line2: 'rgba(255,255,255,0.14)',
+          fg: '#f2f4f7', mute: '#8a93a3', dim: '#5b6472',
+          run: '#f5b642', ok: '#4ade80', ask: '#7dd3fc', bad: '#f87171',
+        },
+      },
+    },
+  }
+</script>
+<style>
+  :root { color-scheme: dark; }
+  body { -webkit-font-smoothing: antialiased; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.08); border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.14); }
+  .pulse { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(245,182,66,.45);} 50% { opacity: .75; box-shadow: 0 0 0 5px rgba(245,182,66,0);} }
+  .spin { animation: spin 1.2s linear infinite; } @keyframes spin { to { transform: rotate(360deg);} }
+  details > summary { list-style: none; } details > summary::-webkit-details-marker { display: none; }
+  details[open] .chev { transform: rotate(90deg); }
+  .chev { transition: transform .15s ease; }
+  .grain::after { content:""; position:absolute; inset:0; background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .22 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); mix-blend-mode: overlay; pointer-events:none; opacity:.7; }
+  .img { position: relative; overflow: hidden; border-radius: 6px; background-size: cover; }
+  /* warm-palette placeholder "renders" */
+  .a1{background:radial-gradient(120% 90% at 20% 80%,#f2a15c 0%,#b8562a 35%,#3b1d15 80%)}
+  .a2{background:radial-gradient(90% 120% at 80% 20%,#ffd08a 0%,#d8763a 40%,#2b1410 85%)}
+  .a3{background:linear-gradient(160deg,#f7c893 0%,#c8693a 45%,#4a2418 100%)}
+  .a4{background:radial-gradient(70% 70% at 50% 100%,#ffb672 0%,#8f3f22 55%,#1e0f0b 100%)}
+  .b1{background:linear-gradient(135deg,#f4e3cf 0%,#e6b48c 40%,#a9593a 100%)}
+  .b2{background:linear-gradient(120deg,#f8ead8 0%,#d99b6d 55%,#5e3a2a 100%)}
+  .b3{background:linear-gradient(200deg,#f3d7bd 0%,#dc8f5b 50%,#7b3d24 100%)}
+  .b4{background:linear-gradient(150deg,#efe0d0 0%,#c78a63 60%,#3d2a22 100%)}
+  .c1{background:radial-gradient(60% 60% at 30% 30%,#ffe0b8 0%,#c2703d 45%,#26130e 100%)}
+  .c2{background:radial-gradient(80% 60% at 70% 60%,#f2b27a 0%,#7a3c26 55%,#140a08 100%)}
+  .c3{background:conic-gradient(from 210deg at 60% 40%,#f6c793,#b85d33,#331812,#f6c793)}
+  .c4{background:radial-gradient(50% 80% at 50% 50%,#ffc48a 0%,#a04a2a 50%,#1b0e0a 100%)}
+  .ref1{background:linear-gradient(140deg,#e8c9a8,#a86a4a 60%,#4b3026)}
+  .ref2{background:linear-gradient(200deg,#6f8aa6,#e0b48f 55%,#8e4b30)}
+  .ref3{background:linear-gradient(120deg,#f0e6da,#d7a27a 50%,#5a3a2b)}
+  .pick{outline:2px solid #4ade80; outline-offset:2px}
+  .selected{outline:2px solid #f2f4f7; outline-offset:2px}
+  kbd { font-family: inherit; font-size: 10px; padding: 1px 5px; border-radius: 4px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.04); color:#8a93a3 }
+</style>
+</head>
+<body class="h-screen overflow-hidden bg-bg text-fg font-sans text-[13px] leading-[1.45]">
+<div class="flex h-full">
+
+  <!-- ============ LEFT: project, threads, files ============ -->
+  <aside class="w-[276px] shrink-0 border-r border-line bg-panel flex flex-col min-h-0">
+    <!-- app header: threads are global, not per project -->
+    <div class="h-12 px-3 flex items-center gap-2 border-b border-line">
+      <span class="h-6 w-6 rounded-md bg-fg/90 grid place-items-center text-[10px] font-bold text-bg">AI</span>
+      <span class="flex-1 font-medium">AI thing</span>
+      <button class="h-8 w-8 grid place-items-center rounded-md hover:bg-white/5 text-mute" title="Search (⌘K)"><i data-lucide="search" class="h-4 w-4"></i></button>
+      <button class="h-8 w-8 grid place-items-center rounded-md hover:bg-white/5 text-mute" title="New thread (⌘N)"><i data-lucide="square-pen" class="h-4 w-4"></i></button>
+    </div>
+
+    <!-- threads: all projects -->
+    <div class="flex-[1.15] min-h-0 flex flex-col">
+      <div class="px-3 pt-3 pb-1.5 flex items-center justify-between">
+        <span class="text-[11px] uppercase tracking-wider text-dim font-medium">Threads</span>
+        <button class="h-6 px-1.5 rounded-md text-[11px] text-dim hover:text-fg hover:bg-white/5 flex items-center gap-1" title="Filter by project"><i data-lucide="list-filter" class="h-3 w-3"></i>All projects</button>
+      </div>
+      <div class="flex-1 overflow-y-auto px-2 pb-2">
+        <!-- Active (always visible) -->
+        <div class="space-y-0.5">
+          <a class="block rounded-md bg-white/[.06] px-2 py-2 ring-1 ring-line2">
+            <div class="flex items-center gap-1.5 text-[11px] text-mute">
+              <span class="h-4 w-4 rounded bg-gradient-to-br from-[#f2a15c] to-[#7a3c26] grid place-items-center text-[8px] font-semibold text-black/80">BR</span>
+              <span class="truncate">Brand refresh · Q4</span>
+              <span class="ml-auto flex items-center gap-1 text-run shrink-0"><span class="h-2 w-2 rounded-full bg-run pulse"></span>Working 4m</span>
+            </div>
+            <div class="mt-1 truncate font-medium">Hero exploration — warm palette</div>
+            <div class="mt-0.5 text-[11px] text-mute flex items-center gap-1.5 truncate">
+              <i data-lucide="git-fork" class="h-3 w-3 shrink-0"></i>2 subagents · 10/12 images
+              <span class="ml-auto shrink-0 text-dim">41 cr</span>
+            </div>
+          </a>
+          <a class="block rounded-md px-2 py-2 hover:bg-white/[.04]">
+            <div class="flex items-center gap-1.5 text-[11px] text-mute">
+              <span class="h-4 w-4 rounded bg-gradient-to-br from-[#5cc8f2] to-[#26507a] grid place-items-center text-[8px] font-semibold text-black/80">PS</span>
+              <span class="truncate">Physsec website</span>
+              <span class="ml-auto flex items-center gap-1 text-ask shrink-0"><span class="h-2 w-2 rounded-full bg-ask"></span>Needs you</span>
+            </div>
+            <div class="mt-1 truncate">Social crops from picks</div>
+            <div class="mt-0.5 text-[11px] text-mute truncate">Which aspect ratios for LinkedIn vs. X?</div>
+          </a>
+          <a class="block rounded-md px-2 py-2 hover:bg-white/[.04]">
+            <div class="flex items-center gap-1.5 text-[11px] text-mute">
+              <span class="h-4 w-4 rounded bg-gradient-to-br from-[#f2a15c] to-[#7a3c26] grid place-items-center text-[8px] font-semibold text-black/80">BR</span>
+              <span class="truncate">Brand refresh · Q4</span>
+              <span class="ml-auto flex items-center gap-1 text-run shrink-0"><span class="h-2 w-2 rounded-full bg-run pulse"></span>Working 40s</span>
+            </div>
+            <div class="mt-1 truncate">Fix logo bleed on hero/v2</div>
+            <div class="mt-0.5 text-[11px] text-mute truncate">Inpainting 3 files · GPT Image 2</div>
+          </a>
+          <a class="block rounded-md px-2 py-2 hover:bg-white/[.04]">
+            <div class="flex items-center gap-1.5 text-[11px] text-mute">
+              <span class="h-4 w-4 rounded bg-gradient-to-br from-[#b28cf2] to-[#4a2a7a] grid place-items-center text-[8px] font-semibold text-black/80">DD</span>
+              <span class="truncate">D&amp;D campaign art</span>
+              <span class="ml-auto flex items-center gap-1 text-ok shrink-0"><i data-lucide="check" class="h-3 w-3"></i>Done · 12m</span>
+              <span class="h-1.5 w-1.5 rounded-full bg-fg/80 shrink-0" title="unread"></span>
+            </div>
+            <div class="mt-1 truncate">Tavern interior, 6 variations</div>
+            <div class="mt-0.5 text-[11px] text-mute truncate">6 images → tavern/ · awaiting your review</div>
+          </a>
+        </div>
+
+        <!-- Settled (collapsed by default, T3 Code style) -->
+        <div id="settled" class="mt-3 hidden space-y-0.5">
+          <a class="block rounded-md px-2 py-1.5 hover:bg-white/[.04]">
+            <div class="flex items-center gap-1.5 text-[11px] text-dim">
+              <span class="h-3.5 w-3.5 rounded bg-gradient-to-br from-[#f2a15c] to-[#7a3c26] opacity-70"></span><span class="truncate">Brand refresh · Q4</span><span class="ml-auto shrink-0">2h</span>
+            </div>
+            <div class="mt-0.5 flex items-center gap-1.5"><i data-lucide="check" class="h-3 w-3 text-ok shrink-0"></i><span class="truncate text-fg/80">Moodboard from Pinterest refs</span></div>
+          </a>
+          <a class="block rounded-md px-2 py-1.5 hover:bg-white/[.04]">
+            <div class="flex items-center gap-1.5 text-[11px] text-dim">
+              <span class="h-3.5 w-3.5 rounded bg-gradient-to-br from-[#5cc8f2] to-[#26507a] opacity-70"></span><span class="truncate">Physsec website</span><span class="ml-auto shrink-0">yesterday</span>
+            </div>
+            <div class="mt-0.5 flex items-center gap-1.5"><i data-lucide="check" class="h-3 w-3 text-ok shrink-0"></i><span class="truncate text-fg/80">Team headshot backgrounds</span></div>
+          </a>
+          <a class="block rounded-md px-2 py-1.5 hover:bg-white/[.04]">
+            <div class="flex items-center gap-1.5 text-[11px] text-dim">
+              <span class="h-3.5 w-3.5 rounded bg-gradient-to-br from-[#f2a15c] to-[#7a3c26] opacity-70"></span><span class="truncate">Brand refresh · Q4</span><span class="ml-auto shrink-0">2d</span>
+            </div>
+            <div class="mt-0.5 flex items-center gap-1.5"><i data-lucide="x" class="h-3 w-3 text-bad shrink-0"></i><span class="truncate text-fg/70">Seedance teaser loop</span></div>
+          </a>
+          <a class="block rounded-md px-2 py-1.5 hover:bg-white/[.04]">
+            <div class="flex items-center gap-1.5 text-[11px] text-dim">
+              <span class="h-3.5 w-3.5 rounded bg-gradient-to-br from-[#b28cf2] to-[#4a2a7a] opacity-70"></span><span class="truncate">D&amp;D campaign art</span><span class="ml-auto shrink-0">3d</span>
+            </div>
+            <div class="mt-0.5 flex items-center gap-1.5"><i data-lucide="check" class="h-3 w-3 text-ok shrink-0"></i><span class="truncate text-fg/70">Party portraits · pass 2</span></div>
+          </a>
+          <button class="w-full text-left px-2 py-1.5 text-[11px] text-dim hover:text-mute">Show 19 more…</button>
+        </div>
+      </div>
+      <button onclick="toggleSettled()" class="mx-2 mb-2 h-7 px-2 rounded-md flex items-center gap-2 text-[12px] text-mute hover:text-fg hover:bg-white/[.04]">
+        <span>Settled <span class="text-dim">(23)</span></span>
+        <i id="settled-chev" data-lucide="chevron-down" class="h-3.5 w-3.5 ml-auto"></i>
+      </button>
+    </div>
+
+    <!-- files -->
+    <div class="flex-1 min-h-0 flex flex-col border-t border-line">
+      <div class="px-3 pt-2.5 pb-1.5 flex items-center justify-between">
+        <div class="flex items-center gap-1.5 min-w-0">
+          <span class="text-[11px] uppercase tracking-wider text-dim font-medium">Files</span>
+          <span class="text-dim text-[11px]">·</span>
+          <button class="flex items-center gap-1.5 min-w-0 h-5 pl-0.5 pr-1 rounded hover:bg-white/5" title="Following the selected thread's project. Click to switch.">
+            <span class="h-3.5 w-3.5 rounded bg-gradient-to-br from-[#f2a15c] to-[#7a3c26] grid place-items-center text-[7px] font-semibold text-black/80">BR</span>
+            <span class="truncate text-[11px] text-fg/85">Brand refresh · Q4</span>
+            <i data-lucide="chevron-down" class="h-3 w-3 text-dim shrink-0"></i>
+          </button>
+        </div>
+        <div class="flex items-center gap-0.5 text-mute shrink-0">
+          <button class="h-6 w-6 grid place-items-center rounded hover:bg-white/5" title="Upload"><i data-lucide="upload" class="h-3.5 w-3.5"></i></button>
+          <button class="h-6 w-6 grid place-items-center rounded hover:bg-white/5" title="New folder"><i data-lucide="folder-plus" class="h-3.5 w-3.5"></i></button>
+          <button class="h-6 w-6 grid place-items-center rounded hover:bg-white/5" title="Open file browser"><i data-lucide="layout-grid" class="h-3.5 w-3.5"></i></button>
+        </div>
+      </div>
+      <div class="flex-1 overflow-y-auto px-2 pb-2 font-[13px]">
+        <ul class="space-y-px [&_li>div]:h-6 [&_li>div]:flex [&_li>div]:items-center [&_li>div]:gap-1.5 [&_li>div]:rounded [&_li>div]:px-1.5 [&_li>div:hover]:bg-white/[.04]">
+          <li><div class="text-mute"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span class="text-fg/90">AGENT.md</span><span class="ml-auto text-[10px] text-dim">brief</span></div></li>
+          <li><div class="text-mute"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span class="text-fg/90">style.md</span></div></li>
+          <li><div class="text-mute"><i data-lucide="chevron-right" class="h-3 w-3"></i><i data-lucide="folder" class="h-3.5 w-3.5"></i><span class="text-fg/90">inputs</span><span class="ml-auto text-[10px] text-dim">3</span></div></li>
+          <li><div class="text-mute"><i data-lucide="chevron-right" class="h-3 w-3"></i><i data-lucide="folder" class="h-3.5 w-3.5"></i><span class="text-fg/90">moodboard</span><span class="ml-auto text-[10px] text-dim">14</span></div></li>
+          <li>
+            <div class="text-mute"><i data-lucide="chevron-down" class="h-3 w-3"></i><i data-lucide="folder-open" class="h-3.5 w-3.5"></i><span class="text-fg/90">hero</span></div>
+            <ul class="pl-4 space-y-px">
+              <li>
+                <div class="text-mute"><i data-lucide="chevron-down" class="h-3 w-3"></i><i data-lucide="folder-open" class="h-3.5 w-3.5 text-run"></i><span class="text-fg/90">v1</span><span class="ml-auto flex items-center gap-1 text-[10px] text-run"><span class="h-1.5 w-1.5 rounded-full bg-run pulse"></span>writing</span></div>
+                <ul class="pl-4 space-y-px">
+                  <li><div class="text-mute"><i data-lucide="image" class="h-3.5 w-3.5"></i><span class="text-fg/80">a-01.png</span><span class="ml-auto text-[10px] text-ok">+</span></div></li>
+                  <li><div class="text-mute"><i data-lucide="image" class="h-3.5 w-3.5"></i><span class="text-fg/80">a-02.png</span><span class="ml-auto text-[10px] text-ok">+</span></div></li>
+                  <li><div class="text-mute bg-white/[.06] ring-1 ring-line2"><i data-lucide="image" class="h-3.5 w-3.5"></i><span class="text-fg">b-03.png</span><span class="ml-auto text-[10px] text-ok">+</span></div></li>
+                  <li><div class="text-mute"><i data-lucide="ellipsis" class="h-3.5 w-3.5"></i><span class="text-dim">7 more</span></div></li>
+                </ul>
+              </li>
+              <li><div class="text-mute"><i data-lucide="chevron-right" class="h-3 w-3"></i><i data-lucide="folder" class="h-3.5 w-3.5"></i><span class="text-fg/90">v2</span><span class="ml-auto text-[10px] text-dim">8</span></div></li>
+              <li><div class="text-mute"><i data-lucide="chevron-right" class="h-3 w-3"></i><i data-lucide="folder" class="h-3.5 w-3.5 text-ok"></i><span class="text-fg/90">picks</span><span class="ml-auto text-[10px] text-dim">3</span></div></li>
+            </ul>
+          </li>
+          <li><div class="text-mute"><i data-lucide="chevron-right" class="h-3 w-3"></i><i data-lucide="folder" class="h-3.5 w-3.5"></i><span class="text-fg/90">social</span><span class="ml-auto text-[10px] text-dim">0</span></div></li>
+          <li><div class="text-mute"><i data-lucide="chevron-right" class="h-3 w-3"></i><i data-lucide="folder" class="h-3.5 w-3.5"></i><span class="text-fg/70">.trash</span><span class="ml-auto text-[10px] text-dim">5</span></div></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- footer: usage + user -->
+    <div class="border-t border-line px-3 py-2.5 flex items-center gap-3">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center justify-between text-[11px] text-mute"><span>Usage this month</span><span class="text-fg/80">318 / 1,000</span></div>
+        <div class="mt-1 h-1 rounded bg-white/[.06] overflow-hidden"><div class="h-full w-[32%] bg-fg/70"></div></div>
+      </div>
+      <span class="h-7 w-7 rounded-full bg-gradient-to-br from-slate-500 to-slate-800 ring-1 ring-line2"></span>
+    </div>
+  </aside>
+
+  <!-- ============ CENTER: thread ============ -->
+  <main class="flex-1 min-w-0 flex flex-col bg-bg">
+    <!-- thread header -->
+    <header class="h-12 shrink-0 border-b border-line px-4 flex items-center gap-3">
+      <span class="h-2 w-2 rounded-full bg-run pulse"></span>
+      <h1 class="font-medium truncate">Hero exploration — warm palette</h1>
+      <span class="text-[11px] text-mute hidden lg:inline">· started 6 min ago by you</span>
+      <div class="ml-auto flex items-center gap-1.5 text-[12px]">
+        <span class="h-7 px-2 rounded-md bg-white/[.04] ring-1 ring-line flex items-center gap-1.5 text-mute"><i data-lucide="git-fork" class="h-3.5 w-3.5 text-run"></i>2 running</span>
+        <span class="h-7 px-2 rounded-md bg-white/[.04] ring-1 ring-line flex items-center gap-1.5 text-mute" title="Credits used in this thread"><i data-lucide="coins" class="h-3.5 w-3.5"></i>41 cr <span class="text-dim">/ cap 120</span></span>
+        <button class="h-7 px-2 rounded-md ring-1 ring-line hover:bg-white/5 flex items-center gap-1.5 text-mute hover:text-fg"><i data-lucide="square" class="h-3.5 w-3.5"></i>Stop</button>
+        <button class="h-7 px-2 rounded-md ring-1 ring-line hover:bg-white/5 flex items-center gap-1.5 text-mute hover:text-fg"><i data-lucide="archive" class="h-3.5 w-3.5"></i>Settle</button>
+        <button class="h-7 w-7 grid place-items-center rounded-md hover:bg-white/5 text-mute"><i data-lucide="ellipsis" class="h-4 w-4"></i></button>
+      </div>
+    </header>
+
+    <!-- messages -->
+    <div class="flex-1 min-h-0 overflow-y-auto">
+      <div class="max-w-[820px] mx-auto px-6 py-6 space-y-6">
+
+        <!-- user message -->
+        <div class="flex gap-3">
+          <span class="h-6 w-6 shrink-0 rounded-full bg-gradient-to-br from-slate-500 to-slate-800 mt-0.5"></span>
+          <div class="min-w-0">
+            <p class="text-fg/95">Explore hero options for the landing page. Use the refs in <span class="font-mono text-[12px] px-1 rounded bg-white/[.06]">inputs/</span>, warm palette, 16:9. Give me 3 directions with 4 variants each, then shortlist. Stay under 120 credits.</p>
+            <div class="mt-2 flex gap-1.5">
+              <span class="img ref1 h-10 w-16 grain"></span><span class="img ref2 h-10 w-16 grain"></span><span class="img ref3 h-10 w-16 grain"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- agent turn -->
+        <div class="flex gap-3">
+          <span class="h-6 w-6 shrink-0 rounded-md bg-fg text-bg grid place-items-center mt-0.5"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i></span>
+          <div class="min-w-0 flex-1 space-y-3">
+            <p>I'll read the brief and style guide, pull a palette from your refs, then run three directions in parallel and shortlist.</p>
+
+            <!-- plan / tasks -->
+            <div class="rounded-lg border border-line bg-card">
+              <div class="px-3 py-2 flex items-center gap-2 border-b border-line text-[12px]">
+                <i data-lucide="list-checks" class="h-3.5 w-3.5 text-mute"></i><span class="font-medium">Plan</span><span class="text-dim">3 of 5</span>
+              </div>
+              <ul class="px-3 py-2 space-y-1.5 text-[12.5px]">
+                <li class="flex items-center gap-2 text-mute"><i data-lucide="check-circle-2" class="h-3.5 w-3.5 text-ok"></i><span class="line-through decoration-white/20">Read AGENT.md and style.md</span></li>
+                <li class="flex items-center gap-2 text-mute"><i data-lucide="check-circle-2" class="h-3.5 w-3.5 text-ok"></i><span class="line-through decoration-white/20">Extract palette and composition notes from inputs/</span></li>
+                <li class="flex items-center gap-2 text-mute"><i data-lucide="check-circle-2" class="h-3.5 w-3.5 text-ok"></i><span class="line-through decoration-white/20">Direction A — golden-hour product shot (4 variants)</span></li>
+                <li class="flex items-center gap-2"><i data-lucide="loader-circle" class="h-3.5 w-3.5 text-run spin"></i><span>Direction B — flat editorial, paper texture (4 variants)</span></li>
+                <li class="flex items-center gap-2"><i data-lucide="loader-circle" class="h-3.5 w-3.5 text-run spin"></i><span>Direction C — macro material study (4 variants)</span></li>
+                <li class="flex items-center gap-2 text-dim"><i data-lucide="circle" class="h-3.5 w-3.5"></i><span>Shortlist 3 and write hero/picks/ + NOTES.md</span></li>
+              </ul>
+            </div>
+
+            <!-- tool calls (collapsed) -->
+            <details class="group rounded-md border border-line bg-card/60">
+              <summary class="px-3 h-8 flex items-center gap-2 text-[12px] text-mute cursor-pointer hover:text-fg">
+                <i data-lucide="chevron-right" class="chev h-3.5 w-3.5"></i>
+                <i data-lucide="file-text" class="h-3.5 w-3.5"></i>
+                <span>Read</span><span class="font-mono text-fg/80">AGENT.md</span><span class="text-dim">·</span><span class="font-mono text-fg/80">style.md</span>
+                <span class="ml-auto text-dim">2 files</span>
+              </summary>
+              <div class="px-3 pb-3 pt-1 text-[12px] text-mute border-t border-line">
+                <p class="font-mono text-[11.5px] whitespace-pre-wrap text-fg/70"># Brand refresh · Q4
+Audience: DTC home goods. Tone: warm, tactile, unhurried.
+Palette: terracotta #B8562A, sand #E6C9A8, dusk #6F8AA6.
+Never: neon, glossy 3D, lens flare. Logo needs 8% safe margin.</p>
+              </div>
+            </details>
+
+            <details class="group rounded-md border border-line bg-card/60">
+              <summary class="px-3 h-8 flex items-center gap-2 text-[12px] text-mute cursor-pointer hover:text-fg">
+                <i data-lucide="chevron-right" class="chev h-3.5 w-3.5"></i>
+                <i data-lucide="scan-eye" class="h-3.5 w-3.5"></i>
+                <span>Analyze images</span><span class="font-mono text-fg/80">inputs/*.jpg</span>
+                <span class="ml-auto text-dim">3 images · 1.2s</span>
+              </summary>
+              <div class="px-3 pb-3 pt-2 text-[12px] text-mute border-t border-line space-y-1">
+                <p>Dominant palette: terracotta, warm sand, dusk blue accents. Soft directional light from upper-left. Shallow depth; matte surfaces; negative space top-right in 2/3 refs.</p>
+              </div>
+            </details>
+
+            <!-- subagents -->
+            <div class="rounded-lg border border-line bg-card">
+              <div class="px-3 py-2 flex items-center gap-2 border-b border-line text-[12px]">
+                <i data-lucide="git-fork" class="h-3.5 w-3.5 text-run"></i><span class="font-medium">Subagents</span><span class="text-dim">3 spawned · running in parallel</span>
+                <span class="ml-auto text-dim">budget 90 cr · used 41</span>
+              </div>
+              <div class="divide-y divide-line">
+
+                <!-- A done -->
+                <details class="group">
+                  <summary class="px-3 py-2.5 flex items-start gap-3 cursor-pointer hover:bg-white/[.02]">
+                    <i data-lucide="chevron-right" class="chev h-3.5 w-3.5 mt-1 text-mute"></i>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2">
+                        <span class="font-medium">A · Golden-hour product shot</span>
+                        <span class="text-[10px] px-1.5 rounded bg-ok/15 text-ok">done</span>
+                        <span class="ml-auto text-[11px] text-dim">Seedream 5 Pro · 4/4 · 16 cr · 48s</span>
+                      </div>
+                      <div class="mt-2 grid grid-cols-4 gap-1.5">
+                        <span class="img a1 aspect-video grain"></span><span class="img a2 aspect-video grain"></span><span class="img a3 aspect-video grain"></span><span class="img a4 aspect-video grain"></span>
+                      </div>
+                    </div>
+                  </summary>
+                  <div class="px-3 pb-3 pl-9 space-y-1 text-[12px] text-mute">
+                    <div class="flex items-center gap-2 h-6"><i data-lucide="wand-sparkles" class="h-3.5 w-3.5"></i><span>generate_image</span><span class="font-mono text-fg/70 truncate">seedream-5-pro · 16:9 · 2K · refs: ref-01, ref-02</span><span class="ml-auto text-dim">×4</span></div>
+                    <div class="flex items-center gap-2 h-6"><i data-lucide="file-plus-2" class="h-3.5 w-3.5"></i><span>write</span><span class="font-mono text-fg/70">hero/v1/a-01.png … a-04.png</span></div>
+                    <div class="flex items-center gap-2 h-6"><i data-lucide="message-square-text" class="h-3.5 w-3.5"></i><span class="text-fg/70">"a-02 has the strongest negative space; a-04 clips the logo margin."</span></div>
+                  </div>
+                </details>
+
+                <!-- B running -->
+                <details class="group" open>
+                  <summary class="px-3 py-2.5 flex items-start gap-3 cursor-pointer hover:bg-white/[.02]">
+                    <i data-lucide="chevron-right" class="chev h-3.5 w-3.5 mt-1 text-mute"></i>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2">
+                        <span class="font-medium">B · Flat editorial, paper texture</span>
+                        <span class="text-[10px] px-1.5 rounded bg-run/15 text-run flex items-center gap-1"><span class="h-1.5 w-1.5 rounded-full bg-run pulse"></span>running</span>
+                        <span class="ml-auto text-[11px] text-dim">GPT Image 2 · 3/4 · 15 cr · 1m 10s</span>
+                      </div>
+                      <div class="mt-2 grid grid-cols-4 gap-1.5">
+                        <span class="img b1 aspect-video grain"></span><span class="img b2 aspect-video grain"></span><span class="img b3 aspect-video grain selected"></span>
+                        <span class="img aspect-video bg-white/[.04] ring-1 ring-line grid place-items-center"><i data-lucide="loader-circle" class="h-4 w-4 text-mute spin"></i></span>
+                      </div>
+                    </div>
+                  </summary>
+                  <div class="px-3 pb-3 pl-9 space-y-1 text-[12px] text-mute">
+                    <div class="flex items-center gap-2 h-6"><i data-lucide="wand-sparkles" class="h-3.5 w-3.5"></i><span>generate_image</span><span class="font-mono text-fg/70 truncate">gpt-image-2 · 1536×1024 · high · refs: ref-03</span><span class="ml-auto text-dim">3 of 4</span></div>
+                    <div class="flex items-center gap-2 h-6"><i data-lucide="file-plus-2" class="h-3.5 w-3.5"></i><span>write</span><span class="font-mono text-fg/70">hero/v1/b-01.png · b-02.png · b-03.png</span></div>
+                    <div class="flex items-center gap-2 h-6"><i data-lucide="refresh-cw" class="h-3.5 w-3.5 text-run"></i><span>retry</span><span class="text-fg/70">b-04 failed provider-side (timeout), retrying once</span></div>
+                  </div>
+                </details>
+
+                <!-- C running -->
+                <details class="group">
+                  <summary class="px-3 py-2.5 flex items-start gap-3 cursor-pointer hover:bg-white/[.02]">
+                    <i data-lucide="chevron-right" class="chev h-3.5 w-3.5 mt-1 text-mute"></i>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2">
+                        <span class="font-medium">C · Macro material study</span>
+                        <span class="text-[10px] px-1.5 rounded bg-run/15 text-run flex items-center gap-1"><span class="h-1.5 w-1.5 rounded-full bg-run pulse"></span>running</span>
+                        <span class="ml-auto text-[11px] text-dim">Seedream 5 Lite · 3/4 · 10 cr · 52s</span>
+                      </div>
+                      <div class="mt-2 grid grid-cols-4 gap-1.5">
+                        <span class="img c1 aspect-video grain"></span><span class="img c2 aspect-video grain"></span><span class="img c3 aspect-video grain"></span>
+                        <span class="img aspect-video bg-white/[.04] ring-1 ring-line grid place-items-center"><i data-lucide="loader-circle" class="h-4 w-4 text-mute spin"></i></span>
+                      </div>
+                    </div>
+                  </summary>
+                </details>
+              </div>
+            </div>
+
+            <!-- interim note -->
+            <p class="text-mute">Direction A finished. I'm holding the shortlist until B and C land (~40s). Early read: A-02 and B-03 are the strongest so far.</p>
+          </div>
+        </div>
+
+        <!-- needs-you card (from an earlier gate in this thread, already answered) -->
+        <div class="flex gap-3">
+          <span class="h-6 w-6 shrink-0 rounded-md bg-fg text-bg grid place-items-center mt-0.5"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i></span>
+          <div class="min-w-0 flex-1">
+            <div class="rounded-lg border border-ask/30 bg-ask/[.06]">
+              <div class="px-3 py-2 flex items-center gap-2 text-[12px] border-b border-ask/20">
+                <i data-lucide="hand" class="h-3.5 w-3.5 text-ask"></i><span class="font-medium text-ask">Needs your call</span>
+                <span class="ml-auto text-dim">blocks: shortlist</span>
+              </div>
+              <div class="px-3 py-3 space-y-3">
+                <p>Two refs disagree on logo placement (top-left vs. bottom-right). Which should I honor for the picks?</p>
+                <div class="flex flex-wrap gap-1.5">
+                  <button class="h-7 px-2.5 rounded-md bg-fg text-bg text-[12px] font-medium">Top-left (ref-01)</button>
+                  <button class="h-7 px-2.5 rounded-md ring-1 ring-line2 hover:bg-white/5 text-[12px]">Bottom-right (ref-02)</button>
+                  <button class="h-7 px-2.5 rounded-md ring-1 ring-line2 hover:bg-white/5 text-[12px]">Do both, I'll choose</button>
+                  <button class="h-7 px-2.5 rounded-md text-[12px] text-mute hover:text-fg">Reply instead…</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- composer -->
+    <div class="shrink-0 border-t border-line bg-panel">
+      <div class="max-w-[820px] mx-auto px-6 py-3">
+
+        <!-- AGENT composer -->
+        <div id="composer-agent" class="rounded-xl border border-line2 bg-card focus-within:border-white/25 transition">
+          <div class="px-3 pt-2 flex flex-wrap gap-1.5">
+            <span class="h-6 pl-1 pr-2 rounded-md bg-white/[.06] flex items-center gap-1.5 text-[11.5px]"><span class="img ref2 h-4 w-6"></span>inputs/ref-02.jpg<i data-lucide="x" class="h-3 w-3 text-mute"></i></span>
+            <span class="h-6 px-2 rounded-md bg-white/[.06] flex items-center gap-1.5 text-[11.5px] font-mono"><i data-lucide="folder" class="h-3 w-3 text-mute"></i>hero/v1<i data-lucide="x" class="h-3 w-3 text-mute"></i></span>
+          </div>
+          <textarea rows="2" class="w-full bg-transparent resize-none outline-none px-3 py-2 placeholder:text-dim" placeholder="Reply, redirect, or queue a follow-up…  @ file   / command"></textarea>
+          <div class="px-2 pb-2 flex items-center gap-1 text-mute">
+            <button class="h-7 w-7 grid place-items-center rounded-md hover:bg-white/5" title="Attach"><i data-lucide="paperclip" class="h-4 w-4"></i></button>
+            <button class="h-7 px-2 rounded-md hover:bg-white/5 flex items-center gap-1.5 text-[12px]"><i data-lucide="brain" class="h-3.5 w-3.5"></i>Fable 5.1<i data-lucide="chevron-down" class="h-3 w-3"></i></button>
+            <button class="h-7 px-2 rounded-md hover:bg-white/5 flex items-center gap-1.5 text-[12px]" title="Approval policy"><i data-lucide="shield-check" class="h-3.5 w-3.5"></i>Auto-approve ≤ 20 cr<i data-lucide="chevron-down" class="h-3 w-3"></i></button>
+            <span class="flex-1"></span>
+            <button onclick="setMode('manual')" class="h-7 px-2 rounded-md hover:bg-white/5 flex items-center gap-1.5 text-[12px] text-dim hover:text-fg" title="Generate one image yourself, bypassing the agent"><i data-lucide="sliders-horizontal" class="h-3.5 w-3.5"></i>Manual <kbd>⌘⇧M</kbd></button>
+            <button class="h-7 px-3 rounded-md bg-fg text-bg font-medium flex items-center gap-1.5 text-[12px]">Send<i data-lucide="corner-down-left" class="h-3.5 w-3.5"></i></button>
+          </div>
+        </div>
+
+        <!-- MANUAL composer (hidden by default) -->
+        <div id="composer-manual" class="hidden rounded-xl border border-line2 bg-card focus-within:border-white/25 transition">
+          <div class="px-3 pt-2 flex items-center gap-2 text-[11.5px] text-mute">
+            <i data-lucide="sliders-horizontal" class="h-3.5 w-3.5"></i><span class="text-fg/90 font-medium">Manual generation</span><span>· bypasses the agent, logged in this thread as your action</span>
+            <button onclick="setMode('agent')" class="ml-auto h-6 px-2 rounded hover:bg-white/5 flex items-center gap-1 text-dim hover:text-fg">Back to agent <kbd>esc</kbd></button>
+          </div>
+          <div class="px-3 pt-2 flex flex-wrap gap-1.5">
+            <span class="h-6 pl-1 pr-2 rounded-md bg-white/[.06] flex items-center gap-1.5 text-[11.5px]"><span class="img b3 h-4 w-6"></span>hero/v1/b-03.png<i data-lucide="x" class="h-3 w-3 text-mute"></i></span>
+          </div>
+          <textarea rows="2" class="w-full bg-transparent resize-none outline-none px-3 py-2 placeholder:text-dim" placeholder="Exact prompt to send to the model…"></textarea>
+          <div class="px-2 pb-2 flex items-center gap-1 text-mute flex-wrap">
+            <button class="h-7 px-2 rounded-md ring-1 ring-line hover:bg-white/5 flex items-center gap-1.5 text-[12px] text-fg/90">Seedream 5 Pro<i data-lucide="chevron-down" class="h-3 w-3"></i></button>
+            <button class="h-7 px-2 rounded-md ring-1 ring-line hover:bg-white/5 flex items-center gap-1.5 text-[12px] text-fg/90">16:9<i data-lucide="chevron-down" class="h-3 w-3"></i></button>
+            <button class="h-7 px-2 rounded-md ring-1 ring-line hover:bg-white/5 flex items-center gap-1.5 text-[12px] text-fg/90">2K<i data-lucide="chevron-down" class="h-3 w-3"></i></button>
+            <button class="h-7 px-2 rounded-md ring-1 ring-line hover:bg-white/5 flex items-center gap-1.5 text-[12px] text-fg/90">×2<i data-lucide="chevron-down" class="h-3 w-3"></i></button>
+            <button class="h-7 px-2 rounded-md ring-1 ring-line hover:bg-white/5 flex items-center gap-1.5 text-[12px] font-mono text-fg/90"><i data-lucide="folder" class="h-3 w-3 text-mute"></i>hero/v1</button>
+            <button class="h-7 px-2 rounded-md hover:bg-white/5 text-[12px]">More…</button>
+            <span class="flex-1"></span>
+            <button class="h-7 px-3 rounded-md bg-fg text-bg font-medium flex items-center gap-1.5 text-[12px]">Generate · 8 cr</button>
+          </div>
+        </div>
+
+        <div class="mt-1.5 px-1 flex items-center gap-3 text-[11px] text-dim">
+          <span>Agent will keep working while you type. Messages queue after the current step.</span>
+          <span class="ml-auto flex items-center gap-1"><i data-lucide="folder-sync" class="h-3 w-3"></i>Share synced · 2s ago</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ============ RIGHT: inspector ============ -->
+  <aside class="w-[384px] shrink-0 border-l border-line bg-panel flex flex-col min-h-0">
+    <div class="h-12 px-3 flex items-center gap-1 border-b border-line text-[12px]">
+      <button class="h-7 px-2.5 rounded-md bg-white/[.08] text-fg font-medium">Inspect</button>
+      <button class="h-7 px-2.5 rounded-md text-mute hover:text-fg hover:bg-white/5">Browse</button>
+      <button class="h-7 px-2.5 rounded-md text-mute hover:text-fg hover:bg-white/5 flex items-center gap-1.5">Activity<span class="h-4 min-w-4 px-1 rounded bg-white/[.08] text-[10px] grid place-items-center">6</span></button>
+      <span class="flex-1"></span>
+      <button class="h-7 w-7 grid place-items-center rounded-md hover:bg-white/5 text-mute" title="Collapse"><i data-lucide="panel-right-close" class="h-4 w-4"></i></button>
+    </div>
+
+    <div class="flex-1 min-h-0 overflow-y-auto">
+      <!-- preview -->
+      <div class="p-3">
+        <div class="img b3 grain aspect-video w-full rounded-lg ring-1 ring-line"></div>
+        <div class="mt-2.5 flex items-start gap-2">
+          <div class="min-w-0 flex-1">
+            <div class="font-mono text-[12.5px] truncate">hero/v1/<span class="text-fg font-medium">b-03.png</span></div>
+            <div class="text-[11px] text-mute mt-0.5">1536 × 1024 · 2.1 MB · 40s ago</div>
+          </div>
+          <div class="flex items-center gap-0.5 text-mute">
+            <button class="h-7 w-7 grid place-items-center rounded-md hover:bg-white/5" title="Previous"><i data-lucide="chevron-left" class="h-4 w-4"></i></button>
+            <span class="text-[11px] text-dim">3 / 12</span>
+            <button class="h-7 w-7 grid place-items-center rounded-md hover:bg-white/5" title="Next"><i data-lucide="chevron-right" class="h-4 w-4"></i></button>
+            <button class="h-7 w-7 grid place-items-center rounded-md hover:bg-white/5" title="Fullscreen"><i data-lucide="maximize-2" class="h-4 w-4"></i></button>
+          </div>
+        </div>
+
+        <!-- primary actions: agent-first -->
+        <div class="mt-3 grid grid-cols-2 gap-1.5 text-[12px]">
+          <button class="h-8 rounded-md bg-fg text-bg font-medium flex items-center justify-center gap-1.5"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i>Ask agent to iterate</button>
+          <button class="h-8 rounded-md ring-1 ring-line2 hover:bg-white/5 flex items-center justify-center gap-1.5"><i data-lucide="star" class="h-3.5 w-3.5"></i>Move to picks</button>
+          <button class="h-8 rounded-md ring-1 ring-line hover:bg-white/5 flex items-center justify-center gap-1.5 text-mute hover:text-fg"><i data-lucide="image-plus" class="h-3.5 w-3.5"></i>Use as reference</button>
+          <button class="h-8 rounded-md ring-1 ring-line hover:bg-white/5 flex items-center justify-center gap-1.5 text-mute hover:text-fg"><i data-lucide="download" class="h-3.5 w-3.5"></i>Download</button>
+        </div>
+        <div class="mt-1.5 flex items-center justify-between text-[11px] text-dim px-0.5">
+          <button class="hover:text-fg flex items-center gap-1"><i data-lucide="sliders-horizontal" class="h-3 w-3"></i>Regenerate manually with these settings</button>
+          <button class="hover:text-bad flex items-center gap-1"><i data-lucide="trash-2" class="h-3 w-3"></i>Trash</button>
+        </div>
+      </div>
+
+      <!-- quick note to the agent about this image -->
+      <div class="px-3 pb-3">
+        <div class="rounded-lg border border-line bg-card px-3 py-2 flex items-center gap-2 text-[12px] text-dim">
+          <i data-lucide="message-square-plus" class="h-3.5 w-3.5"></i>
+          <span class="flex-1">Note on this image… ("warmer shadows", "logo too big")</span>
+        </div>
+      </div>
+
+      <!-- details -->
+      <div class="border-t border-line">
+        <details open class="group">
+          <summary class="px-3 h-9 flex items-center gap-2 text-[12px] cursor-pointer text-mute hover:text-fg"><i data-lucide="chevron-right" class="chev h-3.5 w-3.5"></i><span class="font-medium text-fg/90">Generation</span></summary>
+          <dl class="px-3 pb-3 grid grid-cols-[88px_1fr] gap-y-1.5 gap-x-3 text-[12px]">
+            <dt class="text-dim">Model</dt><dd>GPT Image 2 <span class="text-dim">· high</span></dd>
+            <dt class="text-dim">Size</dt><dd>1536 × 1024 <span class="text-dim">(16:9)</span></dd>
+            <dt class="text-dim">Refs</dt><dd class="flex items-center gap-1"><span class="img ref3 h-4 w-6"></span><span class="font-mono text-[11.5px]">inputs/ref-03.jpg</span></dd>
+            <dt class="text-dim">Cost</dt><dd>5 cr <span class="text-dim">· $0.19</span></dd>
+            <dt class="text-dim">By</dt><dd class="flex items-center gap-1.5"><i data-lucide="git-fork" class="h-3 w-3 text-mute"></i>Subagent B <span class="text-dim">in</span> <a class="underline decoration-white/20 hover:decoration-white/60">this thread</a></dd>
+          </dl>
+        </details>
+        <details open class="group border-t border-line">
+          <summary class="px-3 h-9 flex items-center gap-2 text-[12px] cursor-pointer text-mute hover:text-fg"><i data-lucide="chevron-right" class="chev h-3.5 w-3.5"></i><span class="font-medium text-fg/90">Prompt</span><span class="text-dim">written by agent</span><button class="ml-auto h-6 w-6 grid place-items-center rounded hover:bg-white/5" title="Copy"><i data-lucide="copy" class="h-3.5 w-3.5"></i></button></summary>
+          <div class="px-3 pb-3 text-[12px] text-fg/80 leading-relaxed">
+            Flat editorial hero for a home-goods brand, matte ceramic vase on textured warm sand paper, terracotta and dusk-blue accents, soft upper-left light, generous negative space top-right for headline, no text, no gloss, no lens flare, 16:9.
+            <div class="mt-1.5 text-dim">Negative: neon, glossy 3D render, lens flare, text</div>
+          </div>
+        </details>
+        <details open class="group border-t border-line">
+          <summary class="px-3 h-9 flex items-center gap-2 text-[12px] cursor-pointer text-mute hover:text-fg"><i data-lucide="chevron-right" class="chev h-3.5 w-3.5"></i><span class="font-medium text-fg/90">Lineage</span></summary>
+          <div class="px-3 pb-3">
+            <div class="flex items-center gap-2 text-[11.5px]">
+              <div class="flex flex-col items-center gap-1"><span class="img ref3 h-9 w-14 grain"></span><span class="text-dim font-mono">ref-03</span></div>
+              <i data-lucide="arrow-right" class="h-3.5 w-3.5 text-dim"></i>
+              <div class="flex flex-col items-center gap-1"><span class="img b3 h-9 w-14 grain selected"></span><span class="font-mono">b-03</span></div>
+              <i data-lucide="arrow-right" class="h-3.5 w-3.5 text-dim"></i>
+              <div class="flex flex-col items-center gap-1"><span class="h-9 w-14 rounded-md border border-dashed border-line2 grid place-items-center text-dim"><i data-lucide="plus" class="h-3.5 w-3.5"></i></span><span class="text-dim">variations</span></div>
+            </div>
+            <p class="mt-2 text-[11px] text-dim">Siblings: b-01, b-02, b-04 (pending). Same prompt, seeds differ.</p>
+          </div>
+        </details>
+        <details class="group border-t border-line">
+          <summary class="px-3 h-9 flex items-center gap-2 text-[12px] cursor-pointer text-mute hover:text-fg"><i data-lucide="chevron-right" class="chev h-3.5 w-3.5"></i><span class="font-medium text-fg/90">Agent's note</span></summary>
+          <p class="px-3 pb-3 text-[12px] text-fg/80">"Best negative space of the set. Slight banding in the sand gradient; would upscale or re-run at 2K before shipping."</p>
+        </details>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script>
+  lucide.createIcons();
+function toggleSettled(){
+  const el=document.getElementById('settled');
+  el.classList.toggle('hidden');
+  document.getElementById('settled-chev').setAttribute('data-lucide', el.classList.contains('hidden')?'chevron-down':'chevron-up');
+  lucide.createIcons();
+}
+if (location.hash==='#settled') toggleSettled();
+  function setMode(m){
+    document.getElementById('composer-agent').classList.toggle('hidden', m==='manual');
+    document.getElementById('composer-manual').classList.toggle('hidden', m!=='manual');
+    lucide.createIcons();
+  }
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey||e.ctrlKey) && e.shiftKey && e.key.toLowerCase()==='m'){ e.preventDefault(); setMode('manual'); }
+    if (e.key==='Escape') setMode('agent');
+  });
+</script>
+</body>
+</html>
