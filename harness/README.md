@@ -7,6 +7,10 @@ ChatGPT login), so nothing is billed at API token prices.
 
 ```
 browser  <-- WebSocket -->  server.ts  <-- ACP over stdio -->  claude-code-acp / codex-acp
+                                                                       |
+                                                              MCP over stdio
+                                                                       v
+                                                            mcp/image-tools.ts
 ```
 
 ## Run
@@ -26,6 +30,34 @@ SQLite persistence uses Node's built-in `node:sqlite`. The database lives at
 `%LOCALAPPDATA%\aithing\harness.db` on Windows (falling back to `%APPDATA%`) and
 `~/.aithing/harness.db` on other platforms.
 
+## Image generation tools
+
+Every ACP session gets an MCP server (`mcp/image-tools.ts`, name
+`aithing-images`) attached via `mcpServers`. It talks to the same provider APIs
+as the main app but is standalone: no database, no UploadThing, no Next.js.
+
+Tools:
+
+- `list_image_models` — models, availability, resolutions, aspect ratios.
+- `generate_image { prompt, model?, aspect_ratio?, resolution?, reference_images?, filename? }`
+  — writes `<thread cwd>/generated/<slug>.png` plus a `<slug>.json` sidecar
+  (prompt, model, provider request id, size, timing). Returns the path and a
+  ≤768px preview so the agent can look at the result.
+- `view_image { path, max_side? }` — downscaled view of any image file.
+
+Models: `gemini-2.5-flash-image` (default), `gemini-3.1-flash-image-preview`,
+`gemini-3-pro-image-preview`, `gpt-image-2`, `dola-seedream-5-0-lite`,
+`dola-seedream-5-0-pro`. All accept reference images (local paths).
+
+Keys: `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ARK_API_KEY`. `process.env` wins;
+otherwise they are read from the repo-root `.env`. Missing keys just mark that
+provider unavailable.
+
+```sh
+pnpm imagegen-test gemini-2.5-flash-image "a red circle"            # direct MCP call, no agent
+pnpm imagegen-test gpt-image-2 "make it blue" generated/a-red-circle-xxxxx.png
+```
+
 ## What works
 
 - One long-lived ACP process per agent kind, one ACP session per harness thread.
@@ -35,6 +67,8 @@ SQLite persistence uses Node's built-in `node:sqlite`. The database lives at
 - Permission requests forwarded to every browser and answerable after reload
   while the server process is still alive.
 - Cancel mid-turn, then keep prompting on the same session.
+- Agents generate, edit, and inspect images through MCP tools; results land as
+  files in the thread folder and render inline in the tool card.
 - Best-effort ACP session resume after server restart when the adapter supports
   `session/load`; otherwise a fresh ACP session is started and the persisted log
   remains visible.
@@ -50,6 +84,6 @@ node scripts/cancel-test.mjs
 
 ## Not done (on purpose)
 
-Projects, file browser, image-generation MCP tools, auth flow (assumes you are
+Projects, file browser, auth flow (assumes you are
 already logged in to both CLIs), and durable permission prompts across a server
 restart. ACP turn execution still lives only in the current server process.

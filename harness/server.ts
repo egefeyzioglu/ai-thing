@@ -34,6 +34,7 @@ import {
   type ThreadRow,
   type ThreadStatus,
 } from "./db.js";
+import { loadEnvFile, PROVIDER_KEYS } from "./env.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 4747);
@@ -51,6 +52,24 @@ const AGENT_ARGS: Record<AgentKind, string[]> = {
   claude: [],
   codex: ["-c", `model="${CODEX_MODEL}"`],
 };
+
+// Image provider keys: process.env wins, then the app's root .env.
+loadEnvFile(join(here, "..", ".env"));
+const configuredProviders = PROVIDER_KEYS.filter((k) => process.env[k]);
+console.log("image providers configured:", configuredProviders.length ? configuredProviders.join(", ") : "none");
+
+const TSX_BIN = join(here, "node_modules/.bin/tsx");
+const IMAGE_TOOLS = join(here, "mcp/image-tools.ts");
+
+/** MCP servers attached to every ACP session: the image tools, writing into <thread cwd>/generated. */
+function mcpServersFor(thread: ThreadRow): acp.McpServer[] {
+  const env = [
+    { name: "PATH", value: process.env.PATH ?? "" },
+    { name: "AITHING_OUTPUT_DIR", value: join(thread.cwd, "generated") },
+    ...configuredProviders.map((k) => ({ name: k, value: process.env[k]! })),
+  ];
+  return [{ name: "aithing-images", command: TSX_BIN, args: [IMAGE_TOOLS], env }];
+}
 
 // On restart there is no live request or permission resolver left in memory.
 resetInterruptedThreads();
@@ -116,6 +135,26 @@ function persistEvent(threadId: string, type: EventType, payload: unknown): Stor
   return event;
 }
 
+/**
+ * Tool results that carry images arrive three times over: in `content` (which
+ * the UI renders), in `rawOutput`, and in adapter `_meta`. Keep `content`
+ * intact and truncate long strings elsewhere before persisting/broadcasting.
+ */
+const MAX_RAW_STRING = 16_000;
+function truncateStrings(value: unknown): unknown {
+  if (typeof value === "string") return value.length > MAX_RAW_STRING ? `${value.slice(0, 200)}… [${value.length} chars truncated]` : value;
+  if (Array.isArray(value)) return value.map(truncateStrings);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, truncateStrings(v)]));
+  return value;
+}
+function compactUpdate(update: acp.SessionUpdate): acp.SessionUpdate {
+  const u = update as Record<string, unknown>;
+  if (!("rawOutput" in u) && !("rawInput" in u) && !("_meta" in u)) return update;
+  const out: Record<string, unknown> = { ...u };
+  for (const key of ["rawOutput", "rawInput", "_meta"]) if (key in out) out[key] = truncateStrings(out[key]);
+  return out as unknown as acp.SessionUpdate;
+}
+
 function clientEvent(event: StoredEvent) {
   return {
     id: event.id,
@@ -176,7 +215,7 @@ async function startAgent(kind: AgentKind): Promise<AgentConn> {
       if (loadingSessions.has(sessionId)) return;
       const threadId = sessionThreads.get(sessionId);
       if (!threadId) return;
-      persistEvent(threadId, "update", { update: ctx.params.update });
+      persistEvent(threadId, "update", { update: compactUpdate(ctx.params.update) });
     })
     .connect(stream);
 
@@ -230,7 +269,7 @@ async function createOrLoadSession(thread: ThreadRow): Promise<LiveSession> {
       await agent.conn.agent.request(acp.methods.agent.session.load, {
         sessionId: thread.acp_session_id,
         cwd: thread.cwd,
-        mcpServers: [],
+        mcpServers: mcpServersFor(thread),
       });
       const live = { kind: thread.agent, sessionId: thread.acp_session_id };
       liveSessions.set(thread.id, live);
@@ -252,7 +291,7 @@ async function createOrLoadSession(thread: ThreadRow): Promise<LiveSession> {
 
   const res = await agent.conn.agent.request(acp.methods.agent.session.new, {
     cwd: thread.cwd,
-    mcpServers: [],
+    mcpServers: mcpServersFor(thread),
   });
   const live = { kind: thread.agent, sessionId: res.sessionId };
   liveSessions.set(thread.id, live);
