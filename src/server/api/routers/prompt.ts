@@ -4,6 +4,10 @@ import { z } from "zod";
 
 import { MONTHLY_CREDIT_LIMIT } from "src/lib/credits";
 import {
+  IMAGE_QUALITY_OPTIONS,
+  modelSupportsImageQuality,
+} from "src/lib/image-quality";
+import {
   getEffectiveImageResolution,
   IMAGE_RESOLUTION_OPTIONS,
 } from "src/lib/image-resolution";
@@ -185,9 +189,7 @@ export const promptRouter = createTRPCRouter({
         resolution: z.enum(IMAGE_RESOLUTION_OPTIONS).optional(),
         aspectRatio: z.string().optional(),
         // image-only
-        quality: z
-          .enum(["auto", "low", "medium", "high", "xhigh", "max"])
-          .optional(),
+        quality: z.enum(IMAGE_QUALITY_OPTIONS).optional(),
         background: z.enum(["auto", "opaque", "transparent"]).optional(),
         negativePrompt: z.string().max(2000).optional(),
         seed: z
@@ -276,6 +278,17 @@ export const promptRouter = createTRPCRouter({
           });
         }
       } else {
+        const qualityUnsupportedModels = models.filter(
+          (model) => !modelSupportsImageQuality(model, input.quality),
+        );
+        if (qualityUnsupportedModels.length > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Quality "${input.quality}" is not supported by: ${qualityUnsupportedModels
+              .map((model) => SUPPORTED_MODEL_BY_SLUG[model].humanName)
+              .join(", ")}`,
+          });
+        }
         for (const model of models) {
           const capabilities = DOLA_SEEDREAM_IMAGE_CAPABILITIES[model];
           if (!capabilities) continue;

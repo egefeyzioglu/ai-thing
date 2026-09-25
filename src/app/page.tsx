@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
 } from "src/components/ui/alert-dialog";
 import { calculateGenerationCredits } from "src/lib/credits";
+import { modelSupportsImageQuality } from "src/lib/image-quality";
 import { getEffectiveImageResolution } from "src/lib/image-resolution";
 import { notifyPromptDone } from "src/lib/notify";
 import { isExpectedTRPCError } from "src/lib/trpc-errors";
@@ -1016,6 +1017,9 @@ export default function Home() {
   const hasGeminiModelSelected = selectedModels.some((model) =>
     GEMINI_MODEL_SLUGS.has(model),
   );
+  const extendedQualityAvailable =
+    hasOpenAIModelSelected &&
+    selectedModels.every((model) => modelSupportsImageQuality(model, "max"));
   const hasOnlySeedanceFastSelected =
     mode === "video" &&
     selectedModels.length > 0 &&
@@ -1051,6 +1055,24 @@ export default function Home() {
       setVideoResolution("720p");
     }
   }, [hasOnlySeedanceFastSelected, setVideoResolution, videoResolution]);
+
+  useEffect(() => {
+    if (
+      hasOpenAIModelSelected &&
+      !extendedQualityAvailable &&
+      !selectedModels.every((model) =>
+        modelSupportsImageQuality(model, advanced.quality),
+      )
+    ) {
+      setAdvanced((s) => ({ ...s, quality: "high" }));
+    }
+  }, [
+    advanced.quality,
+    extendedQualityAvailable,
+    hasOpenAIModelSelected,
+    selectedModels,
+    setAdvanced,
+  ]);
 
   useEffect(() => {
     const IMAGE_ASPECTS = new Set(["1:1", "4:3", "3:4", "16:9", "9:16"]);
@@ -1180,6 +1202,7 @@ export default function Home() {
           setAdvanced((s) => ({ ...s, thinking: value }))
         }
         hasOpenAIModelSelected={hasOpenAIModelSelected}
+        extendedQualityAvailable={extendedQualityAvailable}
         hasGeminiModelSelected={hasGeminiModelSelected}
         hasOnlySeedanceFastSelected={hasOnlySeedanceFastSelected}
         maxImageReferenceImages={maxImageReferenceImages}

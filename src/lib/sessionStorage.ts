@@ -3,6 +3,8 @@
 import { z } from "zod";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { IMAGE_QUALITY_OPTIONS } from "src/lib/image-quality";
+
 type SessionStorageSchemaItem<TSchema extends z.ZodTypeAny> = {
   schema: TSchema;
   key: string;
@@ -50,7 +52,7 @@ export const sessionStorageSchema = {
   }),
   imageGenerationAdvanced: defineSessionStorageItem({
     schema: z.object({
-      quality: z.enum(["auto", "low", "medium", "high", "xhigh", "max"]),
+      quality: z.enum(IMAGE_QUALITY_OPTIONS),
       background: z.enum(["auto", "opaque", "transparent"]),
       negativePrompt: z.string(),
       seed: z.string(),
