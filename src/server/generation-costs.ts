@@ -33,7 +33,33 @@ const OPENAI_PRICING = {
     cachedImageInputUsdMicrosPerMillion: 2_000_000,
     imageOutputUsdMicrosPerMillion: 30_000_000,
   },
+  // GPT Image 2.5 (Flare + Sunburst) share GPT Image 2's per-token rates.
+  "gpt-image-2.5-flare": {
+    textInputUsdMicrosPerMillion: 5_000_000,
+    cachedTextInputUsdMicrosPerMillion: 1_250_000,
+    imageInputUsdMicrosPerMillion: 8_000_000,
+    cachedImageInputUsdMicrosPerMillion: 2_000_000,
+    imageOutputUsdMicrosPerMillion: 30_000_000,
+  },
+  "gpt-image-2.5-sunburst": {
+    textInputUsdMicrosPerMillion: 5_000_000,
+    cachedTextInputUsdMicrosPerMillion: 1_250_000,
+    imageInputUsdMicrosPerMillion: 8_000_000,
+    cachedImageInputUsdMicrosPerMillion: 2_000_000,
+    imageOutputUsdMicrosPerMillion: 30_000_000,
+  },
 } as const;
+
+const OPENAI_IMAGES_MODELS = [
+  "gpt-image-2",
+  "gpt-image-2.5-flare",
+  "gpt-image-2.5-sunburst",
+] as const;
+type OpenAIImagesModel = (typeof OPENAI_IMAGES_MODELS)[number];
+
+function isOpenAIImagesModel(model: string): model is OpenAIImagesModel {
+  return (OPENAI_IMAGES_MODELS as readonly string[]).includes(model);
+}
 
 const GEMINI_PRICING = {
   "gemini-3-flash-preview": {
@@ -419,12 +445,19 @@ function outputTokensForOpenAIImage2Fallback(args: {
 }): number {
   const quality =
     args.quality && args.quality !== "auto" ? args.quality : "medium";
+  // OpenAI publishes per-image token counts for low/medium/high only. The
+  // GPT Image 2.5 "xhigh" and "max" tiers have no published figures yet, so
+  // they're estimated as 1.5x and 2x the "high" tier respectively.
   const baseTokens =
     quality === "low"
       ? 200
       : quality === "high"
         ? 7034
-        : 1767;
+        : quality === "xhigh"
+          ? 10551
+          : quality === "max"
+            ? 14068
+            : 1767;
   const pixels = parseSizePixels(args.size);
 
   if (pixels) {
@@ -803,9 +836,9 @@ function calculateOpenAIImagesCost(args: {
   usageRaw: unknown;
   fallbackContext: CostFallbackContext;
 }): CostFields {
-  if (args.model !== "gpt-image-2") return unsupportedModelCost(args.model);
+  if (!isOpenAIImagesModel(args.model)) return unsupportedModelCost(args.model);
 
-  const pricing = OPENAI_PRICING["gpt-image-2"];
+  const pricing = OPENAI_PRICING[args.model];
   const usage = normalizeOpenAIImagesUsage(args.usageRaw);
   const assumptions: string[] = [];
 
@@ -1228,7 +1261,7 @@ function calculateCost(args: {
   if (args.provider === "openai") {
     if (
       args.operation === "responses_image_generation" ||
-      args.model === "gpt-image-2"
+      isOpenAIImagesModel(args.model)
     ) {
       const raw = isRecord(args.usageRaw)
         ? (args.usageRaw as OpenAIResponseUsageRaw)

@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
 } from "src/components/ui/alert-dialog";
 import { calculateGenerationCredits } from "src/lib/credits";
+import { modelSupportsImageQuality } from "src/lib/image-quality";
 import { getEffectiveImageResolution } from "src/lib/image-resolution";
 import { notifyPromptDone } from "src/lib/notify";
 import { isExpectedTRPCError } from "src/lib/trpc-errors";
@@ -123,6 +124,8 @@ function normalizeVideoRoles(
 
 const PUSH_PERMISSION_PROMPT_STORAGE_KEY = "ai-thing.pushPermissionPrompt";
 const OPENAI_MODEL_SLUGS = new Set<PromptModelSlug>([
+  "gpt-image-2.5-flare",
+  "gpt-image-2.5-sunburst",
   "gpt-image-2",
   "gpt-5.4-mini",
 ]);
@@ -1014,6 +1017,9 @@ export default function Home() {
   const hasGeminiModelSelected = selectedModels.some((model) =>
     GEMINI_MODEL_SLUGS.has(model),
   );
+  const extendedQualityAvailable =
+    hasOpenAIModelSelected &&
+    selectedModels.every((model) => modelSupportsImageQuality(model, "max"));
   const hasOnlySeedanceFastSelected =
     mode === "video" &&
     selectedModels.length > 0 &&
@@ -1049,6 +1055,19 @@ export default function Home() {
       setVideoResolution("720p");
     }
   }, [hasOnlySeedanceFastSelected, setVideoResolution, videoResolution]);
+
+  useEffect(() => {
+    // Extended quality tiers are only valid when every selected model accepts
+    // them, including selections with no OpenAI model at all (the mutation
+    // rejects a stale xhigh/max either way).
+    if (
+      !selectedModels.every((model) =>
+        modelSupportsImageQuality(model, advanced.quality),
+      )
+    ) {
+      setAdvanced((s) => ({ ...s, quality: "high" }));
+    }
+  }, [advanced.quality, selectedModels, setAdvanced]);
 
   useEffect(() => {
     const IMAGE_ASPECTS = new Set(["1:1", "4:3", "3:4", "16:9", "9:16"]);
@@ -1178,6 +1197,7 @@ export default function Home() {
           setAdvanced((s) => ({ ...s, thinking: value }))
         }
         hasOpenAIModelSelected={hasOpenAIModelSelected}
+        extendedQualityAvailable={extendedQualityAvailable}
         hasGeminiModelSelected={hasGeminiModelSelected}
         hasOnlySeedanceFastSelected={hasOnlySeedanceFastSelected}
         maxImageReferenceImages={maxImageReferenceImages}
