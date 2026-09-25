@@ -11,6 +11,7 @@ import {
   getEffectiveImageResolution,
   IMAGE_RESOLUTION_OPTIONS,
 } from "src/lib/image-resolution";
+import { createTraceContext } from "src/lib/observability/trace";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import {
@@ -28,6 +29,7 @@ import {
   lockUserUsage,
 } from "src/server/usage";
 import { currentUserCanBypassLimits } from "src/server/limits";
+import { createWideEvent } from "src/server/observability/event";
 
 export type SupportedModel = {
   slug: string;
@@ -282,12 +284,33 @@ export const promptRouter = createTRPCRouter({
           (model) => !modelSupportsImageQuality(model, input.quality),
         );
         if (qualityUnsupportedModels.length > 0) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `Quality "${input.quality}" is not supported by: ${qualityUnsupportedModels
-              .map((model) => SUPPORTED_MODEL_BY_SLUG[model].humanName)
-              .join(", ")}`,
-          });
+          const message = `Quality "${input.quality}" is not supported by: ${qualityUnsupportedModels
+            .map((model) => SUPPORTED_MODEL_BY_SLUG[model].humanName)
+            .join(", ")}`;
+          // The sidebar disables and resets unsupported quality tiers, so a
+          // request reaching this check means the client guard regressed.
+          // Report it as unexpected; the tRPC procedure event alone would
+          // classify the BAD_REQUEST below as an ordinary user error.
+          await createWideEvent(
+            "prompt.unsupported_quality_rejected",
+            { requestId: ctx.requestId, userId: ctx.user },
+            { trace: createTraceContext(ctx.traceContext ?? undefined) },
+          )
+            .set({
+              quality: input.quality ?? null,
+              models,
+              unsupportedModels: qualityUnsupportedModels,
+            })
+            .fail(new Error(message), "quality_validation")
+            .outcome("unexpected_error")
+            .emit()
+            .catch((emitError) => {
+              console.error(
+                "[createWithGenerations] failed to emit quality rejection event:",
+                emitError,
+              );
+            });
+          throw new TRPCError({ code: "BAD_REQUEST", message });
         }
         for (const model of models) {
           const capabilities = DOLA_SEEDREAM_IMAGE_CAPABILITIES[model];

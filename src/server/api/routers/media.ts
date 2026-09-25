@@ -471,6 +471,12 @@ type OpenAIImagesModelSlug = keyof typeof OPENAI_IMAGES_PROVIDER_MODEL;
 type OpenAIImagesProviderModel =
   (typeof OPENAI_IMAGES_PROVIDER_MODEL)[OpenAIImagesModelSlug];
 
+function requestedOpenAIImagesProviderModel(model: string) {
+  return model in OPENAI_IMAGES_PROVIDER_MODEL
+    ? OPENAI_IMAGES_PROVIDER_MODEL[model as OpenAIImagesModelSlug]
+    : undefined;
+}
+
 async function generateImageGptImage2Generations(
   prompt: string,
   model: OpenAIImagesProviderModel,
@@ -1371,6 +1377,16 @@ export const mediaRouter = createTRPCRouter({
       }
 
       console.log("[runGeneration] starting generation for model:", mediaRow.model);
+      // Record the exact request shape so provider failures can be traced to
+      // a specific snapshot and quality tier, not just the app model slug.
+      generationEvent.set({
+        quality: promptRow.quality,
+        resolution: effectiveResolution,
+        aspectRatio: promptRow.aspectRatio,
+        requestedProviderModel: requestedOpenAIImagesProviderModel(
+          mediaRow.model,
+        ),
+      });
 
       try {
         const generated = await generateForModel(
@@ -1458,9 +1474,22 @@ export const mediaRouter = createTRPCRouter({
             aspectRatio: promptRow.aspectRatio,
             outputImageCount: 1,
           },
-        }).catch((err) => {
-          console.error("[runGeneration] failed to record generation cost:", err);
-        });
+        })
+          .then((costEvent) => {
+            // An unsupported_pricing_model fallback records a $0 cost, which
+            // would otherwise silently hide a pricing-table regression.
+            generationEvent.set({
+              costStatus: costEvent.status,
+              costFallbackReason: costEvent.fallbackReason,
+            });
+          })
+          .catch((err) => {
+            generationEvent.set({ costStatus: "record_failed" });
+            console.error(
+              "[runGeneration] failed to record generation cost:",
+              err,
+            );
+          });
         console.log("[runGeneration] generation succeeded, uploading");
         const { url, key } = await uploadGeneratedImage({
           mediaId: mediaRow.id,
@@ -1532,6 +1561,7 @@ export const mediaRouter = createTRPCRouter({
         generationEvent.set({
           finalStatus: "succeeded",
           provider: generated.cost.provider,
+          providerModel: generated.cost.providerModel,
           usageStatus: didConsume ? "consumed" : "consume_failed",
         });
         console.log("[runGeneration] done, status: succeeded");
@@ -1609,6 +1639,7 @@ export const mediaRouter = createTRPCRouter({
           properties: {
             image_id: mediaRow.id,
             model: mediaRow.model,
+            quality: promptRow.quality,
             error_code: imageGenerationErrorCode(err, message),
             error_snippet: redactErrorMessage(message),
           },
