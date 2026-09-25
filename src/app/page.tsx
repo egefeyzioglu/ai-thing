@@ -1057,22 +1057,17 @@ export default function Home() {
   }, [hasOnlySeedanceFastSelected, setVideoResolution, videoResolution]);
 
   useEffect(() => {
+    // Extended quality tiers are only valid when every selected model accepts
+    // them, including selections with no OpenAI model at all (the mutation
+    // rejects a stale xhigh/max either way).
     if (
-      hasOpenAIModelSelected &&
-      !extendedQualityAvailable &&
       !selectedModels.every((model) =>
         modelSupportsImageQuality(model, advanced.quality),
       )
     ) {
       setAdvanced((s) => ({ ...s, quality: "high" }));
     }
-  }, [
-    advanced.quality,
-    extendedQualityAvailable,
-    hasOpenAIModelSelected,
-    selectedModels,
-    setAdvanced,
-  ]);
+  }, [advanced.quality, selectedModels, setAdvanced]);
 
   useEffect(() => {
     const IMAGE_ASPECTS = new Set(["1:1", "4:3", "3:4", "16:9", "9:16"]);
