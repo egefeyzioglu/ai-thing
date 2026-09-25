@@ -6,6 +6,8 @@ export const MODEL_IMAGE_RESOLUTIONS: Readonly<
   Partial<Record<string, readonly ImageResolution[]>>
 > = {
   "gpt-image-2": ["1K", "2K", "4K"],
+  "gpt-image-2.5-flare": ["1K", "2K", "4K"],
+  "gpt-image-2.5-sunburst": ["1K", "2K", "4K"],
   "gpt-5.4-mini": ["1K", "2K", "4K"],
   "dola-seedream-5-0-lite": ["2K", "4K"],
   "dola-seedream-5-0-pro": ["1K", "2K"],

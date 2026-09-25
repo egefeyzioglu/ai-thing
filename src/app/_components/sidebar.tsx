@@ -82,7 +82,13 @@ export const VIDEO_RESOLUTION_OPTIONS: VideoResolution[] = [
 ];
 export const VIDEO_DURATION_OPTIONS: VideoDuration[] = [5, 10];
 
-export type QualityOption = "auto" | "low" | "medium" | "high";
+export type QualityOption =
+  | "auto"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
 export type BackgroundOption = "auto" | "opaque" | "transparent";
 export type ThinkingOption = "auto" | "off" | "low" | "high";
 
@@ -116,6 +122,8 @@ export const QUALITY_OPTIONS: { value: QualityOption; label: string }[] = [
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
+  { value: "xhigh", label: "Extra High" },
+  { value: "max", label: "Max" },
 ];
 
 export const BACKGROUND_OPTIONS: { value: BackgroundOption; label: string }[] =
@@ -1210,7 +1218,7 @@ export function Sidebar({
                   <Field>
                     <AdvancedControlLabel
                       label="Quality"
-                      help="Image quality. Higher uses more credits but produces sharper results."
+                      help="Image quality. Higher uses more credits but produces sharper results. Extra High and Max are only supported by GPT Image 2.5 models."
                     />
                     <Select
                       value={quality}

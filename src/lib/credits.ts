@@ -5,6 +5,8 @@ export const MODEL_CREDIT_BASE = {
   "gpt-5.4-mini": 10,
   "gemini-3.1-flash-image-preview": 10,
   "gpt-image-2": 20,
+  "gpt-image-2.5-flare": 20,
+  "gpt-image-2.5-sunburst": 20,
   "gemini-3-pro-image-preview": 25,
 } as const;
 

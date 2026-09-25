@@ -35,11 +35,25 @@ export type SupportedModel = {
 
 export const SUPPORTED_MODELS = [
   {
+    slug: "gpt-image-2.5-flare",
+    humanName: "GPT Image 2.5 Flare",
+    provider: "Open AI",
+    kind: "image",
+    isArchived: false,
+  },
+  {
+    slug: "gpt-image-2.5-sunburst",
+    humanName: "GPT Image 2.5 Sunburst",
+    provider: "Open AI",
+    kind: "image",
+    isArchived: false,
+  },
+  {
     slug: "gpt-image-2",
     humanName: "GPT Image 2",
     provider: "Open AI",
     kind: "image",
-    isArchived: false,
+    isArchived: true,
   },
   {
     slug: "gpt-5.4-mini",
@@ -171,7 +185,9 @@ export const promptRouter = createTRPCRouter({
         resolution: z.enum(IMAGE_RESOLUTION_OPTIONS).optional(),
         aspectRatio: z.string().optional(),
         // image-only
-        quality: z.enum(["auto", "low", "medium", "high"]).optional(),
+        quality: z
+          .enum(["auto", "low", "medium", "high", "xhigh", "max"])
+          .optional(),
         background: z.enum(["auto", "opaque", "transparent"]).optional(),
         negativePrompt: z.string().max(2000).optional(),
         seed: z

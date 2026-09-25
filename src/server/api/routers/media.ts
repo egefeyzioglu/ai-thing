@@ -461,9 +461,19 @@ async function generateImageOpenAIResponses(
   };
 }
 
+const OPENAI_IMAGES_PROVIDER_MODEL = {
+  "gpt-image-2": "gpt-image-2-2026-04-21",
+  "gpt-image-2.5-flare": "gpt-image-2.5-flare-2026-09-08",
+  "gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst-2026-09-08",
+} as const;
+
+type OpenAIImagesModelSlug = keyof typeof OPENAI_IMAGES_PROVIDER_MODEL;
+type OpenAIImagesProviderModel =
+  (typeof OPENAI_IMAGES_PROVIDER_MODEL)[OpenAIImagesModelSlug];
+
 async function generateImageGptImage2Generations(
   prompt: string,
-  model: ["gpt-image-2-2026-04-21"][number],
+  model: OpenAIImagesProviderModel,
   size: string,
   advanced?: AdvancedSettings,
   signal?: AbortSignal,
@@ -516,13 +526,14 @@ async function generateImageGptImage2Generations(
 
 async function generateImageGptImage2Edits(
   prompt: string,
+  model: OpenAIImagesProviderModel,
   size: string,
   referenceImages: ReferenceImage[],
   advanced?: AdvancedSettings,
   signal?: AbortSignal,
 ): Promise<GeneratedImage | undefined> {
   const body = JSON.stringify({
-    model: "gpt-image-2-2026-04-21",
+    model,
     prompt,
     images: referenceImages.map((image) => ({
       image_url: image.url,
@@ -559,7 +570,7 @@ async function generateImageGptImage2Edits(
     cost: {
       provider: "openai",
       providerRequestId: data.id ?? null,
-      providerModel: data.model ?? "gpt-image-2-2026-04-21",
+      providerModel: data.model ?? model,
       operation: "image_edit",
       usageRaw: data.usage ?? null,
       fallbackContext: {
@@ -571,6 +582,7 @@ async function generateImageGptImage2Edits(
 }
 
 async function generateImageGptImage2(
+  model: OpenAIImagesModelSlug,
   userId: string,
   prompt: string,
   referenceImageIds?: string[],
@@ -585,9 +597,11 @@ async function generateImageGptImage2(
   );
   const size = resolveImageSize(resolution, aspectRatio) ?? "auto";
 
+  const providerModel = OPENAI_IMAGES_PROVIDER_MODEL[model];
   const image = await (ownedReferenceImages.length > 0
     ? generateImageGptImage2Edits(
         prompt,
+        providerModel,
         size,
         ownedReferenceImages,
         advanced,
@@ -595,7 +609,7 @@ async function generateImageGptImage2(
       )
     : generateImageGptImage2Generations(
         prompt,
-        "gpt-image-2-2026-04-21",
+        providerModel,
         size,
         advanced,
         signal,
@@ -834,7 +848,10 @@ async function generateForModel(
 ): Promise<GeneratedImage> {
   switch (model) {
     case "gpt-image-2":
+    case "gpt-image-2.5-flare":
+    case "gpt-image-2.5-sunburst":
       return generateImageGptImage2(
+        model,
         userId,
         prompt,
         referenceImageIds,

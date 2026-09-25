@@ -50,7 +50,7 @@ export const sessionStorageSchema = {
   }),
   imageGenerationAdvanced: defineSessionStorageItem({
     schema: z.object({
-      quality: z.enum(["auto", "low", "medium", "high"]),
+      quality: z.enum(["auto", "low", "medium", "high", "xhigh", "max"]),
       background: z.enum(["auto", "opaque", "transparent"]),
       negativePrompt: z.string(),
       seed: z.string(),
