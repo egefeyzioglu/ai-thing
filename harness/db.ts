@@ -16,6 +16,7 @@ export type EventType =
 
 export type ThreadRow = {
   id: string;
+  project_id: string;
   agent: AgentKind;
   cwd: string;
   title: string;
@@ -23,6 +24,22 @@ export type ThreadRow = {
   status: ThreadStatus;
   created_at: number;
   updated_at: number;
+};
+
+export type ProjectRow = {
+  id: string;
+  name: string;
+  path: string;
+  created_at: number;
+  updated_at: number;
+};
+
+export type QueuedMessageRow = {
+  id: string;
+  thread_id: string;
+  text: string;
+  position: number;
+  created_at: number;
 };
 
 export type StoredEvent = {
@@ -58,8 +75,17 @@ const db = new DatabaseSync(dbPath);
 db.exec("PRAGMA journal_mode = WAL");
 db.exec("PRAGMA foreign_keys = ON");
 db.exec(`
+  CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    path TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS threads (
     id TEXT PRIMARY KEY,
+    project_id TEXT REFERENCES projects(id),
     agent TEXT NOT NULL,
     cwd TEXT NOT NULL,
     title TEXT NOT NULL DEFAULT '',
@@ -77,8 +103,22 @@ db.exec(`
     payload TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS queued_messages (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL REFERENCES threads(id),
+    text TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS events_thread ON events(thread_id, id);
+  CREATE INDEX IF NOT EXISTS queued_thread ON queued_messages(thread_id, position, created_at);
 `);
+
+const threadColumns = db.prepare("PRAGMA table_info(threads)").all() as { name: string }[];
+if (!threadColumns.some((column) => column.name === "project_id")) {
+  db.exec("ALTER TABLE threads ADD COLUMN project_id TEXT REFERENCES projects(id)");
+}
 
 function readThread(row: SqlThreadRow | undefined): ThreadRow | null {
   return row ?? null;
@@ -88,7 +128,47 @@ function readEvent(row: SqlEventRow): StoredEvent {
   return { ...row, payload: JSON.parse(row.payload) };
 }
 
-export function listThreads(): ThreadRow[] {
+export function listProjects(): ProjectRow[] {
+  return db.prepare("SELECT * FROM projects ORDER BY updated_at DESC, name COLLATE NOCASE").all() as ProjectRow[];
+}
+
+export function getProject(id: string): ProjectRow | null {
+  return (db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as ProjectRow | undefined) ?? null;
+}
+
+export function getProjectByPath(path: string): ProjectRow | null {
+  return (db.prepare("SELECT * FROM projects WHERE path = ?").get(path) as ProjectRow | undefined) ?? null;
+}
+
+export function createProject(project: Pick<ProjectRow, "id" | "name" | "path">): ProjectRow {
+  const now = Date.now();
+  db.prepare("INSERT INTO projects (id, name, path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
+    project.id, project.name, project.path, now, now,
+  );
+  return getProject(project.id)!;
+}
+
+export function updateProject(id: string, patch: { name?: string }): ProjectRow | null {
+  const current = getProject(id);
+  if (!current) return null;
+  db.prepare("UPDATE projects SET name = ?, updated_at = ? WHERE id = ?").run(patch.name ?? current.name, Date.now(), id);
+  return getProject(id);
+}
+
+export function deleteProject(id: string): void {
+  const count = db.prepare("SELECT count(*) AS count FROM threads WHERE project_id = ?").get(id) as { count: number };
+  if (count.count) throw new Error("project still has threads");
+  db.prepare("DELETE FROM projects WHERE id = ?").run(id);
+}
+
+export function ensureDefaultProject(path: string, name: string): ProjectRow {
+  const project = getProjectByPath(path) ?? createProject({ id: crypto.randomUUID(), name, path });
+  db.prepare("UPDATE threads SET project_id = ?, cwd = ? WHERE project_id IS NULL").run(project.id, project.path);
+  return project;
+}
+
+export function listThreads(projectId?: string): ThreadRow[] {
+  if (projectId) return db.prepare("SELECT * FROM threads WHERE project_id = ? ORDER BY updated_at DESC").all(projectId) as ThreadRow[];
   return db.prepare("SELECT * FROM threads ORDER BY updated_at DESC").all() as ThreadRow[];
 }
 
@@ -98,10 +178,11 @@ export function getThread(id: string): ThreadRow | null {
 
 export function createThread(thread: ThreadRow): ThreadRow {
   db.prepare(`
-    INSERT INTO threads (id, agent, cwd, title, acp_session_id, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO threads (id, project_id, agent, cwd, title, acp_session_id, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     thread.id,
+    thread.project_id,
     thread.agent,
     thread.cwd,
     thread.title,
@@ -115,16 +196,16 @@ export function createThread(thread: ThreadRow): ThreadRow {
 
 export function updateThread(
   id: string,
-  patch: Partial<Pick<ThreadRow, "title" | "acp_session_id" | "status" | "updated_at">>,
+  patch: Partial<Pick<ThreadRow, "project_id" | "title" | "acp_session_id" | "status" | "updated_at">>,
 ): ThreadRow | null {
   const current = getThread(id);
   if (!current) return null;
   const next: ThreadRow = { ...current, ...patch, updated_at: patch.updated_at ?? Date.now() };
   db.prepare(`
     UPDATE threads
-    SET title = ?, acp_session_id = ?, status = ?, updated_at = ?
+    SET project_id = ?, title = ?, acp_session_id = ?, status = ?, updated_at = ?
     WHERE id = ?
-  `).run(next.title, next.acp_session_id, next.status, next.updated_at, id);
+  `).run(next.project_id, next.title, next.acp_session_id, next.status, next.updated_at, id);
   return next;
 }
 
@@ -148,8 +229,45 @@ export function listEvents(threadId: string): StoredEvent[] {
 }
 
 export function deleteThread(threadId: string): void {
+  db.prepare("DELETE FROM queued_messages WHERE thread_id = ?").run(threadId);
   db.prepare("DELETE FROM events WHERE thread_id = ?").run(threadId);
   db.prepare("DELETE FROM threads WHERE id = ?").run(threadId);
+}
+
+export function listQueued(threadId: string): QueuedMessageRow[] {
+  return db.prepare("SELECT * FROM queued_messages WHERE thread_id = ? ORDER BY position, created_at").all(threadId) as QueuedMessageRow[];
+}
+
+export function enqueue(threadId: string, text: string, options: { front?: boolean } = {}): QueuedMessageRow {
+  const edge = db.prepare(`SELECT ${options.front ? "min" : "max"}(position) AS position FROM queued_messages WHERE thread_id = ?`).get(threadId) as { position: number | null };
+  const position = edge.position == null ? 0 : edge.position + (options.front ? -1 : 1);
+  const item = { id: crypto.randomUUID(), thread_id: threadId, text, position, created_at: Date.now() };
+  db.prepare("INSERT INTO queued_messages (id, thread_id, text, position, created_at) VALUES (?, ?, ?, ?, ?)").run(
+    item.id, item.thread_id, item.text, item.position, item.created_at,
+  );
+  return item;
+}
+
+export function dequeueNext(threadId: string): QueuedMessageRow | null {
+  const item = listQueued(threadId)[0] ?? null;
+  if (item) db.prepare("DELETE FROM queued_messages WHERE id = ?").run(item.id);
+  return item;
+}
+
+export function getQueued(id: string): QueuedMessageRow | null {
+  return (db.prepare("SELECT * FROM queued_messages WHERE id = ?").get(id) as QueuedMessageRow | undefined) ?? null;
+}
+
+export function removeQueued(id: string): void {
+  db.prepare("DELETE FROM queued_messages WHERE id = ?").run(id);
+}
+
+export function moveQueuedToFront(id: string): QueuedMessageRow | null {
+  const item = getQueued(id);
+  if (!item) return null;
+  const edge = db.prepare("SELECT min(position) AS position FROM queued_messages WHERE thread_id = ?").get(item.thread_id) as { position: number | null };
+  db.prepare("UPDATE queued_messages SET position = ? WHERE id = ?").run((edge.position ?? 0) - 1, id);
+  return getQueued(id);
 }
 
 export function resetInterruptedThreads(): ThreadRow[] {

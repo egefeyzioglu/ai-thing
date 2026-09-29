@@ -12,21 +12,34 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
-import { readFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Readable, Writable } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 import * as acp from "@agentclientprotocol/sdk";
 import {
   appendEvent,
+  createProject,
   createThread,
   dbPath,
+  deleteProject,
   deleteThread,
+  dequeueNext,
+  enqueue,
+  ensureDefaultProject,
+  getProject,
+  getProjectByPath,
+  getQueued,
   getThread,
   listEvents,
+  listProjects,
+  listQueued,
   listThreads,
+  moveQueuedToFront,
+  removeQueued,
   resetInterruptedThreads,
+  updateProject,
   updateThread,
   type AgentKind,
   type EventType,
@@ -40,6 +53,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 4747);
 const WORKSPACE = resolve(process.env.WORKSPACE ?? join(here, "workspace"));
 mkdirSync(WORKSPACE, { recursive: true });
+ensureDefaultProject(WORKSPACE, "Workspace");
 
 const AGENT_BIN: Record<AgentKind, string> = {
   claude: join(here, "node_modules/.bin/claude-code-acp"),
@@ -95,6 +109,8 @@ const liveSessions = new Map<string, LiveSession>(); // threadId -> live ACP ses
 const sessionThreads = new Map<string, string>(); // ACP sessionId -> threadId
 const loadingSessions = new Set<string>(); // ACP sessionIds currently replaying history
 const pendingSessionEnsures = new Map<string, Promise<LiveSession>>();
+const pumping = new Set<string>();
+const stopRequested = new Set<string>();
 const pendingPermissions = new Map<
   string,
   {
@@ -119,6 +135,14 @@ function broadcast(msg: unknown) {
 
 function broadcastThread(thread: ThreadRow | null) {
   if (thread) broadcast({ type: "thread", thread });
+}
+
+function clientQueue(threadId: string) {
+  return listQueued(threadId).map(({ id, text, created_at }) => ({ id, text, created_at }));
+}
+
+function broadcastQueue(threadId: string) {
+  broadcast({ type: "queue", threadId, items: clientQueue(threadId) });
 }
 
 function setThread(threadId: string, patch: Partial<Pick<ThreadRow, "title" | "acp_session_id" | "status" | "updated_at">>) {
@@ -300,16 +324,20 @@ async function createOrLoadSession(thread: ThreadRow): Promise<LiveSession> {
   return live;
 }
 
-function resolveWorkspaceCwd(cwd?: string): string {
-  const resolved = resolve(WORKSPACE, cwd ?? ".");
-  const rel = relative(WORKSPACE, resolved);
-  if (rel.startsWith("..") || isAbsolute(rel)) throw new Error("cwd must stay inside the workspace");
-  mkdirSync(resolved, { recursive: true });
-  return resolved;
-}
-
 function titleFromPrompt(text: string): string {
   return text.split(/\r?\n/, 1)[0]!.trim().slice(0, 80);
+}
+
+async function interruptThread(threadId: string) {
+  try {
+    const live = liveSessions.get(threadId);
+    if (live) {
+      const agent = await getAgent(live.kind);
+      await agent.conn.agent.notify(acp.methods.agent.session.cancel, { sessionId: live.sessionId });
+    }
+  } finally {
+    cancelPendingPermissions(threadId);
+  }
 }
 
 function cancelPendingPermissions(threadId: string) {
@@ -326,22 +354,60 @@ function cancelPendingPermissions(threadId: string) {
 // ---------------------------------------------------------------------------
 
 type ClientMsg =
-  | { type: "new_thread"; agent: AgentKind; cwd?: string }
+  | { type: "new_project"; name: string; path?: string }
+  | { type: "rename_project"; projectId: string; name: string }
+  | { type: "delete_project"; projectId: string }
+  | { type: "new_thread"; agent: AgentKind; projectId: string }
   | { type: "open_thread"; threadId: string }
-  | { type: "prompt"; threadId: string; text: string }
+  | { type: "prompt"; threadId: string; text: string; mode?: "auto" | "queue" | "now" }
+  | { type: "queue_send_now"; id: string }
+  | { type: "queue_remove"; id: string }
   | { type: "cancel"; threadId: string }
   | { type: "permission_response"; id: string; optionId?: string }
   | { type: "delete_thread"; threadId: string };
 
 async function handle(ws: WebSocket, msg: ClientMsg) {
   switch (msg.type) {
+    case "new_project": {
+      const name = msg.name.trim();
+      if (!name) throw new Error("project name is required");
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "project";
+      if (msg.path && !isAbsolute(msg.path)) throw new Error("project path must be absolute");
+      const path = resolve(msg.path || join(WORKSPACE, slug));
+      if (getProjectByPath(path)) throw new Error("a project with that path already exists");
+      if (existsSync(path) && !statSync(path).isDirectory()) throw new Error("project path is not a directory");
+      mkdirSync(path, { recursive: true });
+      const project = createProject({ id: randomUUID(), name, path });
+      watchProject(project.id, project.path);
+      broadcast({ type: "project", project });
+      send(ws, { type: "project_created", project });
+      return;
+    }
+    case "rename_project": {
+      const name = msg.name.trim();
+      if (!name) throw new Error("project name is required");
+      const project = updateProject(msg.projectId, { name });
+      if (!project) throw new Error(`unknown project ${msg.projectId}`);
+      broadcast({ type: "project", project });
+      return;
+    }
+    case "delete_project": {
+      if (!getProject(msg.projectId)) throw new Error(`unknown project ${msg.projectId}`);
+      deleteProject(msg.projectId);
+      unwatchProject(msg.projectId);
+      broadcast({ type: "project_deleted", projectId: msg.projectId });
+      return;
+    }
     case "new_thread": {
       if (msg.agent !== "claude" && msg.agent !== "codex") throw new Error(`unknown agent ${String(msg.agent)}`);
+      const project = getProject(msg.projectId);
+      if (!project) throw new Error(`unknown project ${msg.projectId}`);
       const now = Date.now();
       const thread = createThread({
         id: randomUUID(),
+        project_id: project.id,
         agent: msg.agent,
-        cwd: resolveWorkspaceCwd(msg.cwd),
+        cwd: project.path,
         title: "",
         acp_session_id: null,
         status: "idle",
@@ -349,13 +415,13 @@ async function handle(ws: WebSocket, msg: ClientMsg) {
         updated_at: now,
       });
       broadcastThread(thread);
-      send(ws, { type: "opened", thread, events: [] });
+      send(ws, { type: "opened", thread, events: [], queue: [] });
       return;
     }
     case "open_thread": {
       const thread = getThread(msg.threadId);
       if (!thread) throw new Error(`unknown thread ${msg.threadId}`);
-      send(ws, { type: "opened", thread, events: listEvents(thread.id).map(clientEvent) });
+      send(ws, { type: "opened", thread, events: listEvents(thread.id).map(clientEvent), queue: clientQueue(thread.id) });
       return;
     }
     case "prompt": {
@@ -363,19 +429,31 @@ async function handle(ws: WebSocket, msg: ClientMsg) {
       if (!thread) throw new Error(`unknown thread ${msg.threadId}`);
       const text = msg.text.trim();
       if (!text) return;
-      persistEvent(thread.id, "user_message", { text });
-      const title = thread.title || titleFromPrompt(text);
-      setThread(thread.id, { title, status: "running" });
-      void runPrompt(thread.id, text);
+      const busy = pumping.has(thread.id) || thread.status !== "idle";
+      enqueue(thread.id, text, { front: msg.mode === "now" && busy });
+      broadcastQueue(thread.id);
+      if (msg.mode === "now" && busy) await interruptThread(thread.id);
+      void pump(thread.id);
+      return;
+    }
+    case "queue_send_now": {
+      const item = moveQueuedToFront(msg.id);
+      if (!item) return;
+      broadcastQueue(item.thread_id);
+      if (pumping.has(item.thread_id) || getThread(item.thread_id)?.status !== "idle") await interruptThread(item.thread_id);
+      void pump(item.thread_id);
+      return;
+    }
+    case "queue_remove": {
+      const item = getQueued(msg.id);
+      if (!item) return;
+      removeQueued(item.id);
+      broadcastQueue(item.thread_id);
       return;
     }
     case "cancel": {
-      const live = liveSessions.get(msg.threadId);
-      if (live) {
-        const agent = await getAgent(live.kind);
-        await agent.conn.agent.notify(acp.methods.agent.session.cancel, { sessionId: live.sessionId });
-      }
-      cancelPendingPermissions(msg.threadId);
+      if (pumping.has(msg.threadId) || getThread(msg.threadId)?.status !== "idle") stopRequested.add(msg.threadId);
+      await interruptThread(msg.threadId);
       return;
     }
     case "permission_response": {
@@ -397,6 +475,8 @@ async function handle(ws: WebSocket, msg: ClientMsg) {
       return;
     }
     case "delete_thread": {
+      if (pumping.has(msg.threadId)) stopRequested.add(msg.threadId);
+      await interruptThread(msg.threadId);
       cancelPendingPermissions(msg.threadId);
       const live = liveSessions.get(msg.threadId);
       if (live) sessionThreads.delete(live.sessionId);
@@ -408,11 +488,12 @@ async function handle(ws: WebSocket, msg: ClientMsg) {
   }
 }
 
-async function runPrompt(threadId: string, text: string) {
+async function runTurn(threadId: string, text: string) {
   try {
     const thread = getThread(threadId);
     if (!thread) return;
     const live = await ensureSession(thread);
+    if (stopRequested.has(threadId) || !getThread(threadId)) return;
     const agent = await getAgent(live.kind);
     const result = await agent.conn.agent.request(acp.methods.agent.session.prompt, {
       sessionId: live.sessionId,
@@ -420,11 +501,31 @@ async function runPrompt(threadId: string, text: string) {
     });
     if (!getThread(threadId)) return;
     persistEvent(threadId, "turn_end", { stopReason: result.stopReason });
-    setThread(threadId, { status: "idle" });
   } catch (e: any) {
     if (!getThread(threadId)) return;
     persistEvent(threadId, "error", { message: String(e?.message ?? e) });
-    setThread(threadId, { status: "idle" });
+  }
+}
+
+async function pump(threadId: string) {
+  if (pumping.has(threadId)) return;
+  pumping.add(threadId);
+  stopRequested.delete(threadId); // a Stop on an idle thread must not eat the next prompt
+  try {
+    while (getThread(threadId)) {
+      const item = dequeueNext(threadId);
+      if (!item) break;
+      broadcastQueue(threadId);
+      const thread = getThread(threadId)!;
+      setThread(threadId, { title: thread.title || titleFromPrompt(item.text), status: "running" });
+      persistEvent(threadId, "user_message", { text: item.text });
+      await runTurn(threadId, item.text);
+      if (stopRequested.delete(threadId)) break;
+    }
+  } finally {
+    pumping.delete(threadId);
+    stopRequested.delete(threadId);
+    if (getThread(threadId)) setThread(threadId, { status: "idle" });
   }
 }
 
@@ -432,20 +533,103 @@ async function runPrompt(threadId: string, text: string) {
 // HTTP + WS server
 // ---------------------------------------------------------------------------
 
+const MIME: Record<string, string> = {
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
+  ".gif": "image/gif", ".svg": "image/svg+xml", ".mp4": "video/mp4", ".webm": "video/webm",
+  ".json": "application/json", ".txt": "text/plain; charset=utf-8", ".md": "text/markdown; charset=utf-8",
+};
+const watchers = new Map<string, { watcher: FSWatcher; timer?: NodeJS.Timeout }>();
+
+function unwatchProject(projectId: string) {
+  const active = watchers.get(projectId);
+  if (!active) return;
+  if (active.timer) clearTimeout(active.timer);
+  active.watcher.close();
+  watchers.delete(projectId);
+}
+
+function watchProject(projectId: string, path: string) {
+  unwatchProject(projectId);
+  try {
+    const active: { watcher: FSWatcher; timer?: NodeJS.Timeout } = {
+      watcher: watch(path, { recursive: true }, () => {
+        if (active.timer) clearTimeout(active.timer);
+        active.timer = setTimeout(() => {
+          if (watchers.get(projectId) === active) broadcast({ type: "files_changed", projectId });
+        }, 300);
+      }),
+    };
+    active.watcher.on("error", (error) => console.warn(`project watcher failed (${path}):`, error));
+    watchers.set(projectId, active);
+  } catch (error) {
+    console.warn(`could not watch project (${path}):`, error);
+  }
+}
+
+function containedPath(projectPath: string, requested: string): string {
+  if (isAbsolute(requested)) throw new Error("path must be relative");
+  const root = realpathSync(projectPath);
+  const target = resolve(root, requested || ".");
+  const lexical = relative(root, target);
+  if (lexical === ".." || lexical.startsWith(`..${sep}`) || isAbsolute(lexical)) throw new Error("path escapes project");
+  const real = realpathSync(target);
+  const actual = relative(root, real);
+  if (actual === ".." || actual.startsWith(`..${sep}`) || isAbsolute(actual)) throw new Error("path escapes project");
+  return real;
+}
+
+function json(res: import("node:http").ServerResponse, status: number, value: unknown) {
+  res.statusCode = status;
+  res.setHeader("content-type", "application/json; charset=utf-8");
+  res.end(JSON.stringify(value));
+}
+
 const http = createServer((req, res) => {
-  const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const pathname = url.pathname;
   if (pathname === "/" || pathname === "/index.html") {
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.end(readFileSync(join(here, "public/index.html")));
     return;
+  }
+  const match = pathname.match(/^\/api\/projects\/([^/]+)\/(files|raw)$/);
+  if (req.method === "GET" && match) {
+    const project = getProject(decodeURIComponent(match[1]!));
+    if (!project) return json(res, 404, { error: "unknown project" });
+    const requested = url.searchParams.get("path") ?? "";
+    try {
+      const target = containedPath(project.path, requested);
+      const info = statSync(target);
+      if (match[2] === "files") {
+        if (!info.isDirectory()) return json(res, 400, { error: "path is not a directory" });
+        const entries = readdirSync(target, { withFileTypes: true })
+          .filter((entry) => !entry.name.startsWith(".") && entry.name !== "node_modules" && (entry.isDirectory() || entry.isFile()))
+          .map((entry) => {
+            const stat = statSync(join(target, entry.name));
+            const mime = entry.isFile() ? MIME[extname(entry.name).toLowerCase()] : undefined;
+            return { name: entry.name, type: entry.isDirectory() ? "dir" : "file", size: stat.size, mtime: stat.mtimeMs, ...(mime ? { mime } : {}) };
+          })
+          .sort((a, b) => a.type === b.type ? a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) : a.type === "dir" ? -1 : 1);
+        return json(res, 200, { path: requested, entries });
+      }
+      if (!info.isFile()) return json(res, 404, { error: "file not found" });
+      res.setHeader("content-type", MIME[extname(target).toLowerCase()] ?? "application/octet-stream");
+      res.setHeader("cache-control", "no-cache");
+      createReadStream(target).on("error", () => { if (!res.headersSent) json(res, 404, { error: "file not found" }); else res.destroy(); }).pipe(res);
+      return;
+    } catch (error: any) {
+      const traversal = String(error?.message ?? error).includes("path ");
+      return json(res, traversal ? 400 : 404, { error: traversal ? String(error.message) : "not found" });
+    }
   }
   res.statusCode = 404;
   res.end("not found");
 });
 
 const wss = new WebSocketServer({ server: http, path: "/ws" });
+for (const project of listProjects()) watchProject(project.id, project.path);
 wss.on("connection", (ws) => {
-  send(ws, { type: "hello", workspace: WORKSPACE, agents: Object.keys(AGENT_BIN), threads: listThreads() });
+  send(ws, { type: "hello", workspace: WORKSPACE, agents: Object.keys(AGENT_BIN), projects: listProjects(), threads: listThreads() });
   ws.on("message", async (raw) => {
     let msg: ClientMsg;
     try {
@@ -467,6 +651,7 @@ http.listen(PORT, () => {
 });
 
 process.on("SIGINT", () => {
+  for (const projectId of watchers.keys()) unwatchProject(projectId);
   for (const p of agents.values()) p.then((a) => a.proc.kill()).catch(() => {});
   process.exit(0);
 });

@@ -30,6 +30,37 @@ SQLite persistence uses Node's built-in `node:sqlite`. The database lives at
 `%LOCALAPPDATA%\aithing\harness.db` on Windows (falling back to `%APPDATA%`) and
 `~/.aithing/harness.db` on other platforms.
 
+## Projects and the files panel
+
+Every thread belongs to a **project**, which is just a named folder. The
+thread's working directory (and the image tools' `generated/` output folder)
+is that project's folder. On first start a project called "Workspace" is
+created for `WORKSPACE`, and any older threads are attached to it.
+
+"＋ project" in the header creates a project; leave the path empty to get
+`WORKSPACE/<slug>`, or give an absolute path to any existing folder. Deleting
+a project is only allowed once it has no threads and never touches files.
+
+The right-hand panel shows the open thread's project folder (or the header's
+selected project when no thread is open): folders, image thumbnails (click to
+open), other files with sizes. Generation `.json` sidecars next to an image are
+hidden. It refreshes live from an `fs.watch` on each project folder.
+
+HTTP endpoints behind it (read-only, confined to the project folder):
+
+- `GET /api/projects/:id/files?path=<relative dir>` → `{path, entries:[{name,type,size,mtime,mime?}]}`
+- `GET /api/projects/:id/raw?path=<relative file>` → the file bytes
+
+## Queue and interrupt
+
+The composer is never disabled while a thread is open. When the agent is
+working, Enter (or "Queue") appends the message to the thread's queue and
+"Send now" cancels the current turn and runs the message next. Queued
+messages are listed above the composer with their own "Send now" and remove
+buttons. "Stop" cancels the turn and leaves the queue paused. The queue is
+stored in SQLite; after a server restart nothing auto-runs, queued messages
+just reappear with their buttons.
+
 ## Image generation tools
 
 Every ACP session gets an MCP server (`mcp/image-tools.ts`, name
@@ -69,6 +100,8 @@ pnpm imagegen-test gpt-image-2 "make it blue" generated/a-red-circle-xxxxx.png
 - Cancel mid-turn, then keep prompting on the same session.
 - Agents generate, edit, and inspect images through MCP tools; results land as
   files in the thread folder and render inline in the tool card.
+- Projects (one folder each) with a live file browser and image thumbnails.
+- Message queue per thread: queue while the agent works, or interrupt and send now.
 - Best-effort ACP session resume after server restart when the adapter supports
   `session/load`; otherwise a fresh ACP session is started and the persisted log
   remains visible.
@@ -79,11 +112,12 @@ pnpm imagegen-test gpt-image-2 "make it blue" generated/a-red-circle-xxxxx.png
 node scripts/drive.mjs claude "Create hello.txt with one line: hi"
 node scripts/drive.mjs codex  "Create hello.txt with one line: hi"
 node scripts/drive.mjs claude "What did you just write?" <threadId>
+node scripts/drive.mjs codex  "..." "" <projectId>     # new thread in a specific project
 node scripts/cancel-test.mjs
 ```
 
 ## Not done (on purpose)
 
-Projects, file browser, auth flow (assumes you are
-already logged in to both CLIs), and durable permission prompts across a server
-restart. ACP turn execution still lives only in the current server process.
+Auth flow (assumes you are already logged in to both CLIs), image
+attachments in prompts, settled/unread thread states, and durable permission
+prompts across a server restart. ACP turn execution still lives only in the current server process.

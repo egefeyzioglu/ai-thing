@@ -3,8 +3,9 @@ import WebSocket from "ws";
 const agent = process.argv[2];
 const prompt = process.argv[3];
 const existingThreadId = process.argv[4];
+const projectIdArg = process.argv[5];
 if (!["claude", "codex"].includes(agent) || !prompt) {
-  console.error('usage: node scripts/drive.mjs <claude|codex> "<prompt>" [threadId]');
+  console.error('usage: node scripts/drive.mjs <claude|codex> "<prompt>" [threadId] [projectId]');
   process.exit(64);
 }
 
@@ -26,12 +27,19 @@ function startPrompt(thread) {
 
 ws.on("open", () => {
   if (threadId) send({ type: "open_thread", threadId });
-  else send({ type: "new_thread", agent });
 });
 
 ws.on("message", (data) => {
   const msg = JSON.parse(data);
-  if (msg.type === "hello" || msg.type === "thread") return;
+  if (msg.type === "hello") {
+    if (!threadId) {
+      const projectId = projectIdArg ?? msg.projects?.[0]?.id;
+      if (!projectId) { console.error("no project available"); process.exit(1); }
+      send({ type: "new_thread", agent, projectId });
+    }
+    return;
+  }
+  if (msg.type === "thread" || msg.type === "queue" || msg.type === "project" || msg.type === "files_changed") return;
   if (msg.type === "opened") {
     startPrompt(msg.thread);
     return;
