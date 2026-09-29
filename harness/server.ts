@@ -48,6 +48,18 @@ import {
   type ThreadStatus,
 } from "./db.js";
 import { loadEnvFile, PROVIDER_KEYS } from "./env.js";
+import sharp from "sharp";
+import {
+  commitVersion,
+  isVersionable,
+  readManifest,
+  resolveVersionPath,
+  restoreVersion,
+  syncExternal,
+  toRel,
+  versionFile,
+  type Manifest,
+} from "./versions.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 4747);
@@ -80,6 +92,7 @@ function mcpServersFor(thread: ThreadRow): acp.McpServer[] {
   const env = [
     { name: "PATH", value: process.env.PATH ?? "" },
     { name: "AITHING_OUTPUT_DIR", value: join(thread.cwd, "generated") },
+    { name: "AITHING_THREAD_ID", value: thread.id },
     ...configuredProviders.map((k) => ({ name: k, value: process.env[k]! })),
   ];
   return [{ name: "aithing-images", command: TSX_BIN, args: [IMAGE_TOOLS], env }];
@@ -138,22 +151,24 @@ function broadcastThread(thread: ThreadRow | null) {
 }
 
 function clientQueue(threadId: string) {
-  return listQueued(threadId).map(({ id, text, created_at }) => ({ id, text, created_at }));
+  return listQueued(threadId).map(({ id, text, attachments, created_at }) => ({ id, text, attachments, created_at }));
 }
 
 function broadcastQueue(threadId: string) {
   broadcast({ type: "queue", threadId, items: clientQueue(threadId) });
 }
 
-function setThread(threadId: string, patch: Partial<Pick<ThreadRow, "title" | "acp_session_id" | "status" | "updated_at">>) {
+function setThread(threadId: string, patch: Partial<Pick<ThreadRow, "title" | "acp_session_id" | "status" | "unread" | "updated_at">>) {
   const thread = updateThread(threadId, patch);
   broadcastThread(thread);
   return thread;
 }
 
+const ATTENTION_EVENTS = new Set<EventType>(["turn_end", "error", "permission_request"]);
 function persistEvent(threadId: string, type: EventType, payload: unknown): StoredEvent | null {
   const event = appendEvent(threadId, type, payload);
   if (!event) return null;
+  if (ATTENTION_EVENTS.has(type)) updateThread(threadId, { unread: 1 });
   broadcast({ type: "event", threadId, event: clientEvent(event) });
   broadcastThread(getThread(threadId));
   return event;
@@ -359,7 +374,10 @@ type ClientMsg =
   | { type: "delete_project"; projectId: string }
   | { type: "new_thread"; agent: AgentKind; projectId: string }
   | { type: "open_thread"; threadId: string }
-  | { type: "prompt"; threadId: string; text: string; mode?: "auto" | "queue" | "now" }
+  | { type: "prompt"; threadId: string; text: string; mode?: "auto" | "queue" | "now"; attachments?: string[] }
+  | { type: "seen"; threadId: string }
+  | { type: "restore_version"; projectId: string; path: string; version: number; threadId?: string }
+  | { type: "upload"; projectId: string; name: string; data: string; mimeType?: string }
   | { type: "queue_send_now"; id: string }
   | { type: "queue_remove"; id: string }
   | { type: "cancel"; threadId: string }
@@ -411,6 +429,7 @@ async function handle(ws: WebSocket, msg: ClientMsg) {
         title: "",
         acp_session_id: null,
         status: "idle",
+        unread: 0,
         created_at: now,
         updated_at: now,
       });
@@ -430,7 +449,8 @@ async function handle(ws: WebSocket, msg: ClientMsg) {
       const text = msg.text.trim();
       if (!text) return;
       const busy = pumping.has(thread.id) || thread.status !== "idle";
-      enqueue(thread.id, text, { front: msg.mode === "now" && busy });
+      const attachments = (msg.attachments ?? []).map((ref) => resolveVersionPath(thread.cwd, ref)).map((r) => (r.version ? `${r.rel}@${r.version}` : r.rel));
+      enqueue(thread.id, text, { front: msg.mode === "now" && busy, attachments });
       broadcastQueue(thread.id);
       if (msg.mode === "now" && busy) await interruptThread(thread.id);
       void pump(thread.id);
@@ -449,6 +469,43 @@ async function handle(ws: WebSocket, msg: ClientMsg) {
       if (!item) return;
       removeQueued(item.id);
       broadcastQueue(item.thread_id);
+      return;
+    }
+    case "seen": {
+      const thread = getThread(msg.threadId);
+      if (thread?.unread) setThread(thread.id, { unread: 0, updated_at: thread.updated_at });
+      return;
+    }
+    case "restore_version": {
+      const project = getProject(msg.projectId);
+      if (!project) throw new Error(`unknown project ${msg.projectId}`);
+      const rel = toRel(project.path, resolve(project.path, msg.path));
+      if (!rel || !isVersionable(rel)) throw new Error("not a versioned file");
+      const { version, created } = restoreVersion(project.path, rel, msg.version, { threadId: msg.threadId });
+      broadcast({ type: "files_changed", projectId: project.id });
+      send(ws, { type: "restored", projectId: project.id, path: rel, version: version.n, created });
+      return;
+    }
+    case "upload": {
+      const project = getProject(msg.projectId);
+      if (!project) throw new Error(`unknown project ${msg.projectId}`);
+      const bytes = Buffer.from(msg.data, "base64");
+      if (!bytes.length || bytes.length > 50 * 1024 * 1024) throw new Error("upload is empty or over 50 MB");
+      const original = msg.name.replace(/^.*[\\/]/, "");
+      const ext = extname(original).toLowerCase();
+      const stem = original.slice(0, original.length - ext.length).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "upload";
+      const base = stem + ext;
+      if (![".png", ".jpg", ".jpeg", ".webp", ".gif"].includes(ext)) throw new Error("only png, jpg, webp and gif uploads are supported");
+      const meta = await sharp(bytes).metadata().catch(() => ({}) as { width?: number; height?: number });
+      // Pick the filename after the await so two concurrent uploads cannot claim the same name.
+      const uploads = join(project.path, "uploads");
+      mkdirSync(uploads, { recursive: true });
+      let target = join(uploads, base);
+      for (let i = 2; existsSync(target); i++) target = join(uploads, `${base.slice(0, -ext.length)}-${i}${ext}`);
+      const rel = toRel(project.path, target)!;
+      const { version } = commitVersion(project.path, rel, bytes, { kind: "upload", originalName: msg.name }, { width: meta.width, height: meta.height });
+      broadcast({ type: "files_changed", projectId: project.id });
+      send(ws, { type: "uploaded", projectId: project.id, path: rel, version: version.n });
       return;
     }
     case "cancel": {
@@ -488,16 +545,37 @@ async function handle(ws: WebSocket, msg: ClientMsg) {
   }
 }
 
-async function runTurn(threadId: string, text: string) {
+const MIME_BY_EXT: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif" };
+
+/** Prompt blocks for attached images: a text pointer the agent can use as a path, plus the pixels when the agent accepts image blocks. */
+function attachmentBlocks(thread: ThreadRow, refs: string[], acceptsImages: boolean): acp.ContentBlock[] {
+  const blocks: acp.ContentBlock[] = [];
+  for (const ref of refs) {
+    try {
+      const r = resolveVersionPath(thread.cwd, ref);
+      const label = r.version ? `${r.rel}@${r.version}` : r.rel;
+      const mimeType = MIME_BY_EXT[extname(r.abs).toLowerCase()] ?? "application/octet-stream";
+      blocks.push({ type: "text", text: `[attached image ${label}: ${r.abs}]` });
+      if (acceptsImages && mimeType.startsWith("image/")) blocks.push({ type: "image", data: readFileSync(r.abs).toString("base64"), mimeType, uri: `file://${r.abs}` });
+      else blocks.push({ type: "resource_link", uri: `file://${r.abs}`, name: label, mimeType });
+    } catch (e: any) {
+      blocks.push({ type: "text", text: `[attachment ${ref} could not be read: ${String(e?.message ?? e)}]` });
+    }
+  }
+  return blocks;
+}
+
+async function runTurn(threadId: string, text: string, attachments: string[] = []) {
   try {
     const thread = getThread(threadId);
     if (!thread) return;
     const live = await ensureSession(thread);
     if (stopRequested.has(threadId) || !getThread(threadId)) return;
     const agent = await getAgent(live.kind);
+    const acceptsImages = agent.init.agentCapabilities?.promptCapabilities?.image === true;
     const result = await agent.conn.agent.request(acp.methods.agent.session.prompt, {
       sessionId: live.sessionId,
-      prompt: [{ type: "text", text }],
+      prompt: [{ type: "text", text }, ...attachmentBlocks(thread, attachments, acceptsImages)],
     });
     if (!getThread(threadId)) return;
     persistEvent(threadId, "turn_end", { stopReason: result.stopReason });
@@ -518,8 +596,8 @@ async function pump(threadId: string) {
       broadcastQueue(threadId);
       const thread = getThread(threadId)!;
       setThread(threadId, { title: thread.title || titleFromPrompt(item.text), status: "running" });
-      persistEvent(threadId, "user_message", { text: item.text });
-      await runTurn(threadId, item.text);
+      persistEvent(threadId, "user_message", { text: item.text, attachments: item.attachments });
+      await runTurn(threadId, item.text, item.attachments);
       if (stopRequested.delete(threadId)) break;
     }
   } finally {
@@ -538,32 +616,86 @@ const MIME: Record<string, string> = {
   ".gif": "image/gif", ".svg": "image/svg+xml", ".mp4": "video/mp4", ".webm": "video/webm",
   ".json": "application/json", ".txt": "text/plain; charset=utf-8", ".md": "text/markdown; charset=utf-8",
 };
-const watchers = new Map<string, { watcher: FSWatcher; timer?: NodeJS.Timeout }>();
+type ProjectWatch = { root: string; dirs: Map<string, FSWatcher>; timer?: NodeJS.Timeout; closed: boolean };
+const watchers = new Map<string, ProjectWatch>();
 
 function unwatchProject(projectId: string) {
   const active = watchers.get(projectId);
   if (!active) return;
+  active.closed = true;
   if (active.timer) clearTimeout(active.timer);
-  active.watcher.close();
+  for (const w of active.dirs.values()) w.close();
   watchers.delete(projectId);
 }
 
-function watchProject(projectId: string, path: string) {
+// External edits (agent shell commands, the user's editor) become versions too. Debounced per file.
+const pendingSyncs = new Map<string, NodeJS.Timeout>();
+function scheduleSync(root: string, rel: string) {
+  const key = `${root}\0${rel}`;
+  clearTimeout(pendingSyncs.get(key));
+  pendingSyncs.set(key, setTimeout(() => {
+    pendingSyncs.delete(key);
+    try {
+      const v = syncExternal(root, rel);
+      if (v) console.log(`[versions] ${rel} -> v${v.n} (${v.source.kind})`);
+    } catch (e: any) {
+      console.warn(`[versions] sync failed for ${rel}:`, e?.message ?? e);
+    }
+  }, 400));
+}
+
+const SKIP_DIR = (name: string) => name.startsWith(".") || name === "node_modules";
+
+/**
+ * One non-recursive inotify watch per directory. Node's `recursive: true` on
+ * Linux is a JS emulation that silently drops a directory's watch after
+ * tmp-file renames, which is exactly how the version store writes files.
+ */
+function watchProject(projectId: string, root: string) {
   unwatchProject(projectId);
-  try {
-    const active: { watcher: FSWatcher; timer?: NodeJS.Timeout } = {
-      watcher: watch(path, { recursive: true }, () => {
-        if (active.timer) clearTimeout(active.timer);
-        active.timer = setTimeout(() => {
-          if (watchers.get(projectId) === active) broadcast({ type: "files_changed", projectId });
-        }, 300);
-      }),
-    };
-    active.watcher.on("error", (error) => console.warn(`project watcher failed (${path}):`, error));
-    watchers.set(projectId, active);
-  } catch (error) {
-    console.warn(`could not watch project (${path}):`, error);
-  }
+  const active: ProjectWatch = { root, dirs: new Map(), closed: false };
+  watchers.set(projectId, active);
+
+  const notify = () => {
+    if (active.timer) clearTimeout(active.timer);
+    active.timer = setTimeout(() => {
+      if (watchers.get(projectId) === active) broadcast({ type: "files_changed", projectId });
+    }, 300);
+  };
+
+  const watchDir = (dir: string) => {
+    if (active.closed || active.dirs.has(dir)) return;
+    let w: FSWatcher;
+    try {
+      w = watch(dir, (_event, filename) => {
+        if (active.closed || !filename) return;
+        const name = String(filename);
+        if (name.startsWith(".tmp-")) return;
+        const abs = join(dir, name);
+        const rel = relative(root, abs).split(sep).join("/");
+        let isDir = false;
+        try { isDir = statSync(abs).isDirectory(); } catch { /* gone */ }
+        if (isDir) { if (!SKIP_DIR(name)) walk(abs); }
+        else if (active.dirs.has(abs)) { active.dirs.get(abs)!.close(); for (const sub of [...active.dirs.keys()]) if (sub.startsWith(abs + sep)) { active.dirs.get(sub)!.close(); active.dirs.delete(sub); } active.dirs.delete(abs); }
+        else if (isVersionable(rel)) scheduleSync(root, rel);
+        if (!name.startsWith(".")) notify();
+      });
+    } catch (e: any) {
+      console.warn(`could not watch ${dir}:`, e?.message ?? e);
+      return;
+    }
+    w.on("error", (e) => { console.warn(`watcher error on ${dir}:`, e.message); active.dirs.delete(dir); w.close(); });
+    active.dirs.set(dir, w);
+  };
+
+  const walk = (dir: string) => {
+    watchDir(dir);
+    let entries: import("node:fs").Dirent[] = [];
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) if (e.isDirectory() && !SKIP_DIR(e.name)) walk(join(dir, e.name));
+  };
+
+  try { walk(root); } catch (e: any) { console.warn(`could not watch project (${root}):`, e?.message ?? e); }
 }
 
 function containedPath(projectPath: string, requested: string): string {
@@ -592,12 +724,29 @@ const http = createServer((req, res) => {
     res.end(readFileSync(join(here, "public/index.html")));
     return;
   }
-  const match = pathname.match(/^\/api\/projects\/([^/]+)\/(files|raw)$/);
+  const match = pathname.match(/^\/api\/projects\/([^/]+)\/(files|raw|versions)$/);
   if (req.method === "GET" && match) {
     const project = getProject(decodeURIComponent(match[1]!));
     if (!project) return json(res, 404, { error: "unknown project" });
     const requested = url.searchParams.get("path") ?? "";
     try {
+      if (match[2] === "versions") {
+        const rel = toRel(project.path, resolve(project.path, requested));
+        const manifest: Manifest | null = rel && isVersionable(rel) ? readManifest(project.path, rel) : null;
+        return manifest ? json(res, 200, manifest) : json(res, 404, { error: "no versions" });
+      }
+      const versionParam = url.searchParams.get("version");
+      if (match[2] === "raw" && versionParam) {
+        const rel = toRel(project.path, resolve(project.path, requested));
+        const n = Number(versionParam);
+        if (!rel || !Number.isInteger(n) || n < 1) return json(res, 400, { error: "bad version" });
+        const file = versionFile(project.path, rel, n);
+        if (!existsSync(file)) return json(res, 404, { error: "no such version" });
+        res.setHeader("content-type", MIME[extname(rel).toLowerCase()] ?? "application/octet-stream");
+        res.setHeader("cache-control", "private, max-age=31536000, immutable");
+        createReadStream(file).pipe(res);
+        return;
+      }
       const target = containedPath(project.path, requested);
       const info = statSync(target);
       if (match[2] === "files") {
@@ -607,7 +756,13 @@ const http = createServer((req, res) => {
           .map((entry) => {
             const stat = statSync(join(target, entry.name));
             const mime = entry.isFile() ? MIME[extname(entry.name).toLowerCase()] : undefined;
-            return { name: entry.name, type: entry.isDirectory() ? "dir" : "file", size: stat.size, mtime: stat.mtimeMs, ...(mime ? { mime } : {}) };
+            const rel = requested ? `${requested.replace(/\/+$/, "")}/${entry.name}` : entry.name;
+            let versions: { versions: number; current: number } | undefined;
+            if (entry.isFile() && isVersionable(rel)) {
+              // Belt and braces for edits the watcher missed: reconcile the working file with its history on every listing.
+              try { syncExternal(project.path, rel); const m = readManifest(project.path, rel); if (m) versions = { versions: m.versions.length, current: m.current }; } catch { /* corrupt manifest: show as unversioned */ }
+            }
+            return { name: entry.name, type: entry.isDirectory() ? "dir" : "file", size: stat.size, mtime: stat.mtimeMs, ...(mime ? { mime } : {}), ...(versions ?? {}) };
           })
           .sort((a, b) => a.type === b.type ? a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) : a.type === "dir" ? -1 : 1);
         return json(res, 200, { path: requested, entries });
@@ -651,7 +806,7 @@ http.listen(PORT, () => {
 });
 
 process.on("SIGINT", () => {
-  for (const projectId of watchers.keys()) unwatchProject(projectId);
+  for (const projectId of [...watchers.keys()]) unwatchProject(projectId);
   for (const p of agents.values()) p.then((a) => a.proc.kill()).catch(() => {});
   process.exit(0);
 });

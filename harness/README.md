@@ -51,6 +51,40 @@ HTTP endpoints behind it (read-only, confined to the project folder):
 - `GET /api/projects/:id/files?path=<relative dir>` → `{path, entries:[{name,type,size,mtime,mime?}]}`
 - `GET /api/projects/:id/raw?path=<relative file>` → the file bytes
 
+## Versioned files
+
+Images inside a project are versioned files. The working file (say
+`generated/poster.png`) stays an ordinary file that any tool can read, and its
+history lives next to it in `<project>/.aithing/versions/generated/poster.png/`
+as `manifest.json` plus one file per version. Every write path records a
+version: `generate_image`, the `edit_image` tool (iterate on an existing image;
+the result becomes the next version of the same file), uploads, restores, and
+external edits, which the server's folder watcher captures as an `external`
+version. Restoring an old version appends a new one rather than rewriting
+history, and any version is addressable as `path@N` in tool inputs, prompt
+attachments and the viewer.
+
+In the files panel a tile shows its current version number; clicking it opens
+the viewer with the version strip, the prompt/model that produced each version,
+"Restore as new version" and "Attach to message". Extra endpoints:
+
+- `GET /api/projects/:id/versions?path=<relative file>` → the manifest
+- `GET /api/projects/:id/raw?path=<relative file>&version=N` → that version's bytes
+
+## Attachments
+
+Attach an image to a message from a tile's ＋ button, from the viewer, or by
+dropping or pasting image files onto the composer (they are uploaded into
+`<project>/uploads/`). The agent receives a text pointer with the absolute path
+and version, plus the image itself when the adapter accepts image blocks.
+
+## Active and settled threads
+
+The sidebar splits threads into Active (running, waiting on you, or with
+unread activity since you last looked) and a collapsed Settled section. A
+thread becomes unread when a turn ends, errors or asks for permission while
+you are not looking at it.
+
 ## Queue and interrupt
 
 The composer is never disabled while a thread is open. When the agent is
@@ -70,11 +104,18 @@ as the main app but is standalone: no database, no UploadThing, no Next.js.
 Tools:
 
 - `list_image_models` — models, availability, resolutions, aspect ratios.
-- `generate_image { prompt, model?, aspect_ratio?, resolution?, reference_images?, filename? }`
-  — writes `<thread cwd>/generated/<slug>.png` plus a `<slug>.json` sidecar
-  (prompt, model, provider request id, size, timing). Returns the path and a
-  ≤768px preview so the agent can look at the result.
+- `generate_image { prompt, model?, aspect_ratio?, resolution?, reference_images?, filename?, output? }`
+  — writes `<project>/generated/<slug>.png` as version 1 (or, with `output`,
+  a new version of an existing image). Returns the path, version and a ≤768px
+  preview so the agent can look at the result.
+- `edit_image { path, prompt, model?, resolution?, extra_references?, output? }`
+  — iterate on an existing image; the result is the next version of that file.
+- `image_history { path }` — the version list of an image.
+- `restore_image_version { path, version }` — make an older version current
+  (appends a new version).
 - `view_image { path, max_side? }` — downscaled view of any image file.
+
+Any `path` may carry a version suffix, e.g. `generated/poster.png@2`.
 
 Models: `gemini-2.5-flash-image` (default), `gemini-3.1-flash-image-preview`,
 `gemini-3-pro-image-preview`, `gpt-image-2`, `dola-seedream-5-0-lite`,
@@ -102,6 +143,10 @@ pnpm imagegen-test gpt-image-2 "make it blue" generated/a-red-circle-xxxxx.png
   files in the thread folder and render inline in the tool card.
 - Projects (one folder each) with a live file browser and image thumbnails.
 - Message queue per thread: queue while the agent works, or interrupt and send now.
+- Versioned images with a viewer, restore, `edit_image` for iteration, and
+  external-edit capture.
+- Image attachments in prompts (from the panel, drag-drop or paste upload).
+- Active / settled / unread thread states.
 - Best-effort ACP session resume after server restart when the adapter supports
   `session/load`; otherwise a fresh ACP session is started and the persisted log
   remains visible.
@@ -118,6 +163,5 @@ node scripts/cancel-test.mjs
 
 ## Not done (on purpose)
 
-Auth flow (assumes you are already logged in to both CLIs), image
-attachments in prompts, settled/unread thread states, and durable permission
-prompts across a server restart. ACP turn execution still lives only in the current server process.
+Auth flow (assumes you are already logged in to both CLIs), durable permission
+prompts across a server restart, and version history for non-image files. ACP turn execution still lives only in the current server process.

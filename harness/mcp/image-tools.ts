@@ -13,10 +13,12 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import sharp from "sharp";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
-import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { adopt, commitVersion, isVersionable, parseVersionRef, readManifest, resolveVersionPath, restoreVersion, syncExternal, toRel, versionFile } from "../versions.js";
 
 const OUTPUT_DIR = resolve(process.env.AITHING_OUTPUT_DIR ?? join(process.cwd(), "generated"));
 const THREAD_CWD = dirname(OUTPUT_DIR);
+const THREAD_ID = process.env.AITHING_THREAD_ID;
 const log = (...a: unknown[]) => console.error("[aithing-images]", ...a);
 
 // ---------------------------------------------------------------------------
@@ -115,9 +117,7 @@ type Generated = { bytes: Buffer; mimeType: string; providerRequestId: string | 
 class ToolError extends Error {}
 
 function resolveInput(path: string): string {
-  const abs = isAbsolute(path) ? path : resolve(THREAD_CWD, path);
-  if (!existsSync(abs)) throw new ToolError(`file not found: ${path} (resolved to ${abs})`);
-  return abs;
+  return resolveVersionPath(THREAD_CWD, path).abs;
 }
 
 function mimeFor(path: string): string {
@@ -136,8 +136,14 @@ function mimeFor(path: string): string {
 
 function loadRefs(paths: string[] | undefined) {
   return (paths ?? []).map((p) => {
-    const abs = resolveInput(p);
-    return { path: abs, bytes: readFileSync(abs), mimeType: mimeFor(abs) };
+    const resolved = resolveVersionPath(THREAD_CWD, p);
+    const rel = toRel(THREAD_CWD, resolved.abs);
+    // Capture disk changes before pinning a managed working image to its immutable version.
+    if (resolved.version === undefined && rel && isVersionable(rel) && readManifest(THREAD_CWD, rel)) syncExternal(THREAD_CWD, rel);
+    const manifest = resolved.version === undefined && rel ? readManifest(THREAD_CWD, rel) : null;
+    const n = resolved.version ?? manifest?.current;
+    const path = n === undefined ? resolved.abs : versionFile(THREAD_CWD, resolved.rel, n);
+    return { path, ref: n === undefined ? p : `${resolved.rel}@${n}`, bytes: readFileSync(path), mimeType: mimeFor(path) };
   });
 }
 
@@ -305,7 +311,7 @@ server.registerTool(
           `${id}${id === DEFAULT_MODEL ? " (default)" : ""} | ${m.provider} | ${hasKey(m) ? "yes" : `no (${m.key} missing)`} | ${m.resolutions.join("/")} | ${m.aspectRatios.join(" ")} | ${m.references ? "yes" : "no"} | ${m.note}`,
       ),
       "",
-      `Images are written to ${OUTPUT_DIR}`,
+      `Images are written to ${OUTPUT_DIR}. Files are versioned; use edit_image to iterate and path@N to address older versions.`,
     ];
     return { content: [{ type: "text", text: lines.join("\n") }] };
   },
@@ -321,7 +327,8 @@ server.registerTool(
       model: z.string().optional().describe(`Model id (see list_image_models). Default ${DEFAULT_MODEL}.`),
       aspect_ratio: z.string().optional().describe('e.g. "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3". Default "1:1".'),
       resolution: z.enum(["1K", "2K", "4K"]).optional().describe("Default: the model's lowest supported resolution."),
-      reference_images: z.array(z.string()).optional().describe("Paths (absolute or relative to the thread folder) of PNG/JPEG/WebP images to guide or edit."),
+      reference_images: z.array(z.string()).optional().describe("Paths (absolute or relative to the thread folder, optionally path@N) of images to guide or edit."),
+      output: z.string().optional().describe("Path (relative to the thread folder) of an EXISTING image to overwrite as a new version instead of creating a new file."),
       filename: z.string().optional().describe("Output basename without extension. Default: derived from the prompt."),
     },
   },
@@ -338,33 +345,28 @@ server.registerTool(
       const refs = loadRefs(input.reference_images);
       if (refs.length && !spec.references) return errorResult(`${model} does not accept reference images.`);
 
+      const target = input.output === undefined ? undefined : outputTarget(input.output);
+      if (target && (!existsSync(target.abs) || !statSync(target.abs).isFile())) throw new ToolError("output must be an existing image.");
       log(`generate ${model} ${aspectRatio} ${resolution} refs=${refs.length}`);
       const t0 = Date.now();
       const generated = await GENERATORS[spec.provider]({ model, prompt: input.prompt, aspectRatio, resolution, refs });
 
       mkdirSync(OUTPUT_DIR, { recursive: true });
       const base = (input.filename?.trim() ? slugify(input.filename) : slugify(input.prompt) + "-" + Date.now().toString(36).slice(-5));
-      const pngPath = uniquePath(OUTPUT_DIR, base, ".png");
-      writeFileSync(pngPath, generated.bytes);
-      const p = await preview(generated.bytes, 768);
-      writeFileSync(pngPath.replace(/\.png$/, ".json"), JSON.stringify({
-        prompt: input.prompt,
-        model,
-        aspect_ratio: aspectRatio,
-        resolution,
-        reference_images: refs.map((r) => r.path),
-        provider: spec.provider,
-        providerModel: generated.providerModel,
-        providerRequestId: generated.providerRequestId,
-        width: p.width,
-        height: p.height,
-        durationMs: Date.now() - t0,
-        createdAt: new Date().toISOString(),
-      }, null, 2));
+      const bytes = target ? await encodeFor(target.abs, generated.bytes) : generated.bytes;
+      const p = await preview(bytes, 768);
+      // Pick the filename after the last await so concurrent generations cannot claim the same name.
+      const pngPath = target ? target.abs : uniquePath(OUTPUT_DIR, base, ".png");
+      const rel = target ? target.rel : toRel(THREAD_CWD, pngPath);
+      const committed = rel === null ? (writeFileSync(pngPath, bytes), null) : commitVersion(THREAD_CWD, rel, bytes, {
+        kind: "generate", prompt: input.prompt, model, provider: spec.provider,
+        providerModel: generated.providerModel, providerRequestId: generated.providerRequestId,
+        aspectRatio, resolution, references: refs.map((r) => r.ref), durationMs: Date.now() - t0,
+      }, { width: p.width, height: p.height, threadId: THREAD_ID });
       log(`saved ${pngPath} in ${Date.now() - t0}ms`);
       return {
         content: [
-          { type: "text", text: `Saved ${pngPath} (${p.width}x${p.height}, ${model})` },
+          { type: "text", text: `Saved ${pngPath} (${p.width}x${p.height}, ${model})${committed ? ` — version ${committed.version.n}` : ""}` },
           { type: "image", data: p.data, mimeType: p.mimeType },
         ],
       };
@@ -375,12 +377,128 @@ server.registerTool(
   },
 );
 
+/** Resolve an output path: inside the project it must be a versionable image outside the store; outside the project it is written plainly. */
+function outputTarget(path: string): { abs: string; rel: string | null } {
+  const abs = resolve(THREAD_CWD, path);
+  const rel = toRel(THREAD_CWD, abs);
+  const inside = !relative(THREAD_CWD, abs).startsWith("..") && !isAbsolute(relative(THREAD_CWD, abs));
+  if (inside && rel === null) throw new ToolError("output must not point inside the .aithing version store.");
+  if (!/\.(png|jpe?g|webp|gif)$/i.test(abs)) throw new ToolError("output must be a png, jpg, webp or gif path.");
+  return { abs, rel };
+}
+
+/** Providers return PNG; re-encode when the destination has another extension so bytes match the file type. */
+async function encodeFor(abs: string, bytes: Buffer): Promise<Buffer> {
+  switch (extname(abs).toLowerCase()) {
+    case ".jpg": case ".jpeg": return sharp(bytes).flatten({ background: "#ffffff" }).jpeg({ quality: 95 }).toBuffer();
+    case ".webp": return sharp(bytes).webp({ quality: 95 }).toBuffer();
+    case ".gif": return sharp(bytes).gif().toBuffer();
+    default: return bytes;
+  }
+}
+
+function managedPath(path: string): string {
+  const parsed = parseVersionRef(path);
+  const rel = toRel(THREAD_CWD, resolve(THREAD_CWD, parsed.path));
+  if (rel === null || !isVersionable(rel)) throw new ToolError("Expected a versionable image inside the thread folder.");
+  return rel;
+}
+
+server.registerTool(
+  "edit_image",
+  {
+    description: "Use this to iterate on an existing image; history is kept and older versions stay addressable as path@N.",
+    inputSchema: {
+      path: z.string().describe("Image to iterate on, optionally path@N."),
+      prompt: z.string().min(1),
+      model: z.string().optional(),
+      resolution: z.enum(["1K", "2K", "4K"]).optional(),
+      extra_references: z.array(z.string()).optional().describe("Additional reference images, optionally path@N."),
+      output: z.string().optional().describe("Alternate output path relative to the thread folder."),
+    },
+  },
+  async (input) => {
+    try {
+      const model = input.model ?? DEFAULT_MODEL;
+      const spec = MODELS[model];
+      if (!spec) throw new ToolError(`Unknown model "${model}". Known: ${Object.keys(MODELS).join(", ")}`);
+      if (!spec.references) throw new ToolError(`${model} does not accept references. Use: ${Object.keys(MODELS).filter((id) => MODELS[id]!.references).join(", ")}`);
+      if (!hasKey(spec)) throw new ToolError(`${model} is not available: ${spec.key} is not configured.`);
+      const resolution = input.resolution ?? spec.resolutions[0]!;
+      if (!spec.resolutions.includes(resolution)) throw new ToolError(`${model} does not support ${resolution}. Supported: ${spec.resolutions.join(", ")}`);
+      const rel = managedPath(input.path);
+      const requested = parseVersionRef(input.path).version;
+      if (requested === undefined) syncExternal(THREAD_CWD, rel);
+      const manifest = readManifest(THREAD_CWD, rel) ?? adopt(THREAD_CWD, rel);
+      if (!manifest) throw new ToolError(`file not found: ${input.path}`);
+      const was = requested ?? manifest.current;
+      const refs = loadRefs([`${rel}@${was}`, ...(input.extra_references ?? [])]);
+      const meta = await sharp(refs[0]!.bytes).metadata();
+      if (!meta.width || !meta.height) throw new ToolError("Cannot infer source image dimensions.");
+      const ratio = meta.width / meta.height;
+      const aspectRatio = spec.aspectRatios.reduce((best, ar) => Math.abs(ratioValue(ar) - ratio) < Math.abs(ratioValue(best) - ratio) ? ar : best);
+      const { abs, rel: outputRel } = outputTarget(input.output ?? rel);
+      const t0 = Date.now();
+      const generated = await GENERATORS[spec.provider]({ model, prompt: input.prompt, aspectRatio, resolution, refs });
+      const bytes = await encodeFor(abs, generated.bytes);
+      const p = await preview(bytes, 768);
+      const source = { kind: "edit" as const, prompt: input.prompt, model, provider: spec.provider,
+        providerModel: generated.providerModel, providerRequestId: generated.providerRequestId,
+        aspectRatio, resolution, references: refs.map((r) => r.ref), durationMs: Date.now() - t0 };
+      let n: number | undefined;
+      if (outputRel === null) { mkdirSync(dirname(abs), { recursive: true }); writeFileSync(abs, bytes); }
+      else n = commitVersion(THREAD_CWD, outputRel, bytes, source, { width: p.width, height: p.height, threadId: THREAD_ID }).version.n;
+      return { content: [
+        { type: "text", text: `Saved ${abs} (${p.width}x${p.height}, ${model})${n === undefined ? "" : ` — version ${n}`} (was version ${was})` },
+        { type: "image", data: p.data, mimeType: p.mimeType },
+      ] };
+    } catch (e: any) { return errorResult(`edit_image failed: ${String(e?.message ?? e)}`); }
+  },
+);
+
+server.registerTool(
+  "image_history",
+  { description: "List an image's versions and preview its current version.", inputSchema: { path: z.string() } },
+  async ({ path }) => {
+    try {
+      const rel = managedPath(path);
+      syncExternal(THREAD_CWD, rel);
+      const manifest = readManifest(THREAD_CWD, rel);
+      if (!manifest) throw new ToolError(`No history for ${path}`);
+      const lines = ["version | createdAt | source | model | prompt | dimensions", ...manifest.versions.map((v) => {
+        const source = v.source;
+        const prompt = "prompt" in source ? source.prompt.replace(/[\r\n|]/g, " ").slice(0, 80) : "";
+        return `${v.n}${v.n === manifest.current ? " (current)" : ""} | ${v.createdAt} | ${source.kind} | ${"model" in source ? source.model : ""} | ${prompt} | ${v.width ?? "?"}x${v.height ?? "?"}`;
+      })];
+      const p = await preview(readFileSync(versionFile(THREAD_CWD, rel, manifest.current)), 768);
+      return { content: [{ type: "text", text: lines.join("\n") }, { type: "image", data: p.data, mimeType: p.mimeType }] };
+    } catch (e: any) { return errorResult(`image_history failed: ${String(e?.message ?? e)}`); }
+  },
+);
+
+server.registerTool(
+  "restore_image_version",
+  { description: "Restore a stored image version as the working image, preserving history.", inputSchema: { path: z.string(), version: z.number().int().positive() } },
+  async ({ path, version }) => {
+    try {
+      const rel = managedPath(path);
+      const bytes = readFileSync(resolveVersionPath(THREAD_CWD, `${rel}@${version}`).abs);
+      const p = await preview(bytes, 768);
+      const result = restoreVersion(THREAD_CWD, rel, version, { width: p.width, height: p.height, threadId: THREAD_ID });
+      return { content: [
+        { type: "text", text: `Saved ${resolve(THREAD_CWD, rel)} (${p.width}x${p.height}) — version ${result.version.n} (restored version ${version})` },
+        { type: "image", data: p.data, mimeType: p.mimeType },
+      ] };
+    } catch (e: any) { return errorResult(`restore_image_version failed: ${String(e?.message ?? e)}`); }
+  },
+);
+
 server.registerTool(
   "view_image",
   {
     description: "Look at an image file (a reference or a previous output). Returns a downscaled preview plus its real dimensions.",
     inputSchema: {
-      path: z.string().describe("Absolute path, or relative to the thread folder."),
+      path: z.string().describe("Absolute path, or relative to the thread folder; use path@N for a stored version."),
       max_side: z.number().int().min(64).max(2048).optional().describe("Longest side of the preview in pixels. Default 1024."),
     },
   },

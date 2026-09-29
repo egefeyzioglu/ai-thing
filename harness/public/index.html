@@ -60,6 +60,29 @@
   .tile img:hover{border-color:rgba(255,255,255,.3)}
   .tile div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px;padding:0 2px}
   .fempty{color:var(--dim);font-size:12px;text-align:center;padding:20px 0}
+  .section{display:flex;align-items:center;gap:6px;color:var(--mute);font-size:11px;text-transform:uppercase;letter-spacing:.08em;padding:10px 8px 2px;cursor:pointer;user-select:none}
+  .section .n{color:var(--dim)}.section .chev{color:var(--dim);font-size:10px}
+  .status-dot.unread{background:var(--fg);box-shadow:0 0 0 2px rgba(255,255,255,.15)}
+  .tile{position:relative}
+  .tile .ver{position:absolute;top:6px;left:6px;font:10px/1.5 ui-monospace,monospace;background:rgba(0,0,0,.65);color:#e5e9f0;border-radius:4px;padding:0 5px;pointer-events:none}
+  .tile .att{position:absolute;top:4px;right:4px;padding:1px 7px;font-size:11px;background:rgba(0,0,0,.7);border-color:rgba(255,255,255,.2);opacity:0;transition:opacity .1s}
+  .tile:hover .att{opacity:1}
+  .chips{max-width:900px;margin:0 auto 6px;display:flex;gap:6px;flex-wrap:wrap}.chips:empty{display:none}
+  .chip{display:flex;align-items:center;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:3px 6px 3px 3px;font-size:11px;color:#dfe4ed;max-width:260px}
+  .chip img{width:26px;height:26px;object-fit:cover;border-radius:4px}.chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chip button{padding:0 5px;border-color:transparent;background:transparent;color:var(--dim)}
+  footer.drop{outline:2px dashed var(--ask);outline-offset:-6px}
+  .msg.user .atts{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.msg.user .atts img{height:72px;border-radius:6px;cursor:pointer}
+  .viewer{position:fixed;inset:0;background:rgba(3,5,8,.94);display:flex;flex-direction:column;z-index:10}
+  .viewer .top{display:flex;align-items:center;gap:10px;padding:10px 14px;color:var(--mute);font-size:12px}.viewer .top b{color:var(--fg);font-weight:500}.viewer .top .x{margin-left:auto}
+  .viewer .body{flex:1;min-height:0;display:flex}
+  .viewer .stage{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;padding:0 16px}.viewer .stage img{max-width:100%;max-height:100%;object-fit:contain;border-radius:6px}
+  .viewer .meta{width:300px;flex:none;padding:12px;border-left:1px solid var(--line);background:var(--panel);overflow-y:auto;font-size:12px;color:var(--mute)}
+  .viewer .meta dt{color:var(--dim);font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-top:10px}.viewer .meta dd{margin:2px 0 0;color:#dfe4ed;white-space:pre-wrap;word-break:break-word}
+  .viewer .meta .actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px}.viewer .meta .actions a{color:inherit;text-decoration:none}
+  .viewer .strip{display:flex;gap:8px;padding:10px 14px;overflow-x:auto;border-top:1px solid var(--line);background:var(--panel);flex:none}
+  .viewer .strip .v{flex:none;width:84px;cursor:pointer;text-align:center;font:11px ui-monospace,monospace;color:var(--mute)}
+  .viewer .strip .v img{width:84px;height:84px;object-fit:cover;border-radius:6px;border:2px solid transparent;display:block}
+  .viewer .strip .v.sel img{border-color:var(--fg)}.viewer .strip .v.cur{color:var(--ok)}
   @media(max-width:900px){aside.files{display:none}}
   @media(max-width:760px){aside.threads{width:210px}.thread{grid-template-columns:28px 1fr 14px 20px;padding:7px}header{gap:6px}.brand-sub{display:none}}
 </style></head>
@@ -79,7 +102,8 @@
     <main id="log"></main>
     <div id="queue"></div>
     <footer>
-      <form id="f"><textarea id="text" placeholder="Message..." disabled></textarea><button type="button" id="now" hidden>Send now</button><button class="primary" id="send" disabled>Send</button></form>
+      <div class="chips" id="chips"></div>
+      <form id="f"><textarea id="text" placeholder="Message... (drop or paste images to attach)" disabled></textarea><button type="button" id="now" hidden>Send now</button><button class="primary" id="send" disabled>Send</button></form>
       <div class="hint"><span id="ws"></span><span id="tid"></span><span id="busyhint" class="busy"></span></div>
     </footer>
   </div>
@@ -90,6 +114,7 @@ const $=s=>document.querySelector(s);const log=$('#log'),threadList=$('#threads'
 let sock,currentThreadId=null,currentThread=null,agentEl=null,tools=new Map(),perms=new Map(),planEl=null;
 const threads=new Map(),projects=new Map();
 let queue=[];
+let initialView=new URLSearchParams(location.search).get('view');
 const status=t=>$('#status').textContent=t;
 function el(cls,html){const d=document.createElement('div');d.className=cls;if(html!=null)d.innerHTML=html;log.appendChild(d);log.scrollTop=log.scrollHeight;return d}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -113,23 +138,33 @@ function renderProjects(){
 }
 const shownProjectId=()=>currentThread?currentThread.project_id:$('#project').value||null;
 // ---- threads ----
-function renderThreads(){
-  threadList.innerHTML='';
-  const byProject=new Map();for(const p of projects.keys())byProject.set(p,[]);
-  for(const t of threads.values()){if(!byProject.has(t.project_id))byProject.set(t.project_id,[]);byProject.get(t.project_id).push(t)}
+const isActive=t=>t.status!=='idle'||!!t.unread||t.id===currentThreadId;
+let settledOpen=localStorage.getItem('settledOpen')==='1';
+function renderGroups(rows,includeEmptyProjects){
+  const byProject=new Map();if(includeEmptyProjects)for(const p of projects.keys())byProject.set(p,[]);
+  for(const t of rows){if(!byProject.has(t.project_id))byProject.set(t.project_id,[]);byProject.get(t.project_id).push(t)}
   const groups=[...byProject.entries()].map(([pid,rows])=>({pid,rows:rows.sort((a,b)=>b.updated_at-a.updated_at),latest:rows[0]?.updated_at??0}))
     .sort((a,b)=>b.latest-a.latest||(projects.get(a.pid)?.name??'').localeCompare(projects.get(b.pid)?.name??''));
   for(const g of groups){
     const h=document.createElement('div');h.className='group';h.textContent=projects.get(g.pid)?.name??'(unknown project)';h.title=projects.get(g.pid)?.path??'';threadList.appendChild(h);
     for(const t of g.rows){
       const row=document.createElement('div');row.className='thread'+(t.id===currentThreadId?' active':'');row.title=t.title||'Untitled';row.tabIndex=0;
-      row.innerHTML=`<span class="badge">${t.agent==='claude'?'CC':'CX'}</span><span class="t-title">${esc(t.title||'Untitled')}</span><span class="status-dot ${t.status}"></span><button class="del" title="Delete thread">×</button>`;
+      const dot=t.status!=='idle'?t.status:(t.unread?'unread':'');
+      row.innerHTML=`<span class="badge">${t.agent==='claude'?'CC':'CX'}</span><span class="t-title">${esc(t.title||'Untitled')}</span><span class="status-dot ${dot}" title="${dot||'settled'}"></span><button class="del" title="Delete thread">×</button>`;
       row.onclick=()=>openThread(t.id);
       row.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openThread(t.id)}};
       row.querySelector('.del').onclick=e=>{e.stopPropagation();if(confirm('Delete this thread?'))send({type:'delete_thread',threadId:t.id})};
       threadList.appendChild(row);
     }
   }
+}
+function renderThreads(){
+  threadList.innerHTML='';
+  const all=[...threads.values()];const active=all.filter(isActive),settled=all.filter(t=>!isActive(t));
+  const sec=(label,n,open,toggle)=>{const d=document.createElement('div');d.className='section';d.innerHTML=`<span class="chev">${open?'▾':'▸'}</span>${label}<span class="n">${n}</span>`;if(toggle)d.onclick=toggle;else d.style.cursor='default';threadList.appendChild(d)};
+  sec('Active',active.length,true,null);renderGroups(active,true);
+  sec('Settled',settled.length,settledOpen,()=>{settledOpen=!settledOpen;localStorage.setItem('settledOpen',settledOpen?'1':'0');renderThreads()});
+  if(settledOpen)renderGroups(settled,false);
 }
 function resetLog(){log.innerHTML='';tools.clear();perms.clear();planEl=null;agentEl=null}
 function openThread(id){send({type:'open_thread',threadId:id})}
@@ -138,18 +173,20 @@ function showThread(thread,events,q){
   currentThreadId=thread.id;currentThread=thread;threads.set(thread.id,thread);resetLog();
   history.replaceState(null,'',`?thread=${encodeURIComponent(thread.id)}`);
   for(const event of events)renderEvent(event);
-  queue=q||[];renderQueue();
+  queue=q||[];renderQueue();attachments=[];renderChips();
   $('#tid').textContent='thread: '+thread.id.slice(0,8);
+  markSeen();
   if(projects.has(thread.project_id))$('#project').value=thread.project_id;
   renderThreads();setControls();$('#text').focus();
   if(projectChanged)filesDir='';refreshFiles();
+  if(initialView&&!viewer){const {path,version}=splitRef(initialView);initialView=null;openViewer(thread.project_id,path,version)}
 }
 // ---- queue ----
 function renderQueue(){
   const q=$('#queue');q.innerHTML='';
   for(const item of queue){
     const d=document.createElement('div');d.className='qitem';
-    d.innerHTML=`<span class="lbl">queued</span><span class="txt" title="${esc(item.text)}">${esc(item.text.split(/\r?\n/)[0])}</span><button class="qnow">Send now</button><button class="del" title="Remove">×</button>`;
+    d.innerHTML=`<span class="lbl">queued</span><span class="txt" title="${esc(item.text)}">${esc(item.text.split(/\r?\n/)[0])}${item.attachments?.length?` <span style="color:var(--dim)">+${item.attachments.length} image${item.attachments.length>1?'s':''}</span>`:''}</span><button class="qnow">Send now</button><button class="del" title="Remove">×</button>`;
     d.querySelector('.qnow').onclick=()=>send({type:'queue_send_now',id:item.id});
     d.querySelector('.del').onclick=()=>send({type:'queue_remove',id:item.id});
     q.appendChild(d);
@@ -158,7 +195,8 @@ function renderQueue(){
 // ---- files panel ----
 let filesDir='',filesProjectShown=null,filesReq=0;
 const human=n=>n<1024?n+' B':n<1048576?(n/1024).toFixed(0)+' KB':(n/1048576).toFixed(1)+' MB';
-const rawUrl=(pid,path,v)=>`/api/projects/${encodeURIComponent(pid)}/raw?path=${encodeURIComponent(path)}${v?'&v='+Math.round(v):''}`;
+const rawUrl=(pid,path,v,version)=>`/api/projects/${encodeURIComponent(pid)}/raw?path=${encodeURIComponent(path)}${version?'&version='+version:''}${v?'&v='+Math.round(v):''}`;
+const splitRef=ref=>{const m=/^(.*)@(\d+)$/.exec(ref);return m?{path:m[1],version:Number(m[2])}:{path:ref}};
 async function refreshFiles(){
   const pid=shownProjectId();const p=pid&&projects.get(pid);
   if(pid!==filesProjectShown){filesDir='';filesProjectShown=pid}
@@ -183,12 +221,83 @@ async function refreshFiles(){
   for(const e of visible.filter(e=>e.type==='dir')){const d=document.createElement('div');d.className='frow dir';d.innerHTML=`<span>▸</span><span class="fname" title="${esc(e.name)}">${esc(e.name)}</span>`;d.onclick=()=>{filesDir=join(e.name);refreshFiles()};list.appendChild(d)}
   const imgs=visible.filter(isImg);
   if(imgs.length){const g=document.createElement('div');g.className='grid';
-    for(const e of imgs){const a=document.createElement('a');a.className='tile';a.href=rawUrl(pid,join(e.name));a.target='_blank';a.title=e.name;
-      a.innerHTML=`<img loading="lazy" src="${rawUrl(pid,join(e.name),e.mtime)}" alt=""><div>${esc(e.name)}</div>`;g.appendChild(a)}
+    for(const e of imgs){const a=document.createElement('a');a.className='tile';a.href=rawUrl(pid,join(e.name));a.title=e.name;
+      a.innerHTML=`<img loading="lazy" src="${rawUrl(pid,join(e.name),e.mtime)}" alt="">${e.versions>1?`<span class="ver">v${e.current}</span>`:''}<button class="att" title="Attach to message">＋</button><div>${esc(e.name)}</div>`;
+      a.onclick=ev=>{ev.preventDefault();openViewer(pid,join(e.name))};
+      a.querySelector('.att').onclick=ev=>{ev.preventDefault();ev.stopPropagation();addAttachment(pid,e.current?join(e.name)+'@'+e.current:join(e.name))};
+      g.appendChild(a)}
     list.appendChild(g)}
   for(const e of visible.filter(e=>e.type==='file'&&!isImg(e))){const d=document.createElement('div');d.className='frow';
     d.innerHTML=`<span class="fname" title="${esc(e.name)}"><a style="color:inherit;text-decoration:none" target="_blank" href="${rawUrl(pid,join(e.name))}">${esc(e.name)}</a></span><span class="fsize">${human(e.size)}</span>`;list.appendChild(d)}
 }
+// ---- attachments (composer) ----
+let attachments=[];
+function addAttachment(pid,ref){
+  const target=currentThread?currentThread.project_id:null;
+  if(!currentThread){alert('Open a thread first');return}
+  if(pid!==target){alert('That file belongs to another project');return}
+  if(!attachments.includes(ref))attachments.push(ref);renderChips();$('#text').focus();
+}
+function renderChips(){
+  const c=$('#chips');c.innerHTML='';const pid=currentThread?.project_id;
+  attachments.forEach((ref,i)=>{const {path,version}=splitRef(ref);const d=document.createElement('div');d.className='chip';
+    d.innerHTML=`<img src="${rawUrl(pid,path,null,version)}" alt=""><span title="${esc(ref)}">${esc(path.split('/').pop())}${version?` <i style="color:var(--dim)">v${version}</i>`:''}</span><button title="Remove">×</button>`;
+    d.querySelector('button').onclick=()=>{attachments.splice(i,1);renderChips()};c.appendChild(d)});
+}
+function uploadFiles(files){
+  const pid=currentThread?.project_id;if(!pid){alert('Open a thread first');return}
+  for(const f of files){if(!/^image\//.test(f.type))continue;
+    const r=new FileReader();r.onload=()=>send({type:'upload',projectId:pid,name:f.name||'pasted.png',data:String(r.result).split(',')[1],mimeType:f.type});r.readAsDataURL(f)}
+}
+const footer=document.querySelector('footer');
+footer.addEventListener('dragover',e=>{e.preventDefault();footer.classList.add('drop')});
+footer.addEventListener('dragleave',()=>footer.classList.remove('drop'));
+footer.addEventListener('drop',e=>{e.preventDefault();footer.classList.remove('drop');if(e.dataTransfer?.files?.length)uploadFiles(e.dataTransfer.files)});
+$('#text').addEventListener('paste',e=>{const files=[...(e.clipboardData?.files||[])].filter(f=>/^image\//.test(f.type));if(files.length){e.preventDefault();uploadFiles(files)}});
+// ---- seen / unread ----
+let seenTimer=null;
+function markSeen(){if(!currentThreadId||document.visibilityState!=='visible')return;clearTimeout(seenTimer);seenTimer=setTimeout(()=>{if(currentThreadId)send({type:'seen',threadId:currentThreadId})},300)}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&currentThread?.unread)markSeen()});
+// ---- viewer ----
+let viewer=null;
+const fmtTime=iso=>{const d=new Date(iso);return isNaN(d)?iso:d.toLocaleString()};
+async function openViewer(pid,path,sel,keep){
+  let manifest=null;
+  try{const r=await fetch(`/api/projects/${encodeURIComponent(pid)}/versions?path=${encodeURIComponent(path)}`);if(r.ok)manifest=await r.json()}catch{}
+  const versions=manifest?.versions??[];const current=manifest?.current??null;
+  sel=sel??(keep&&viewer?.sel&&versions.some(v=>v.n===viewer.sel)?viewer.sel:current);
+  viewer={pid,path,sel};
+  let root=document.querySelector('.viewer');if(!root){root=document.createElement('div');root.className='viewer';document.body.appendChild(root);
+    root.onkeydown=e=>{if(e.key==='Escape')closeViewer()};root.tabIndex=-1}
+  const v=versions.find(x=>x.n===sel);const src=rawUrl(pid,path,v?null:Date.now(),v?sel:undefined);
+  const name=path.split('/').pop();
+  const srcInfo=v?.source||{};
+  const meta=v?`<dl>
+    <dt>Version</dt><dd>v${v.n}${v.n===current?' (current)':''} · ${esc(srcInfo.kind)}${srcInfo.from?' of v'+srcInfo.from:''}</dd>
+    <dt>Created</dt><dd>${esc(fmtTime(v.createdAt))}</dd>
+    ${v.width?`<dt>Size</dt><dd>${v.width}×${v.height} · ${human(v.size)}</dd>`:''}
+    ${srcInfo.model?`<dt>Model</dt><dd>${esc(srcInfo.model)}${srcInfo.aspectRatio?' · '+esc(srcInfo.aspectRatio):''}${srcInfo.resolution?' · '+esc(srcInfo.resolution):''}</dd>`:''}
+    ${srcInfo.prompt?`<dt>Prompt</dt><dd>${esc(srcInfo.prompt)}</dd>`:''}
+    ${srcInfo.references?.length?`<dt>References</dt><dd>${srcInfo.references.map(esc).join('\n')}</dd>`:''}
+    ${srcInfo.originalName?`<dt>Uploaded as</dt><dd>${esc(srcInfo.originalName)}</dd>`:''}
+    ${v.threadId?`<dt>Thread</dt><dd><a style="color:inherit" href="?thread=${esc(v.threadId)}">${esc(v.threadId.slice(0,8))}</a></dd>`:''}
+  </dl>`:'<div style="color:var(--dim)">Not versioned yet. It will be once anything writes to it.</div>';
+  root.innerHTML=`<div class="top"><b>${esc(name)}</b><span>${esc(path)}</span>${versions.length?`<span>· ${versions.length} version${versions.length>1?'s':''}</span>`:''}<button class="x" id="vclose">Close (Esc)</button></div>
+    <div class="body"><div class="stage"><img src="${src}" alt=""></div>
+    <div class="meta">${meta}<div class="actions">
+      <button class="primary" id="vattach">Attach to message</button>
+      ${v&&v.n!==current?`<button id="vrestore">Restore as new version</button>`:''}
+      <a href="${rawUrl(pid,path,null,v?sel:undefined)}" target="_blank"><button type="button">Open file</button></a>
+    </div></div></div>
+    <div class="strip">${versions.map(x=>`<div class="v${x.n===sel?' sel':''}${x.n===current?' cur':''}" data-n="${x.n}"><img src="${rawUrl(pid,path,null,x.n)}" loading="lazy" alt=""><div>v${x.n}${x.n===current?' ●':''} ${esc(x.source?.kind||'')}</div></div>`).join('')}</div>`;
+  root.querySelector('#vclose').onclick=closeViewer;
+  root.querySelector('#vattach').onclick=()=>{addAttachment(pid,v?`${path}@${v.n}`:path);closeViewer()};
+  const rs=root.querySelector('#vrestore');if(rs)rs.onclick=()=>{send({type:'restore_version',projectId:pid,path,version:sel,threadId:currentThreadId||undefined})};
+  root.querySelectorAll('.strip .v').forEach(d=>d.onclick=()=>openViewer(pid,path,Number(d.dataset.n)));
+  root.focus();
+}
+function closeViewer(){viewer=null;document.querySelector('.viewer')?.remove()}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&viewer)closeViewer()});
 // ---- socket messages ----
 function onMsg(m){
   switch(m.type){
@@ -202,7 +311,7 @@ function onMsg(m){
       break;
     }
     case 'opened': showThread(m.thread,m.events||[],m.queue||[]);break;
-    case 'thread': threads.set(m.thread.id,m.thread);if(m.thread.id===currentThreadId)currentThread=m.thread;renderThreads();setControls();break;
+    case 'thread': threads.set(m.thread.id,m.thread);if(m.thread.id===currentThreadId){currentThread=m.thread;if(m.thread.unread)markSeen()}renderThreads();setControls();break;
     case 'thread_deleted':
       threads.delete(m.threadId);
       if(m.threadId===currentThreadId){currentThreadId=null;currentThread=null;resetLog();queue=[];renderQueue();$('#tid').textContent='';history.replaceState(null,'',location.pathname);setControls();refreshFiles()}
@@ -211,7 +320,9 @@ function onMsg(m){
     case 'project_created': projects.set(m.project.id,m.project);$('#project').value=m.project.id;renderProjects();break;
     case 'project_deleted': projects.delete(m.projectId);renderProjects();break;
     case 'queue': if(m.threadId===currentThreadId){queue=m.items;renderQueue()}break;
-    case 'files_changed': if(m.projectId===shownProjectId())refreshFiles();break;
+    case 'files_changed': if(m.projectId===shownProjectId()){refreshFiles();if(viewer&&viewer.pid===m.projectId)openViewer(viewer.pid,viewer.path,viewer.sel,true)}break;
+    case 'uploaded': if(m.projectId===shownProjectId())addAttachment(m.projectId,m.path+'@'+m.version);break;
+    case 'restored': break;
     case 'event': if(m.threadId===currentThreadId)renderEvent(m.event);break;
     case 'error': el('sys','error: '+esc(m.message));setControls();break;
   }
@@ -219,7 +330,10 @@ function onMsg(m){
 function renderEvent(event){
   const p=event.payload||{};
   switch(event.type){
-    case 'user_message': agentEl=null;el('msg user',esc(p.text||''));break;
+    case 'user_message':{agentEl=null;const d=el('msg user',esc(p.text||''));
+      if(p.attachments?.length&&currentThread){const a=document.createElement('div');a.className='atts';
+        for(const ref of p.attachments){const {path,version}=splitRef(ref);const im=document.createElement('img');im.src=rawUrl(currentThread.project_id,path,null,version);im.title=ref;im.onclick=()=>openViewer(currentThread.project_id,path,version);a.appendChild(im)}
+        d.appendChild(a)}break}
     case 'update': onUpdate(p.update);break;
     case 'permission_request': onPerm(p);break;
     case 'permission_response': onPermResponse(p);break;
@@ -285,7 +399,7 @@ $('#new').onclick=()=>{const projectId=$('#project').value;if(!projectId)return 
 $('#newproject').onclick=()=>{const name=prompt('Project name');if(!name||!name.trim())return;const path=prompt('Absolute folder path (leave empty for a folder under the workspace)')||'';send({type:'new_project',name:name.trim(),...(path.trim()&&{path:path.trim()})})};
 $('#project').onchange=()=>{if(!currentThread)refreshFiles()};
 $('#cancel').onclick=()=>{if(currentThreadId)send({type:'cancel',threadId:currentThreadId})};
-function submit(mode){const t=$('#text').value.trim();if(!t||!currentThread)return;$('#text').value='';agentEl=null;send({type:'prompt',threadId:currentThread.id,text:t,mode})}
+function submit(mode){const t=$('#text').value.trim();if((!t&&!attachments.length)||!currentThread)return;$('#text').value='';agentEl=null;send({type:'prompt',threadId:currentThread.id,text:t||'(see attached image)',mode,attachments:attachments.slice()});attachments=[];renderChips()}
 $('#f').onsubmit=e=>{e.preventDefault();submit(isBusy(currentThread)?'queue':'auto')};
 $('#now').onclick=()=>submit('now');
 $('#text').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('#f').requestSubmit()}};
