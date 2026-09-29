@@ -27,6 +27,7 @@ import {
   deleteThread,
   dequeueNext,
   enqueue,
+  findOpenPermissionRequest,
   ensureDefaultProject,
   getProject,
   getProjectByPath,
@@ -115,9 +116,11 @@ type AgentConn = {
 type LiveSession = {
   kind: AgentKind;
   sessionId: string;
+  proc: ChildProcess; // the adapter process that owns this session
 };
 
 const agents = new Map<AgentKind, Promise<AgentConn>>();
+const agentProcs = new Map<AgentKind, ChildProcess>();
 const liveSessions = new Map<string, LiveSession>(); // threadId -> live ACP session
 const sessionThreads = new Map<string, string>(); // ACP sessionId -> threadId
 const loadingSessions = new Set<string>(); // ACP sessionIds currently replaying history
@@ -133,7 +136,10 @@ const pendingPermissions = new Map<
     resolve: (r: acp.RequestPermissionResponse) => void;
   }
 >();
-let permSeq = 0;
+const authFailed = new Set<AgentKind>(); // adapters that reported "Authentication required"; respawned on retry
+const authRetry = new Set<AgentKind>(); // first turn after such a respawn: a logged-out adapter then fails with a generic error
+const AGENT_LABEL: Record<AgentKind, string> = { claude: "Claude Code", codex: "Codex" };
+const isAuthError = (e: any) => e?.code === -32000 || /authentication required/i.test(String(e?.message ?? ""));
 
 function send(ws: WebSocket, msg: unknown) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
@@ -151,7 +157,7 @@ function broadcastThread(thread: ThreadRow | null) {
 }
 
 function clientQueue(threadId: string) {
-  return listQueued(threadId).map(({ id, text, attachments, created_at }) => ({ id, text, attachments, created_at }));
+  return listQueued(threadId).map(({ id, text, attachments, synthetic, created_at }) => ({ id, text, attachments, synthetic, created_at }));
 }
 
 function broadcastQueue(threadId: string) {
@@ -219,8 +225,10 @@ async function startAgent(kind: AgentKind): Promise<AgentConn> {
   console.log(`[${kind}] spawning ${bin}`);
   // Drop any inherited Claude Code session vars; the adapter refuses to start
   // "inside another Claude Code session" otherwise.
+  // Also keep image-provider API keys away from the agents: a logged-out Codex
+  // would otherwise quietly bill OPENAI_API_KEY instead of using the ChatGPT login.
   const env = Object.fromEntries(
-    Object.entries(process.env).filter(([k]) => !/^(CLAUDE|AI_AGENT)/.test(k)),
+    Object.entries(process.env).filter(([k]) => (!/^(CLAUDE|AI_AGENT)/.test(k) || k === "CLAUDE_CONFIG_DIR") && !(PROVIDER_KEYS as readonly string[]).includes(k)),
   );
   const proc = spawn(bin, AGENT_ARGS[kind], {
     cwd: WORKSPACE,
@@ -230,14 +238,16 @@ async function startAgent(kind: AgentKind): Promise<AgentConn> {
   proc.stderr?.on("data", (d) => process.stderr.write(`[${kind}] ${d}`));
   proc.on("exit", (code) => {
     console.log(`[${kind}] exited with ${code}`);
-    agents.delete(kind);
+    // Only forget what belonged to this process: a replacement may already be registered.
+    if (agentProcs.get(kind) === proc) { agents.delete(kind); agentProcs.delete(kind); }
     for (const [threadId, live] of liveSessions) {
-      if (live.kind === kind) {
+      if (live.proc === proc) {
         liveSessions.delete(threadId);
         sessionThreads.delete(live.sessionId);
       }
     }
   });
+  agentProcs.set(kind, proc);
 
   const stream = acp.ndJsonStream(
     Writable.toWeb(proc.stdin!),
@@ -274,7 +284,7 @@ async function onRequestPermission(
   const threadId = sessionThreads.get(sessionId);
   if (!threadId || !getThread(threadId)) return { outcome: { outcome: "cancelled" } };
 
-  const id = `perm-${++permSeq}`;
+  const id = `perm-${randomUUID()}`;
   persistEvent(threadId, "permission_request", {
     id,
     toolCall: params.toolCall,
@@ -310,7 +320,7 @@ async function createOrLoadSession(thread: ThreadRow): Promise<LiveSession> {
         cwd: thread.cwd,
         mcpServers: mcpServersFor(thread),
       });
-      const live = { kind: thread.agent, sessionId: thread.acp_session_id };
+      const live = { kind: thread.agent, sessionId: thread.acp_session_id, proc: agent.proc };
       liveSessions.set(thread.id, live);
       persistEvent(thread.id, "sys", { message: "session resumed" });
       return live;
@@ -332,7 +342,7 @@ async function createOrLoadSession(thread: ThreadRow): Promise<LiveSession> {
     cwd: thread.cwd,
     mcpServers: mcpServersFor(thread),
   });
-  const live = { kind: thread.agent, sessionId: res.sessionId };
+  const live = { kind: thread.agent, sessionId: res.sessionId, proc: agent.proc };
   liveSessions.set(thread.id, live);
   sessionThreads.set(res.sessionId, thread.id);
   setThread(thread.id, { acp_session_id: res.sessionId });
@@ -364,6 +374,27 @@ function cancelPendingPermissions(threadId: string) {
   }
 }
 
+/**
+ * A permission prompt whose turn died with a server restart. The original tool
+ * call is gone, so the answer is delivered to the resumed session as a
+ * follow-up prompt telling the agent what was decided.
+ */
+function answerLatePermission(id: string, optionId: string | undefined) {
+  const request = findOpenPermissionRequest(id);
+  if (!request) return;
+  const p = request.payload as { toolCall?: { title?: string }; options?: acp.PermissionOption[] };
+  const option = optionId ? p.options?.find((o) => o.optionId === optionId) : undefined;
+  const allowed = !!option && option.kind.startsWith("allow");
+  persistEvent(request.thread_id, "permission_response", { id, optionId: optionId ?? null, name: option?.name ?? "cancelled", late: true });
+  const title = p.toolCall?.title ?? "that tool call";
+  const text = allowed
+    ? `The harness restarted while you were waiting for permission to run "${title}". Permission is now granted ("${option!.name}"): continue from where you left off and run it.`
+    : `The harness restarted while you were waiting for permission to run "${title}". Permission was denied: do not run it. Continue without it, or stop if it was required.`;
+  enqueue(request.thread_id, text, { front: true, synthetic: true });
+  broadcastQueue(request.thread_id);
+  void pump(request.thread_id);
+}
+
 // ---------------------------------------------------------------------------
 // Browser protocol
 // ---------------------------------------------------------------------------
@@ -376,12 +407,13 @@ type ClientMsg =
   | { type: "open_thread"; threadId: string }
   | { type: "prompt"; threadId: string; text: string; mode?: "auto" | "queue" | "now"; attachments?: string[] }
   | { type: "seen"; threadId: string }
+  | { type: "retry"; threadId: string }
   | { type: "restore_version"; projectId: string; path: string; version: number; threadId?: string }
   | { type: "upload"; projectId: string; name: string; data: string; mimeType?: string }
   | { type: "queue_send_now"; id: string }
   | { type: "queue_remove"; id: string }
   | { type: "cancel"; threadId: string }
-  | { type: "permission_response"; id: string; optionId?: string }
+  | { type: "permission_response"; id: string; optionId?: string; threadId?: string }
   | { type: "delete_thread"; threadId: string };
 
 async function handle(ws: WebSocket, msg: ClientMsg) {
@@ -471,6 +503,21 @@ async function handle(ws: WebSocket, msg: ClientMsg) {
       broadcastQueue(item.thread_id);
       return;
     }
+    case "retry": {
+      const thread = getThread(msg.threadId);
+      if (!thread) throw new Error(`unknown thread ${msg.threadId}`);
+      if (authFailed.has(thread.agent)) {
+        // The adapter caches its auth state; start a fresh process now that the user may have logged in.
+        authFailed.delete(thread.agent);
+        authRetry.add(thread.agent);
+        const running = agents.get(thread.agent);
+        agents.delete(thread.agent);
+        agentProcs.delete(thread.agent);
+        running?.then((a) => a.proc.kill()).catch(() => {});
+      }
+      void pump(thread.id);
+      return;
+    }
     case "seen": {
       const thread = getThread(msg.threadId);
       if (thread?.unread) setThread(thread.id, { unread: 0, updated_at: thread.updated_at });
@@ -515,7 +562,7 @@ async function handle(ws: WebSocket, msg: ClientMsg) {
     }
     case "permission_response": {
       const pending = pendingPermissions.get(msg.id);
-      if (!pending) return;
+      if (!pending) { answerLatePermission(msg.id, msg.optionId); return; }
       pendingPermissions.delete(msg.id);
       const option = msg.optionId ? pending.options.find((o) => o.optionId === msg.optionId) : undefined;
       pending.resolve(
@@ -565,23 +612,39 @@ function attachmentBlocks(thread: ThreadRow, refs: string[], acceptsImages: bool
   return blocks;
 }
 
-async function runTurn(threadId: string, text: string, attachments: string[] = []) {
+async function runTurn(threadId: string, text: string, attachments: string[] = []): Promise<"ok" | "auth"> {
   try {
     const thread = getThread(threadId);
-    if (!thread) return;
+    if (!thread) return "ok";
     const live = await ensureSession(thread);
-    if (stopRequested.has(threadId) || !getThread(threadId)) return;
+    if (stopRequested.has(threadId) || !getThread(threadId)) return "ok";
     const agent = await getAgent(live.kind);
     const acceptsImages = agent.init.agentCapabilities?.promptCapabilities?.image === true;
     const result = await agent.conn.agent.request(acp.methods.agent.session.prompt, {
       sessionId: live.sessionId,
       prompt: [{ type: "text", text }, ...attachmentBlocks(thread, attachments, acceptsImages)],
     });
-    if (!getThread(threadId)) return;
+    if (!getThread(threadId)) return "ok";
+    authRetry.delete(thread.agent);
     persistEvent(threadId, "turn_end", { stopReason: result.stopReason });
+    return "ok";
   } catch (e: any) {
-    if (!getThread(threadId)) return;
+    const thread = getThread(threadId);
+    if (!thread) return "ok";
+    if (isAuthError(e) || authRetry.has(thread.agent)) {
+      authRetry.delete(thread.agent);
+      authFailed.add(thread.agent);
+      const methods = await getAgent(thread.agent).then((a) => a.init.authMethods ?? []).catch(() => []);
+      persistEvent(threadId, "error", {
+        message: `${AGENT_LABEL[thread.agent]} is not logged in`,
+        authRequired: true,
+        agent: thread.agent,
+        methods: methods.map((m) => ({ id: m.id, name: m.name, description: m.description ?? "" })),
+      });
+      return "auth";
+    }
     persistEvent(threadId, "error", { message: String(e?.message ?? e) });
+    return "ok";
   }
 }
 
@@ -596,8 +659,14 @@ async function pump(threadId: string) {
       broadcastQueue(threadId);
       const thread = getThread(threadId)!;
       setThread(threadId, { title: thread.title || titleFromPrompt(item.text), status: "running" });
-      persistEvent(threadId, "user_message", { text: item.text, attachments: item.attachments });
-      await runTurn(threadId, item.text, item.attachments);
+      persistEvent(threadId, "user_message", { text: item.text, attachments: item.attachments, ...(item.synthetic ? { synthetic: true } : {}) });
+      const outcome = await runTurn(threadId, item.text, item.attachments);
+      if (outcome === "auth") {
+        // Put the message back so Retry (after logging in) sends it again.
+        enqueue(threadId, item.text, { front: true, attachments: item.attachments, synthetic: item.synthetic });
+        broadcastQueue(threadId);
+        break;
+      }
       if (stopRequested.delete(threadId)) break;
     }
   } finally {

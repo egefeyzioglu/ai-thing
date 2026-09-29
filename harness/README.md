@@ -85,6 +85,21 @@ unread activity since you last looked) and a collapsed Settled section. A
 thread becomes unread when a turn ends, errors or asks for permission while
 you are not looking at it.
 
+## Login, and permissions across restarts
+
+If an adapter reports that its CLI is not logged in (`claude /login`,
+`codex login`), the thread shows a card with the instructions and a Retry
+button; the message stays queued. Retry starts a fresh adapter process so the
+new login is picked up. Image-provider API keys are never passed to the agent
+processes, so a logged-out Codex cannot silently fall back to API billing.
+
+Permission prompts are plain events, so an unanswered one survives a server
+restart and still shows its buttons. Answering it after a restart cannot
+resume the original tool call (that turn died with the process), so the
+harness records the answer and sends the resumed session a short follow-up
+telling the agent what was decided. The agent then re-issues the tool call,
+which prompts again if it is not on an always-allow list.
+
 ## Queue and interrupt
 
 The composer is never disabled while a thread is open. When the agent is
@@ -147,6 +162,9 @@ pnpm imagegen-test gpt-image-2 "make it blue" generated/a-red-circle-xxxxx.png
   external-edit capture.
 - Image attachments in prompts (from the panel, drag-drop or paste upload).
 - Active / settled / unread thread states.
+- Login-required detection with retry; permission prompts that survive restarts.
+- A three-column UI on the mockup's layout: threads + files, thread, inspector
+  with Inspect (versions, generation details) and Browse (thumbnails) tabs.
 - Best-effort ACP session resume after server restart when the adapter supports
   `session/load`; otherwise a fresh ACP session is started and the persisted log
   remains visible.
@@ -163,5 +181,5 @@ node scripts/cancel-test.mjs
 
 ## Not done (on purpose)
 
-Auth flow (assumes you are already logged in to both CLIs), durable permission
-prompts across a server restart, and version history for non-image files. ACP turn execution still lives only in the current server process.
+Version history for non-image files, subagents, credits/usage accounting, and
+the manual-generation composer from the mockup. ACP turn execution still lives only in the current server process.

@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI thing — workspace organization (5 options)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+  tailwind.config = { darkMode: 'class', theme: { extend: {
+    fontFamily: { sans: ['Geist','Inter','ui-sans-serif','system-ui','sans-serif'], mono: ['Geist Mono','JetBrains Mono','ui-monospace','monospace'] },
+    colors: { bg:'#05070b', panel:'#0a0d13', card:'#10141b', card2:'#161b24', line:'rgba(255,255,255,0.08)', line2:'rgba(255,255,255,0.14)', fg:'#f2f4f7', mute:'#8a93a3', dim:'#5b6472', run:'#f5b642', ok:'#4ade80', ask:'#7dd3fc', bad:'#f87171' },
+  } } }
+</script>
+<style>
+  :root{color-scheme:dark} body{-webkit-font-smoothing:antialiased}
+  ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:8px}
+  .img{position:relative;overflow:hidden;border-radius:6px;background-size:cover}
+  .grain::after{content:"";position:absolute;inset:0;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .22 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");mix-blend-mode:overlay;pointer-events:none;opacity:.7}
+  .a1{background:radial-gradient(120% 90% at 20% 80%,#f2a15c 0%,#b8562a 35%,#3b1d15 80%)}.a2{background:radial-gradient(90% 120% at 80% 20%,#ffd08a 0%,#d8763a 40%,#2b1410 85%)}.a3{background:linear-gradient(160deg,#f7c893 0%,#c8693a 45%,#4a2418 100%)}.a4{background:radial-gradient(70% 70% at 50% 100%,#ffb672 0%,#8f3f22 55%,#1e0f0b 100%)}
+  .b1{background:linear-gradient(135deg,#f4e3cf 0%,#e6b48c 40%,#a9593a 100%)}.b2{background:linear-gradient(120deg,#f8ead8 0%,#d99b6d 55%,#5e3a2a 100%)}.b3{background:linear-gradient(200deg,#f3d7bd 0%,#dc8f5b 50%,#7b3d24 100%)}.b4{background:linear-gradient(150deg,#efe0d0 0%,#c78a63 60%,#3d2a22 100%)}
+  .c1{background:radial-gradient(60% 60% at 30% 30%,#ffe0b8 0%,#c2703d 45%,#26130e 100%)}.c2{background:radial-gradient(80% 60% at 70% 60%,#f2b27a 0%,#7a3c26 55%,#140a08 100%)}.c3{background:conic-gradient(from 210deg at 60% 40%,#f6c793,#b85d33,#331812,#f6c793)}.c4{background:radial-gradient(50% 80% at 50% 50%,#ffc48a 0%,#a04a2a 50%,#1b0e0a 100%)}
+  .ref1{background:linear-gradient(140deg,#e8c9a8,#a86a4a 60%,#4b3026)}.ref2{background:linear-gradient(200deg,#6f8aa6,#e0b48f 55%,#8e4b30)}.ref3{background:linear-gradient(120deg,#f0e6da,#d7a27a 50%,#5a3a2b)}
+  .pick{outline:2px solid #4ade80;outline-offset:2px}.selected{outline:2px solid #f2f4f7;outline-offset:2px}
+  .tree{font-family:"Geist Mono","JetBrains Mono",ui-monospace,monospace;font-size:11.5px;line-height:1.55;white-space:pre;color:rgba(242,244,247,.78)}
+  .tree .d{color:#8a93a3}.tree .c{color:#5b6472}.tree .k{color:#f5b642}.tree .g{color:#4ade80}
+  .opt{display:none}.opt.on{display:flex}
+  kbd{font-family:inherit;font-size:10px;padding:1px 5px;border-radius:4px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);color:#8a93a3}
+  .row{height:24px;display:flex;align-items:center;gap:6px;padding:0 6px;border-radius:4px;color:#8a93a3;font-size:12.5px}.row:hover{background:rgba(255,255,255,.04)}.row span.n{color:rgba(242,244,247,.9);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row .m{font-size:10px;color:#5b6472}
+</style>
+</head>
+<body class="h-screen overflow-hidden bg-bg text-fg font-sans text-[13px] leading-[1.45]">
+
+<!-- ======================= shared frame ======================= -->
+<div class="flex h-full">
+  <!-- left: threads (constant across options) -->
+  <aside class="w-[276px] shrink-0 border-r border-line bg-panel flex flex-col min-h-0">
+    <div class="h-12 px-3 flex items-center gap-2 border-b border-line">
+      <span class="h-6 w-6 rounded-md bg-fg/90 grid place-items-center text-[10px] font-bold text-bg">AI</span>
+      <span class="flex-1 font-medium">AI thing</span>
+      <button class="h-8 w-8 grid place-items-center rounded-md hover:bg-white/5 text-mute"><i data-lucide="square-pen" class="h-4 w-4"></i></button>
+    </div>
+    <div class="px-3 pt-3 pb-1.5 flex items-center justify-between"><span class="text-[11px] uppercase tracking-wider text-dim font-medium">Threads</span></div>
+    <div class="px-2 space-y-0.5">
+      <a class="block rounded-md bg-white/[.06] px-2 py-2 ring-1 ring-line2">
+        <div class="flex items-center gap-1.5 text-[11px] text-mute"><span class="h-4 w-4 rounded bg-gradient-to-br from-[#f2a15c] to-[#7a3c26] grid place-items-center text-[8px] font-semibold text-black/80">BR</span><span class="truncate">Brand refresh · Q4</span><span class="ml-auto flex items-center gap-1 text-run shrink-0"><span class="h-2 w-2 rounded-full bg-run"></span>Working</span></div>
+        <div class="mt-1 truncate font-medium">Hero exploration — warm palette</div>
+      </a>
+      <a class="block rounded-md px-2 py-2 hover:bg-white/[.04]">
+        <div class="flex items-center gap-1.5 text-[11px] text-mute"><span class="h-4 w-4 rounded bg-gradient-to-br from-[#f2a15c] to-[#7a3c26] grid place-items-center text-[8px] font-semibold text-black/80">BR</span><span class="truncate">Brand refresh · Q4</span><span class="ml-auto text-dim">2h</span></div>
+        <div class="mt-1 truncate">Fix logo bleed on hero</div>
+      </a>
+      <a class="block rounded-md px-2 py-2 hover:bg-white/[.04]">
+        <div class="flex items-center gap-1.5 text-[11px] text-mute"><span class="h-4 w-4 rounded bg-gradient-to-br from-[#5cc8f2] to-[#26507a] grid place-items-center text-[8px] font-semibold text-black/80">PS</span><span class="truncate">Physsec website</span><span class="ml-auto text-dim">1d</span></div>
+        <div class="mt-1 truncate">Social crops from picks</div>
+      </a>
+    </div>
+    <div class="mt-auto border-t border-line p-3 text-[11px] text-dim">
+      <div class="uppercase tracking-wider font-medium mb-1">This mockup</div>
+      <p>Five ways to lay out a project on disk and show it in the UI. The thread list and chat stay the same; the <b class="text-mute">Files</b> panel (right) and the <b class="text-mute">on-disk tree</b> (middle) change. Switch with the floating pill or keys <kbd>1</kbd>–<kbd>5</kbd>.</p>
+    </div>
+  </aside>
+
+  <!-- ======================= OPTION 1: plain folders ======================= -->
+  <section id="opt1" class="opt flex-1 min-w-0">
+    <div class="flex-1 min-w-0 flex flex-col">
+      <header class="h-12 shrink-0 border-b border-line px-4 flex items-center gap-3"><span class="text-[11px] px-1.5 py-0.5 rounded bg-white/[.06] text-mute font-mono">1</span><h1 class="font-medium">Plain folders</h1><span class="text-[11px] text-mute">the project folder is just a folder; the app adds a hidden <span class="font-mono">.aithing/</span> for history</span></header>
+      <div class="flex-1 min-h-0 overflow-y-auto p-6 space-y-5 max-w-[760px]">
+        <div class="rounded-lg border border-line bg-card p-4">
+          <div class="text-[11px] uppercase tracking-wider text-dim font-medium mb-2">On disk</div>
+<pre class="tree">brand-refresh-q4/
+├── <span class="k">AGENT.md</span>                 <span class="c"># brief + rules, read by every agent</span>
+├── style.md
+├── <span class="d">inputs/</span>                  <span class="c"># whatever the user drops in</span>
+│   ├── ref-01.jpg
+│   ├── ref-02.jpg
+│   └── ref-03.jpg
+├── <span class="d">hero/</span>                    <span class="c"># agent-chosen structure</span>
+│   ├── a-01.png … a-04.png
+│   ├── b-01.png … b-04.png
+│   └── <span class="d">picks/</span>
+│       └── b-03.png
+├── <span class="d">generated/</span>               <span class="c"># default when the agent gives no path</span>
+└── <span class="d">.aithing/</span>                <span class="c"># hidden: versions/, thread logs</span>
+    └── <span class="d">versions/</span>hero/b-03.png/ v1.png v2.png manifest.json</pre>
+        </div>
+        <div class="grid grid-cols-2 gap-3 text-[12px]">
+          <div class="rounded-lg border border-line bg-card p-3"><div class="text-ok font-medium mb-1">Good</div><ul class="list-disc pl-4 space-y-1 text-mute"><li>Zero learning curve; Finder/Explorer, Dropbox, git all work as-is.</li><li>Agents name and organise files the way the user asks in plain language.</li><li>Instructions are just markdown in the root, which is what coding agents already expect.</li></ul></div>
+          <div class="rounded-lg border border-line bg-card p-3"><div class="text-bad font-medium mb-1">Weak</div><ul class="list-disc pl-4 space-y-1 text-mute"><li>Nothing tells the UI which images are references and which are outputs, so "attach a reference" is a guess.</li><li>Different threads invent different layouts; the folder drifts.</li><li>Picks, trash and notes need conventions the agent has to be told about each time.</li></ul></div>
+        </div>
+        <p class="text-[12px] text-dim">This is what the harness does today. Every other option is a layer of convention or metadata on top of it.</p>
+      </div>
+    </div>
+    <aside class="w-[384px] shrink-0 border-l border-line bg-panel flex flex-col min-h-0">
+      <div class="h-12 px-3 flex items-center gap-1 border-b border-line text-[12px]"><button class="h-7 px-2.5 rounded-md bg-white/[.08] font-medium">Files</button><button class="h-7 px-2.5 rounded-md text-mute hover:text-fg">Inspect</button><span class="flex-1"></span><button class="h-7 w-7 grid place-items-center rounded-md text-mute"><i data-lucide="upload" class="h-4 w-4"></i></button></div>
+      <div class="px-3 py-2 text-[11px] text-mute flex items-center gap-1"><span class="text-fg/85">brand-refresh-q4</span><span class="text-dim">/</span><span class="text-fg/85">hero</span></div>
+      <div class="flex-1 overflow-y-auto px-2 pb-2">
+        <div class="row"><i data-lucide="chevron-right" class="h-3 w-3"></i><i data-lucide="folder" class="h-3.5 w-3.5"></i><span class="n">picks</span><span class="m">1</span></div>
+        <div class="grid grid-cols-3 gap-2 p-1.5">
+          <div><span class="img a1 grain block aspect-square"></span><div class="text-[10.5px] text-mute truncate mt-1">a-01.png</div></div>
+          <div><span class="img a2 grain block aspect-square"></span><div class="text-[10.5px] text-mute truncate mt-1">a-02.png</div></div>
+          <div><span class="img a3 grain block aspect-square"></span><div class="text-[10.5px] text-mute truncate mt-1">a-03.png</div></div>
+          <div><span class="img a4 grain block aspect-square"></span><div class="text-[10.5px] text-mute truncate mt-1">a-04.png</div></div>
+          <div><span class="img b1 grain block aspect-square"></span><div class="text-[10.5px] text-mute truncate mt-1">b-01.png</div></div>
+          <div><span class="img b2 grain block aspect-square"></span><div class="text-[10.5px] text-mute truncate mt-1">b-02.png</div></div>
+          <div class="relative"><span class="img b3 grain block aspect-square selected"></span><span class="absolute top-1 left-1 text-[9px] font-mono bg-black/70 rounded px-1">v2</span><div class="text-[10.5px] text-mute truncate mt-1">b-03.png</div></div>
+          <div><span class="img b4 grain block aspect-square"></span><div class="text-[10.5px] text-mute truncate mt-1">b-04.png</div></div>
+        </div>
+        <div class="row mt-2"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span class="n">NOTES.md</span><span class="m">1 KB</span></div>
+      </div>
+      <div class="border-t border-line p-3 text-[11px] text-dim">The panel mirrors the disk exactly. Version badges come from the hidden store.</div>
+    </aside>
+  </section>
+
+  <!-- ======================= OPTION 2: typed folders ======================= -->
+  <section id="opt2" class="opt flex-1 min-w-0">
+    <div class="flex-1 min-w-0 flex flex-col">
+      <header class="h-12 shrink-0 border-b border-line px-4 flex items-center gap-3"><span class="text-[11px] px-1.5 py-0.5 rounded bg-white/[.06] text-mute font-mono">2</span><h1 class="font-medium">Typed folders</h1><span class="text-[11px] text-mute">four fixed top-level folders by role; anything else is free-form</span></header>
+      <div class="flex-1 min-h-0 overflow-y-auto p-6 space-y-5 max-w-[760px]">
+        <div class="rounded-lg border border-line bg-card p-4">
+          <div class="text-[11px] uppercase tracking-wider text-dim font-medium mb-2">On disk</div>
+<pre class="tree">brand-refresh-q4/
+├── <span class="d">brief/</span>                   <span class="c"># instructions: everything here is loaded into the agent's context</span>
+│   ├── <span class="k">AGENT.md</span>
+│   ├── style.md
+│   └── audience.md
+├── <span class="d">refs/</span>                    <span class="c"># reference images; never written by agents</span>
+│   ├── ref-01.jpg
+│   ├── <span class="d">logo/</span> logo.svg  logo-dark.png
+│   └── <span class="d">moodboard/</span> 14 files
+├── <span class="d">out/</span>                     <span class="c"># everything agents generate, grouped as they like</span>
+│   ├── <span class="d">hero/</span> a-01.png … b-04.png
+│   └── <span class="d">social/</span>
+├── <span class="d">picks/</span>                   <span class="c"># curated: copies or links of the keepers</span>
+│   └── hero-b-03.png <span class="g">→ out/hero/b-03.png@2</span>
+└── <span class="d">.aithing/</span>  versions/  trash/</pre>
+        </div>
+        <div class="grid grid-cols-2 gap-3 text-[12px]">
+          <div class="rounded-lg border border-line bg-card p-3"><div class="text-ok font-medium mb-1">Good</div><ul class="list-disc pl-4 space-y-1 text-mute"><li>The UI knows what a file is by where it lives: refs get an "attach" affordance, outputs get "iterate", brief gets an editor.</li><li>Simple safety rule: agents can read <span class="font-mono">refs/</span> and <span class="font-mono">brief/</span> but only write under <span class="font-mono">out/</span>.</li><li>Still plain folders; nothing breaks outside the app.</li></ul></div>
+          <div class="rounded-lg border border-line bg-card p-3"><div class="text-bad font-medium mb-1">Weak</div><ul class="list-disc pl-4 space-y-1 text-mute"><li>An output that becomes a reference has to be copied or linked into <span class="font-mono">refs/</span>; two places for one image.</li><li>Four buckets is still a taxonomy the user must accept.</li><li><span class="font-mono">out/</span> grows without structure unless threads are told where to write.</li></ul></div>
+        </div>
+      </div>
+    </div>
+    <aside class="w-[384px] shrink-0 border-l border-line bg-panel flex flex-col min-h-0">
+      <div class="h-12 px-3 flex items-center gap-1 border-b border-line text-[12px]">
+        <button class="h-7 px-2.5 rounded-md text-mute hover:text-fg flex items-center gap-1.5"><i data-lucide="book-open" class="h-3.5 w-3.5"></i>Brief</button>
+        <button class="h-7 px-2.5 rounded-md text-mute hover:text-fg flex items-center gap-1.5"><i data-lucide="images" class="h-3.5 w-3.5"></i>Refs<span class="text-dim">17</span></button>
+        <button class="h-7 px-2.5 rounded-md bg-white/[.08] font-medium flex items-center gap-1.5"><i data-lucide="wand-sparkles" class="h-3.5 w-3.5"></i>Out<span class="text-dim">12</span></button>
+        <button class="h-7 px-2.5 rounded-md text-mute hover:text-fg flex items-center gap-1.5"><i data-lucide="star" class="h-3.5 w-3.5"></i>Picks<span class="text-dim">1</span></button>
+      </div>
+      <div class="px-3 py-2 text-[11px] text-mute flex items-center gap-2"><span class="text-fg/85">out</span><span class="text-dim">/</span><span class="text-fg/85">hero</span><span class="ml-auto text-dim">agents write here</span></div>
+      <div class="flex-1 overflow-y-auto px-2 pb-2">
+        <div class="grid grid-cols-3 gap-2 p-1.5">
+          <div class="relative group"><span class="img a1 grain block aspect-square"></span><button class="absolute top-1 right-1 h-5 px-1.5 rounded bg-black/70 text-[10px] opacity-0 group-hover:opacity-100">iterate</button><div class="text-[10.5px] text-mute truncate mt-1">a-01.png</div></div>
+          <div class="relative group"><span class="img a2 grain block aspect-square"></span><button class="absolute top-1 right-1 h-5 px-1.5 rounded bg-black/70 text-[10px] opacity-0 group-hover:opacity-100">iterate</button><div class="text-[10.5px] text-mute truncate mt-1">a-02.png</div></div>
+          <div class="relative"><span class="img b3 grain block aspect-square pick"></span><span class="absolute top-1 left-1 text-[9px] rounded bg-ok/20 text-ok px-1">pick</span><div class="text-[10.5px] text-mute truncate mt-1">b-03.png</div></div>
+          <div><span class="img b1 grain block aspect-square"></span><div class="text-[10.5px] text-mute truncate mt-1">b-01.png</div></div>
+          <div><span class="img b2 grain block aspect-square"></span><div class="text-[10.5px] text-mute truncate mt-1">b-02.png</div></div>
+          <div><span class="img b4 grain block aspect-square"></span><div class="text-[10.5px] text-mute truncate mt-1">b-04.png</div></div>
+        </div>
+      </div>
+      <div class="border-t border-line p-3 text-[11px] text-dim flex items-center gap-2"><i data-lucide="shield" class="h-3.5 w-3.5"></i>Agents: read brief + refs, write only under out/. Star an output to copy it into picks/.</div>
+    </aside>
+  </section>
+
+  <!-- ======================= OPTION 3: thread-scoped ======================= -->
+  <section id="opt3" class="opt flex-1 min-w-0">
+    <div class="flex-1 min-w-0 flex flex-col">
+      <header class="h-12 shrink-0 border-b border-line px-4 flex items-center gap-3"><span class="text-[11px] px-1.5 py-0.5 rounded bg-white/[.06] text-mute font-mono">3</span><h1 class="font-medium">Thread-scoped outputs</h1><span class="text-[11px] text-mute">each thread owns a folder; the project has a shared library</span></header>
+      <div class="flex-1 min-h-0 overflow-y-auto p-6 space-y-5 max-w-[760px]">
+        <div class="rounded-lg border border-line bg-card p-4">
+          <div class="text-[11px] uppercase tracking-wider text-dim font-medium mb-2">On disk</div>
+<pre class="tree">brand-refresh-q4/
+├── <span class="k">AGENT.md</span>
+├── <span class="d">library/</span>                 <span class="c"># shared across threads: refs, logos, past picks</span>
+│   ├── ref-01.jpg  ref-02.jpg
+│   └── hero-b-03.png           <span class="c"># promoted from a thread</span>
+└── <span class="d">threads/</span>
+    ├── <span class="d">2026-09-27-hero-warm/</span>  <span class="c"># = "Hero exploration — warm palette"</span>
+    │   ├── <span class="k">brief.md</span>            <span class="c"># the first message, editable</span>
+    │   ├── <span class="d">refs/</span> ref-02.jpg <span class="g">→ ../../library/ref-02.jpg</span>
+    │   ├── a-01.png … b-04.png
+    │   ├── notes.md            <span class="c"># the agent's running notes</span>
+    │   └── <span class="d">.thread/</span> log.jsonl versions/
+    ├── <span class="d">2026-09-28-logo-bleed/</span>
+    └── <span class="d">2026-09-29-social-crops/</span></pre>
+        </div>
+        <div class="grid grid-cols-2 gap-3 text-[12px]">
+          <div class="rounded-lg border border-line bg-card p-3"><div class="text-ok font-medium mb-1">Good</div><ul class="list-disc pl-4 space-y-1 text-mute"><li>Deleting a thread deletes its mess. Opening a thread shows exactly what it made.</li><li>The folder is the thread: sharing it (zip, Dropbox link) shares the whole story including notes.</li><li>Threads cannot trample each other's files, so parallel agents are safe by construction.</li></ul></div>
+          <div class="rounded-lg border border-line bg-card p-3"><div class="text-bad font-medium mb-1">Weak</div><ul class="list-disc pl-4 space-y-1 text-mute"><li>Cross-thread work ("fix the logo on yesterday's hero") means promoting files to the library first.</li><li>Dated folder names get long and the project view is a list of threads rather than of work.</li><li>Iterating across threads breaks the version chain unless promotion keeps history.</li></ul></div>
+        </div>
+      </div>
+    </div>
+    <aside class="w-[384px] shrink-0 border-l border-line bg-panel flex flex-col min-h-0">
+      <div class="h-12 px-3 flex items-center gap-1 border-b border-line text-[12px]"><button class="h-7 px-2.5 rounded-md bg-white/[.08] font-medium">This thread</button><button class="h-7 px-2.5 rounded-md text-mute hover:text-fg">Library<span class="text-dim ml-1">31</span></button></div>
+      <div class="flex-1 overflow-y-auto">
+        <div class="px-3 pt-3 pb-1 text-[11px] uppercase tracking-wider text-dim font-medium">References used</div>
+        <div class="flex gap-2 px-3"><span class="img ref1 grain h-12 w-16"></span><span class="img ref2 grain h-12 w-16"></span><button class="h-12 w-16 rounded-md border border-dashed border-line2 grid place-items-center text-dim"><i data-lucide="plus" class="h-4 w-4"></i></button></div>
+        <div class="px-3 pt-4 pb-1 text-[11px] uppercase tracking-wider text-dim font-medium flex items-center">Made here<span class="ml-auto normal-case tracking-normal text-dim">8 images</span></div>
+        <div class="grid grid-cols-3 gap-2 px-3">
+          <div><span class="img a1 grain block aspect-square"></span></div><div><span class="img a2 grain block aspect-square"></span></div><div><span class="img a3 grain block aspect-square"></span></div>
+          <div><span class="img b1 grain block aspect-square"></span></div><div><span class="img b2 grain block aspect-square"></span></div>
+          <div class="relative"><span class="img b3 grain block aspect-square selected"></span><span class="absolute bottom-1 left-1 right-1 h-5 rounded bg-black/70 text-[10px] grid place-items-center">promote to library</span></div>
+        </div>
+        <div class="px-3 pt-4 pb-1 text-[11px] uppercase tracking-wider text-dim font-medium">Notes</div>
+        <div class="mx-3 rounded-md border border-line bg-card p-2.5 text-[12px] text-fg/80">"a-02 has the strongest negative space; b-03 best overall. Holding shortlist until C lands."<div class="text-dim text-[11px] mt-1">notes.md · written by the agent · 2 min ago</div></div>
+      </div>
+      <div class="border-t border-line p-3 text-[11px] text-dim">The panel follows the open thread. Library is the only thing shared between threads.</div>
+    </aside>
+  </section>
+
+  <!-- ======================= OPTION 4: flat asset library ======================= -->
+  <section id="opt4" class="opt flex-1 min-w-0">
+    <div class="flex-1 min-w-0 flex flex-col">
+      <header class="h-12 shrink-0 border-b border-line px-4 flex items-center gap-3"><span class="text-[11px] px-1.5 py-0.5 rounded bg-white/[.06] text-mute font-mono">4</span><h1 class="font-medium">Flat library with metadata</h1><span class="text-[11px] text-mute">no folders; every file has an id and tags, the UI is a filtered gallery</span></header>
+      <div class="flex-1 min-h-0 overflow-y-auto p-6 space-y-5 max-w-[760px]">
+        <div class="rounded-lg border border-line bg-card p-4">
+          <div class="text-[11px] uppercase tracking-wider text-dim font-medium mb-2">On disk</div>
+<pre class="tree">brand-refresh-q4/
+├── <span class="k">AGENT.md</span>
+├── <span class="k">library.json</span>             <span class="c"># the index: one record per asset</span>
+│   <span class="c">{ "id":"k7f2", "file":"k7f2-hero-b-03.png", "kind":"output",</span>
+│   <span class="c">  "tags":["hero","direction-b","pick"], "thread":"hero-warm",</span>
+│   <span class="c">  "refs":["a1c9@1"], "prompt":"Flat editorial hero…", "model":"gpt-image-2" }</span>
+├── <span class="d">assets/</span>                  <span class="c"># everything, flat, id-prefixed so names never collide</span>
+│   ├── a1c9-ref-01.jpg
+│   ├── a1c9-ref-01.v1.jpg      <span class="c"># versions sit next to the file</span>
+│   ├── b77e-style-guide.md
+│   ├── k7f2-hero-b-03.png
+│   ├── k7f2-hero-b-03.v1.png
+│   └── … 240 files
+└── <span class="d">.aithing/</span> cache/ thumbs/</pre>
+        </div>
+        <div class="grid grid-cols-2 gap-3 text-[12px]">
+          <div class="rounded-lg border border-line bg-card p-3"><div class="text-ok font-medium mb-1">Good</div><ul class="list-disc pl-4 space-y-1 text-mute"><li>One image can be a reference, an output and a pick at once; no copies.</li><li>Search and filters (by thread, model, tag, "used as ref") are cheap; lineage is explicit in the index.</li><li>Agents address assets by short id, which is robust to renames.</li></ul></div>
+          <div class="rounded-lg border border-line bg-card p-3"><div class="text-bad font-medium mb-1">Weak</div><ul class="list-disc pl-4 space-y-1 text-mute"><li>The folder is unreadable without the app: 240 id-prefixed files in one directory.</li><li>The index is a second source of truth that can drift from disk (external edits, deletions).</li><li>Agents lose the "just write a file" simplicity; every write must go through a tool that updates the index.</li></ul></div>
+        </div>
+      </div>
+    </div>
+    <aside class="w-[384px] shrink-0 border-l border-line bg-panel flex flex-col min-h-0">
+      <div class="h-12 px-3 flex items-center gap-2 border-b border-line text-[12px]"><div class="flex-1 h-8 rounded-md bg-white/[.04] ring-1 ring-line flex items-center gap-2 px-2 text-dim"><i data-lucide="search" class="h-3.5 w-3.5"></i>Search assets…</div></div>
+      <div class="px-3 py-2 flex flex-wrap gap-1.5 text-[11px]">
+        <span class="h-6 px-2 rounded-full bg-white/[.1] flex items-center gap-1">kind: output<i data-lucide="x" class="h-3 w-3"></i></span>
+        <span class="h-6 px-2 rounded-full bg-white/[.1] flex items-center gap-1">tag: hero<i data-lucide="x" class="h-3 w-3"></i></span>
+        <span class="h-6 px-2 rounded-full ring-1 ring-line text-mute flex items-center gap-1"><i data-lucide="plus" class="h-3 w-3"></i>filter</span>
+        <span class="ml-auto text-dim self-center">12 of 240</span>
+      </div>
+      <div class="px-3 pb-1 text-[11px] text-dim flex gap-3"><button class="text-fg/85">Grid</button><button>Collections</button><button>By thread</button><button>Refs used</button></div>
+      <div class="flex-1 overflow-y-auto px-3 pb-3">
+        <div class="grid grid-cols-3 gap-2">
+          <div class="relative"><span class="img a1 grain block aspect-square"></span><span class="absolute bottom-1 left-1 text-[9px] font-mono bg-black/70 rounded px-1">c2a1</span></div>
+          <div class="relative"><span class="img a2 grain block aspect-square"></span><span class="absolute bottom-1 left-1 text-[9px] font-mono bg-black/70 rounded px-1">c2a2</span></div>
+          <div class="relative"><span class="img b3 grain block aspect-square selected"></span><span class="absolute bottom-1 left-1 text-[9px] font-mono bg-black/70 rounded px-1">k7f2</span><span class="absolute top-1 right-1 text-[9px] rounded bg-ok/20 text-ok px-1">pick</span></div>
+          <div class="relative"><span class="img b1 grain block aspect-square"></span><span class="absolute bottom-1 left-1 text-[9px] font-mono bg-black/70 rounded px-1">k7f0</span></div>
+          <div class="relative"><span class="img c1 grain block aspect-square"></span><span class="absolute bottom-1 left-1 text-[9px] font-mono bg-black/70 rounded px-1">m310</span></div>
+          <div class="relative"><span class="img c2 grain block aspect-square"></span><span class="absolute bottom-1 left-1 text-[9px] font-mono bg-black/70 rounded px-1">m311</span></div>
+        </div>
+        <div class="mt-3 rounded-md border border-line bg-card p-2.5 text-[11.5px]">
+          <div class="font-mono text-fg/90">k7f2 · hero-b-03.png <span class="text-dim">v2</span></div>
+          <div class="mt-1 flex flex-wrap gap-1"><span class="px-1.5 rounded bg-white/[.08]">hero</span><span class="px-1.5 rounded bg-white/[.08]">direction-b</span><span class="px-1.5 rounded bg-ok/15 text-ok">pick</span><span class="px-1.5 rounded bg-white/[.04] text-dim">+ tag</span></div>
+          <div class="mt-1.5 text-mute">from <span class="font-mono text-fg/80">a1c9@1</span> · thread <span class="text-fg/80">Hero exploration</span> · gpt-image-2</div>
+        </div>
+      </div>
+    </aside>
+  </section>
+
+  <!-- ======================= OPTION 5: assets as versioned objects ======================= -->
+  <section id="opt5" class="opt flex-1 min-w-0">
+    <div class="flex-1 min-w-0 flex flex-col">
+      <header class="h-12 shrink-0 border-b border-line px-4 flex items-center gap-3"><span class="text-[11px] px-1.5 py-0.5 rounded bg-white/[.06] text-mute font-mono">5</span><h1 class="font-medium">Assets as versioned objects</h1><span class="text-[11px] text-mute">an image is a folder: its versions, branches and notes live inside it</span></header>
+      <div class="flex-1 min-h-0 overflow-y-auto p-6 space-y-5 max-w-[760px]">
+        <div class="rounded-lg border border-line bg-card p-4">
+          <div class="text-[11px] uppercase tracking-wider text-dim font-medium mb-2">On disk</div>
+<pre class="tree">brand-refresh-q4/
+├── <span class="k">BRIEF.md</span>
+├── <span class="d">refs/</span> ref-01.jpg  ref-02.jpg  ref-03.jpg     <span class="c"># plain files: refs do not iterate</span>
+└── <span class="d">assets/</span>
+    ├── <span class="d">hero-b.image/</span>          <span class="c"># one asset = one folder with a suffix the app recognises</span>
+    │   ├── <span class="g">current.png</span>          <span class="c"># always the latest chosen version (hard link)</span>
+    │   ├── v1.png  v2.png  v3.png
+    │   ├── <span class="d">alt-cooler/</span> v1.png v2.png   <span class="c"># a branch: "try it cooler" without losing the main line</span>
+    │   ├── notes.md             <span class="c"># prompt per version, agent comments, your comments</span>
+    │   └── asset.json           <span class="c"># lineage, refs, model, thread per version</span>
+    ├── <span class="d">hero-a.image/</span>
+    └── <span class="d">tavern-interior.image/</span></pre>
+        </div>
+        <div class="grid grid-cols-2 gap-3 text-[12px]">
+          <div class="rounded-lg border border-line bg-card p-3"><div class="text-ok font-medium mb-1">Good</div><ul class="list-disc pl-4 space-y-1 text-mute"><li>Iteration is the primary object: "make it warmer" is v4 of hero-b, not a new file to name.</li><li>Branches let you explore without fear; compare any two versions side by side.</li><li><span class="font-mono">current.png</span> keeps it usable by anything that just wants an image.</li></ul></div>
+          <div class="rounded-lg border border-line bg-card p-3"><div class="text-bad font-medium mb-1">Weak</div><ul class="list-disc pl-4 space-y-1 text-mute"><li>Folders-as-files confuse other tools: a drag-and-drop gives you a directory.</li><li>Batch exploration (12 variants at once) does not fit a single linear asset; siblings need a rule.</li><li>Heavier on disk and on the mental model when most images never get iterated.</li></ul></div>
+        </div>
+        <p class="text-[12px] text-dim">Today's harness sits between 1 and 5: plain files on disk, with a hidden per-file history. This option makes that history visible in the folder itself.</p>
+      </div>
+    </div>
+    <aside class="w-[384px] shrink-0 border-l border-line bg-panel flex flex-col min-h-0">
+      <div class="h-12 px-3 flex items-center gap-1 border-b border-line text-[12px]"><button class="h-7 px-2.5 rounded-md bg-white/[.08] font-medium">Assets</button><button class="h-7 px-2.5 rounded-md text-mute hover:text-fg">Refs<span class="text-dim ml-1">3</span></button><button class="h-7 px-2.5 rounded-md text-mute hover:text-fg">Brief</button></div>
+      <div class="flex-1 overflow-y-auto p-3 space-y-3">
+        <div class="rounded-lg border border-line2 bg-card overflow-hidden">
+          <div class="flex"><span class="img b3 grain block w-[132px] aspect-square"></span>
+            <div class="flex-1 min-w-0 p-2.5 text-[12px]">
+              <div class="font-medium truncate">hero-b <span class="text-dim font-normal">· v3 current</span></div>
+              <div class="text-mute text-[11px] mt-0.5">3 versions · 1 branch · from ref-03</div>
+              <div class="mt-2 flex gap-1"><span class="img b1 grain h-7 w-7 rounded"></span><span class="img b2 grain h-7 w-7 rounded"></span><span class="img b3 grain h-7 w-7 rounded selected"></span><span class="h-7 w-px bg-line mx-0.5"></span><span class="img ref2 grain h-7 w-7 rounded opacity-70" title="branch alt-cooler"></span><span class="img ref2 grain h-7 w-7 rounded opacity-70"></span></div>
+              <div class="mt-2 flex gap-1 text-[11px]"><button class="h-6 px-2 rounded bg-fg text-bg font-medium">Iterate</button><button class="h-6 px-2 rounded ring-1 ring-line text-mute">Branch</button><button class="h-6 px-2 rounded ring-1 ring-line text-mute">Compare</button></div>
+            </div></div>
+        </div>
+        <div class="rounded-lg border border-line bg-card overflow-hidden">
+          <div class="flex"><span class="img a2 grain block w-[132px] aspect-square"></span>
+            <div class="flex-1 min-w-0 p-2.5 text-[12px]">
+              <div class="font-medium truncate">hero-a <span class="text-dim font-normal">· v1</span></div>
+              <div class="text-mute text-[11px] mt-0.5">1 version · from ref-01, ref-02</div>
+              <div class="mt-2 flex gap-1"><span class="img a2 grain h-7 w-7 rounded selected"></span></div>
+              <div class="mt-2 flex gap-1 text-[11px]"><button class="h-6 px-2 rounded bg-fg text-bg font-medium">Iterate</button><button class="h-6 px-2 rounded ring-1 ring-line text-mute">Branch</button></div>
+            </div></div>
+        </div>
+        <div class="rounded-lg border border-line bg-card overflow-hidden opacity-80">
+          <div class="flex"><span class="img c3 grain block w-[132px] aspect-square"></span>
+            <div class="flex-1 min-w-0 p-2.5 text-[12px]">
+              <div class="font-medium truncate">tavern-interior <span class="text-dim font-normal">· v6</span></div>
+              <div class="text-mute text-[11px] mt-0.5">6 versions · other thread</div>
+            </div></div>
+        </div>
+        <button class="w-full h-9 rounded-lg border border-dashed border-line2 text-dim text-[12px] flex items-center justify-center gap-1.5"><i data-lucide="plus" class="h-3.5 w-3.5"></i>New asset from prompt or upload</button>
+      </div>
+      <div class="border-t border-line p-3 text-[11px] text-dim">Each card is a folder on disk. Versions and branches are visible without opening anything.</div>
+    </aside>
+  </section>
+</div>
+
+<!-- ======================= floating switcher ======================= -->
+<div class="fixed bottom-4 right-4 z-50 flex items-center gap-1 rounded-full bg-panel/95 backdrop-blur ring-1 ring-line2 shadow-xl px-1.5 py-1 text-[12px]" id="switcher">
+  <span class="pl-2 pr-1 text-dim hidden sm:inline">Organization</span>
+  <button data-opt="1" class="sw h-7 px-2.5 rounded-full text-mute hover:text-fg" title="Plain folders">1 <span class="hidden md:inline">Plain</span></button>
+  <button data-opt="2" class="sw h-7 px-2.5 rounded-full text-mute hover:text-fg" title="Typed folders">2 <span class="hidden md:inline">Typed</span></button>
+  <button data-opt="3" class="sw h-7 px-2.5 rounded-full text-mute hover:text-fg" title="Thread-scoped">3 <span class="hidden md:inline">Threads</span></button>
+  <button data-opt="4" class="sw h-7 px-2.5 rounded-full text-mute hover:text-fg" title="Flat library">4 <span class="hidden md:inline">Library</span></button>
+  <button data-opt="5" class="sw h-7 px-2.5 rounded-full text-mute hover:text-fg" title="Versioned assets">5 <span class="hidden md:inline">Assets</span></button>
+</div>
+
+<script>
+  lucide.createIcons();
+  function show(n){
+    n=Math.min(5,Math.max(1,Number(n)||1));
+    document.querySelectorAll('.opt').forEach(s=>s.classList.toggle('on',s.id==='opt'+n));
+    document.querySelectorAll('.sw').forEach(b=>{const on=b.dataset.opt==String(n);b.classList.toggle('bg-fg',on);b.classList.toggle('text-bg',on);b.classList.toggle('font-medium',on);b.classList.toggle('text-mute',!on)});
+    history.replaceState(null,'','#'+n);
+  }
+  document.querySelectorAll('.sw').forEach(b=>b.onclick=()=>show(b.dataset.opt));
+  document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;if(/^[1-5]$/.test(e.key))show(e.key);if(e.key==='ArrowRight')show((Number(location.hash.slice(1))||1)+1);if(e.key==='ArrowLeft')show((Number(location.hash.slice(1))||1)-1)});
+  show(location.hash.slice(1)||1);
+</script>
+</body>
+</html>

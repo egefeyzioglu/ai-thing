@@ -40,10 +40,11 @@ export type QueuedMessageRow = {
   thread_id: string;
   text: string;
   attachments: string[]; // immutable refs like "generated/a.png@2", relative to the project
+  synthetic: boolean; // written by the harness (e.g. a late permission answer), not typed by the user
   position: number;
   created_at: number;
 };
-type SqlQueuedRow = Omit<QueuedMessageRow, "attachments"> & { attachments: string };
+type SqlQueuedRow = Omit<QueuedMessageRow, "attachments" | "synthetic"> & { attachments: string; synthetic: number };
 
 export type StoredEvent = {
   id: number;
@@ -112,6 +113,7 @@ db.exec(`
     thread_id TEXT NOT NULL REFERENCES threads(id),
     text TEXT NOT NULL,
     attachments TEXT NOT NULL DEFAULT '[]',
+    synthetic INTEGER NOT NULL DEFAULT 0,
     position INTEGER NOT NULL,
     created_at INTEGER NOT NULL
   );
@@ -127,6 +129,9 @@ if (!threadColumns.some((column) => column.name === "project_id")) {
 const queuedColumns = db.prepare("PRAGMA table_info(queued_messages)").all() as { name: string }[];
 if (!queuedColumns.some((column) => column.name === "attachments")) {
   db.exec("ALTER TABLE queued_messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'");
+}
+if (!queuedColumns.some((column) => column.name === "synthetic")) {
+  db.exec("ALTER TABLE queued_messages ADD COLUMN synthetic INTEGER NOT NULL DEFAULT 0");
 }
 if (!threadColumns.some((column) => column.name === "unread")) {
   db.exec("ALTER TABLE threads ADD COLUMN unread INTEGER NOT NULL DEFAULT 0");
@@ -251,7 +256,7 @@ function readQueued(row: SqlQueuedRow | undefined): QueuedMessageRow | null {
   if (!row) return null;
   let attachments: string[] = [];
   try { attachments = JSON.parse(row.attachments); } catch { /* ignore */ }
-  return { ...row, attachments };
+  return { ...row, attachments, synthetic: !!row.synthetic };
 }
 
 export function listQueued(threadId: string): QueuedMessageRow[] {
@@ -259,14 +264,23 @@ export function listQueued(threadId: string): QueuedMessageRow[] {
   return rows.map((row) => readQueued(row)!);
 }
 
-export function enqueue(threadId: string, text: string, options: { front?: boolean; attachments?: string[] } = {}): QueuedMessageRow {
+export function enqueue(threadId: string, text: string, options: { front?: boolean; attachments?: string[]; synthetic?: boolean } = {}): QueuedMessageRow {
   const edge = db.prepare(`SELECT ${options.front ? "min" : "max"}(position) AS position FROM queued_messages WHERE thread_id = ?`).get(threadId) as { position: number | null };
   const position = edge.position == null ? 0 : edge.position + (options.front ? -1 : 1);
-  const item: QueuedMessageRow = { id: crypto.randomUUID(), thread_id: threadId, text, attachments: options.attachments ?? [], position, created_at: Date.now() };
-  db.prepare("INSERT INTO queued_messages (id, thread_id, text, attachments, position, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(
-    item.id, item.thread_id, item.text, JSON.stringify(item.attachments), item.position, item.created_at,
+  const item: QueuedMessageRow = { id: crypto.randomUUID(), thread_id: threadId, text, attachments: options.attachments ?? [], synthetic: !!options.synthetic, position, created_at: Date.now() };
+  db.prepare("INSERT INTO queued_messages (id, thread_id, text, attachments, synthetic, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+    item.id, item.thread_id, item.text, JSON.stringify(item.attachments), item.synthetic ? 1 : 0, item.position, item.created_at,
   );
   return item;
+}
+
+/** A permission request that has no response event yet (survives restarts because both are plain events). */
+export function findOpenPermissionRequest(permissionId: string): StoredEvent | null {
+  const needle = `%"id":${JSON.stringify(permissionId)}%`;
+  const request = db.prepare("SELECT * FROM events WHERE type = 'permission_request' AND payload LIKE ? ORDER BY id DESC LIMIT 1").get(needle) as SqlEventRow | undefined;
+  if (!request) return null;
+  const answered = db.prepare("SELECT 1 FROM events WHERE thread_id = ? AND type = 'permission_response' AND id > ? AND payload LIKE ? LIMIT 1").get(request.thread_id, request.id, needle);
+  return answered ? null : readEvent(request);
 }
 
 export function dequeueNext(threadId: string): QueuedMessageRow | null {
