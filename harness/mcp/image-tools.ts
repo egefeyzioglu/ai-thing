@@ -17,7 +17,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import { adopt, commitVersion, isVersionable, parseVersionRef, readManifest, resolveVersionPath, restoreVersion, syncExternal, toRel, versionFile } from "../versions.js";
 
 const OUTPUT_DIR = resolve(process.env.AITHING_OUTPUT_DIR ?? join(process.cwd(), "generated"));
-const THREAD_CWD = dirname(OUTPUT_DIR);
+const THREAD_CWD = resolve(process.env.AITHING_PROJECT_DIR ?? dirname(OUTPUT_DIR)); // project root: paths resolve and versions are stored here
 const THREAD_ID = process.env.AITHING_THREAD_ID;
 const log = (...a: unknown[]) => console.error("[aithing-images]", ...a);
 
@@ -116,8 +116,18 @@ type Generated = { bytes: Buffer; mimeType: string; providerRequestId: string | 
 
 class ToolError extends Error {}
 
+/** Relative paths resolve against the project root; if nothing is there, try this thread's output folder (agents often use bare filenames). */
+function withOutputFallback(ref: string): string {
+  const parsed = parseVersionRef(ref);
+  if (isAbsolute(parsed.path) || existsSync(resolve(THREAD_CWD, parsed.path))) return ref;
+  const inOut = join(OUTPUT_DIR, parsed.path);
+  if (!existsSync(inOut)) return ref;
+  const rel = toRel(THREAD_CWD, inOut) ?? inOut;
+  return parsed.version === undefined ? rel : `${rel}@${parsed.version}`;
+}
+
 function resolveInput(path: string): string {
-  return resolveVersionPath(THREAD_CWD, path).abs;
+  return resolveVersionPath(THREAD_CWD, withOutputFallback(path)).abs;
 }
 
 function mimeFor(path: string): string {
@@ -135,7 +145,8 @@ function mimeFor(path: string): string {
 }
 
 function loadRefs(paths: string[] | undefined) {
-  return (paths ?? []).map((p) => {
+  return (paths ?? []).map((p0) => {
+    const p = withOutputFallback(p0);
     const resolved = resolveVersionPath(THREAD_CWD, p);
     const rel = toRel(THREAD_CWD, resolved.abs);
     // Capture disk changes before pinning a managed working image to its immutable version.
@@ -321,7 +332,7 @@ server.registerTool(
   "generate_image",
   {
     description:
-      "Generate an image from a prompt (optionally guided by reference images) and save it as a PNG in the thread's generated/ folder. Returns the saved path and a small preview of the result.",
+      "Generate an image from a prompt (optionally guided by reference images) and save it as a PNG in this thread's output folder. Returns the saved path and a small preview of the result.",
     inputSchema: {
       prompt: z.string().min(1).describe("Detailed description of the image to create."),
       model: z.string().optional().describe(`Model id (see list_image_models). Default ${DEFAULT_MODEL}.`),
@@ -398,7 +409,7 @@ async function encodeFor(abs: string, bytes: Buffer): Promise<Buffer> {
 }
 
 function managedPath(path: string): string {
-  const parsed = parseVersionRef(path);
+  const parsed = parseVersionRef(withOutputFallback(path));
   const rel = toRel(THREAD_CWD, resolve(THREAD_CWD, parsed.path));
   if (rel === null || !isVersionable(rel)) throw new ToolError("Expected a versionable image inside the thread folder.");
   return rel;

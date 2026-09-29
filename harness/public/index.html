@@ -107,6 +107,12 @@
   details.sec{border-top:1px solid var(--line)}details.sec summary{list-style:none;height:36px;padding:0 12px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute);cursor:pointer}details.sec summary::-webkit-details-marker{display:none}details.sec summary b{font-weight:500;color:rgba(242,244,247,.9)}details.sec .chev{transition:transform .15s}details.sec[open] .chev{transform:rotate(90deg)}
   .strip{display:flex;gap:6px;padding:0 12px 12px;overflow-x:auto}.strip .v{flex:none;width:64px;cursor:pointer;text-align:center;font:10px/1.4 "Geist Mono",ui-monospace,monospace;color:var(--mute)}.strip .v img{width:64px;height:64px;object-fit:cover;border-radius:6px;box-shadow:inset 0 0 0 1px var(--line);display:block;background:#000}.strip .v.sel img{outline:2px solid var(--fg);outline-offset:1px}.strip .v.cur{color:var(--ok)}
   .rempty{padding:24px 16px;color:var(--dim);font-size:12px;text-align:center}
+  .subtabs{display:flex;gap:2px;padding:8px 12px 0;flex-wrap:wrap}.subtabs button{height:24px;padding:0 8px;border-radius:6px;font-size:11.5px;color:var(--mute)}.subtabs button:hover{color:var(--fg);background:rgba(255,255,255,.05)}.subtabs button.on{background:rgba(255,255,255,.08);color:var(--fg)}.subtabs button .n{color:var(--dim);margin-left:4px}
+  .subhint{padding:6px 12px 0;font-size:11px;color:var(--dim)}
+  .brows{padding:8px 12px 12px;display:flex;flex-direction:column;gap:2px}
+  .star{color:var(--dim)}.star.on{color:var(--run)}
+  .tile .star{position:absolute;bottom:22px;right:4px;width:20px;height:20px;display:grid;place-items:center;background:rgba(0,0,0,.7);border-radius:4px;opacity:0}.tile:hover .star,.tile .star.on{opacity:1}
+  pre.brief{margin:0;padding:12px;font:12px/1.5 "Geist Mono",ui-monospace,monospace;color:rgba(242,244,247,.85);white-space:pre-wrap;word-break:break-word}
   .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:12px}
   .tile{position:relative;min-width:0;cursor:pointer;font-size:10.5px;color:var(--mute)}.tile img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;background:#000;box-shadow:inset 0 0 0 1px var(--line);display:block}.tile.sel img{outline:2px solid var(--fg);outline-offset:1px}.tile div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px}
   .tile .ver{position:absolute;top:4px;left:4px;font:9px/1.5 "Geist Mono",ui-monospace,monospace;background:rgba(0,0,0,.7);color:#e5e9f0;border-radius:3px;padding:0 4px}
@@ -179,6 +185,7 @@
   <symbol id="i-max" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/></symbol>
   <symbol id="i-hand" viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0v1"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></symbol>
   <symbol id="i-list" viewBox="0 0 24 24"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M11.5 3.6a.6.6 0 0 1 1 0l2.4 4.9 5.4.8a.6.6 0 0 1 .3 1l-3.9 3.8.9 5.4a.6.6 0 0 1-.9.6L12 17.5l-4.8 2.6a.6.6 0 0 1-.9-.6l.9-5.4-3.9-3.8a.6.6 0 0 1 .3-1l5.4-.8Z"/></symbol>
   <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></symbol>
 </defs></svg>
 <script>
@@ -262,12 +269,14 @@ const human=n=>n<1024?n+' B':n<1048576?(n/1024).toFixed(0)+' KB':(n/1048576).toF
 const rawUrl=(pid,path,v,version)=>`/api/projects/${encodeURIComponent(pid)}/raw?path=${encodeURIComponent(path)}${version?'&version='+version:''}${v?'&v='+Math.round(v):''}`;
 const splitRef=ref=>{const m=/^(.*)@(\d+)$/.exec(ref);return m?{path:m[1],version:Number(m[2])}:{path:ref}};
 const isImg=e=>e.type==='file'&&/^image\/(png|jpeg|webp|gif)$/.test(e.mime||'');
+const isImgPath=p=>/\.(png|jpe?g|webp|gif)$/i.test(p);
 const joinDir=n=>filesDir?filesDir+'/'+n:n;
 async function refreshFiles(){
   const pid=shownProjectId();const p=pid&&projects.get(pid);
   if(pid!==filesProjectShown){filesDir='';filesProjectShown=pid}
   const crumbs=$('#crumbs'),list=$('#flist');
   $('#wsdir').textContent=p?p.path:'';$('#wsdir').title=p?p.path:'';
+  refreshIndex();
   if(!p){crumbs.innerHTML='';list.innerHTML='<div class="fempty">No project. Create one with the folder button.</div>';renderBrowse();return}
   const segs=filesDir?filesDir.split('/'):[];crumbs.innerHTML='';
   const root=document.createElement('a');root.textContent=p.name;root.onclick=()=>{filesDir='';refreshFiles()};crumbs.appendChild(root);
@@ -283,20 +292,52 @@ async function refreshFiles(){
   for(const e of listing.entries){const d=document.createElement('div');const path=joinDir(e.name);const img=isImg(e);
     d.className='frow'+(selected&&selected.pid===pid&&selected.path===path?' sel':'');
     d.innerHTML=e.type==='dir'?`${ic('i-right','s')}${ic('i-folder')}<span class="n">${esc(e.name)}</span>`:img?`<img loading="lazy" src="${rawUrl(pid,path,e.mtime)}" alt=""><span class="n">${esc(e.name)}</span><span class="m">${e.versions>1?'v'+e.current:''}</span>`:`${ic('i-file')}<span class="n">${esc(e.name)}</span><span class="m">${human(e.size)}</span>`;
-    d.onclick=()=>{if(e.type==='dir'){filesDir=path;refreshFiles()}else if(img)selectFile(pid,path);else window.open(rawUrl(pid,path),'_blank')};
+    d.onclick=()=>{if(e.type==='dir'){filesDir=path;refreshFiles()}else if(img||/\.(md|txt|json|csv|svg|html|css|js|ts)$/i.test(e.name))selectFile(pid,path);else window.open(rawUrl(pid,path),'_blank')};
     list.appendChild(d)}
   renderBrowse();
 }
+// Derived views over the version index: no folder taxonomy is imposed on disk.
+let index=null,indexPid=null,browseTab=new URLSearchParams(location.search).get('browse')||localStorage.getItem('browseTab')||'folder';
+if(new URLSearchParams(location.search).get('browse'))setTimeout(()=>{document.querySelector('.tab[data-tab=browse]')?.click()},1500);
+const VIEWS=[['folder','Folder','Images in the folder open on the left.'],['thread','This thread','Files this thread wrote or generated.'],['outputs','Outputs','Images produced by generate or edit.'],['refs','Refs','Images used as references, and uploads.'],['picks','Picks','Starred files.'],['brief','Brief','Markdown and text files at the project root: the agent reads these.']];
+async function refreshIndex(){const pid=shownProjectId();if(!pid){index=null;indexPid=null;renderBrowse();return}
+  try{const r=await fetch(`/api/projects/${encodeURIComponent(pid)}/index`);if(r.ok){index=await r.json();indexPid=pid}}catch{}
+  renderBrowse()}
+function viewFiles(tab){const f=(index?.files||[]).filter(e=>e.exists);
+  switch(tab){case 'thread':return f.filter(e=>currentThreadId&&e.threads.includes(currentThreadId));case 'outputs':return f.filter(e=>e.image&&e.kinds.some(k=>k==='generate'||k==='edit'));case 'refs':return f.filter(e=>e.image&&(e.usedAsRef||e.kinds.includes('upload')));case 'picks':return f.filter(e=>e.starred);default:return []}}
+function tileFor(pid,path,opts){const t=document.createElement('div');t.className='tile'+(selected&&selected.path===path?' sel':'');t.title=path;
+  t.innerHTML=`<img loading="lazy" src="${rawUrl(pid,path,opts.mtime)}" alt="">${opts.versions>1?`<span class="ver">v${opts.current}</span>`:''}<button class="att" title="Attach to message">+</button><button class="star${opts.starred?' on':''}" title="${opts.starred?'Unstar':'Star as a pick'}">${ic('i-star','s')}</button><div>${esc(path.split('/').pop())}</div>`;
+  t.onclick=()=>selectFile(pid,path);t.querySelector('.att').onclick=ev=>{ev.stopPropagation();addAttachment(pid,opts.current?path+'@'+opts.current:path)};
+  t.querySelector('.star').onclick=ev=>{ev.stopPropagation();send({type:'star',projectId:pid,path,starred:!opts.starred})};return t}
 function renderBrowse(){
-  const b=$('#browse');b.innerHTML='';
-  if(!listing){b.innerHTML='<div class="rempty">No project selected.</div>';return}
-  const imgs=listing.entries.filter(isImg);
-  if(!imgs.length){b.innerHTML='<div class="rempty">No images in this folder.</div>';return}
-  const g=document.createElement('div');g.className='grid';
-  for(const e of imgs){const path=(listing.dir?listing.dir+'/':'')+e.name;const t=document.createElement('div');t.className='tile'+(selected&&selected.path===path?' sel':'');t.title=e.name;
-    t.innerHTML=`<img loading="lazy" src="${rawUrl(listing.pid,path,e.mtime)}" alt="">${e.versions>1?`<span class="ver">v${e.current}</span>`:''}<button class="att" title="Attach to message">+</button><div>${esc(e.name)}</div>`;
-    t.onclick=()=>selectFile(listing.pid,path);t.querySelector('.att').onclick=ev=>{ev.stopPropagation();addAttachment(listing.pid,e.current?path+'@'+e.current:path)};g.appendChild(t)}
-  b.appendChild(g);
+  const b=$('#browse');b.innerHTML='';const pid=shownProjectId();
+  if(!pid){b.innerHTML='<div class="rempty">No project selected.</div>';return}
+  const counts={folder:listing?listing.entries.filter(isImg).length:0,thread:viewFiles('thread').length,outputs:viewFiles('outputs').length,refs:viewFiles('refs').length,picks:viewFiles('picks').length,brief:index?.briefs?.length||0};
+  const st=document.createElement('div');st.className='subtabs';
+  for(const [id,label] of VIEWS){const bt=document.createElement('button');bt.className=id===browseTab?'on':'';bt.innerHTML=`${label}<span class="n">${counts[id]}</span>`;bt.onclick=()=>{browseTab=id;localStorage.setItem('browseTab',id);renderBrowse()};st.appendChild(bt)}
+  b.appendChild(st);const hint=document.createElement('div');hint.className='subhint';hint.textContent=VIEWS.find(v=>v[0]===browseTab)[2];b.appendChild(hint);
+  if(browseTab==='folder'){
+    if(!listing){b.insertAdjacentHTML('beforeend','<div class="rempty">No folder open.</div>');return}
+    const imgs=listing.entries.filter(isImg);if(!imgs.length){b.insertAdjacentHTML('beforeend','<div class="rempty">No images in this folder.</div>');return}
+    const g=document.createElement('div');g.className='grid';const byPath=new Map((index?.files||[]).map(e=>[e.path,e]));
+    for(const e of imgs){const path=(listing.dir?listing.dir+'/':'')+e.name;const ix=byPath.get(path);g.appendChild(tileFor(listing.pid,path,{mtime:e.mtime,versions:e.versions,current:e.current,starred:!!ix?.starred}))}
+    b.appendChild(g);return}
+  if(browseTab==='brief'){
+    const briefs=index?.briefs||[];if(!briefs.length){b.insertAdjacentHTML('beforeend','<div class="rempty">No markdown or text files at the project root. Add an AGENT.md with instructions for the agents.</div>');return}
+    const rows=document.createElement('div');rows.className='brows';
+    for(const f of briefs){const d=document.createElement('div');d.className='frow'+(selected&&selected.path===f.name?' sel':'');d.innerHTML=`${ic('i-file')}<span class="n">${esc(f.name)}</span><span class="m">${human(f.size)}</span>`;d.onclick=()=>showBrief(pid,f.name);rows.appendChild(d)}
+    b.appendChild(rows);return}
+  const files=viewFiles(browseTab);if(!files.length){b.insertAdjacentHTML('beforeend','<div class="rempty">Nothing here yet.</div>');return}
+  const g=document.createElement('div');g.className='grid';const rows=document.createElement('div');rows.className='brows';
+  for(const e of files){if(e.image)g.appendChild(tileFor(pid,e.path,{versions:e.versions,current:e.current,starred:e.starred}));
+    else{const d=document.createElement('div');d.className='frow'+(selected&&selected.path===e.path?' sel':'');d.innerHTML=`${ic('i-file')}<span class="n" title="${esc(e.path)}">${esc(e.path)}</span><span class="m">${e.versions>1?'v'+e.current:''}</span>`;d.onclick=()=>showBrief(pid,e.path);rows.appendChild(d)}}
+  if(g.children.length)b.appendChild(g);if(rows.children.length)b.appendChild(rows);
+}
+async function showBrief(pid,path){
+  let manifest=null;try{const r=await fetch(`/api/projects/${encodeURIComponent(pid)}/versions?path=${encodeURIComponent(path)}`);if(r.ok)manifest=await r.json()}catch{}
+  let text='';try{text=await (await fetch(rawUrl(pid,path,Date.now()))).text()}catch(e){text=String(e)}
+  selected={pid,path,manifest,sel:manifest?.current??null,text};
+  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x.dataset.tab==='inspect'));$('#inspect').hidden=false;$('#browse').hidden=true;renderInspect();renderBrowse();
 }
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===t));$('#inspect').hidden=t.dataset.tab!=='inspect';$('#browse').hidden=t.dataset.tab!=='browse'});
 // ---- inspector ----
@@ -304,6 +345,7 @@ const fmtTime=iso=>{const d=new Date(iso);return isNaN(d)?iso:d.toLocaleString()
 async function selectFile(pid,path,version){
   let manifest=null;try{const r=await fetch(`/api/projects/${encodeURIComponent(pid)}/versions?path=${encodeURIComponent(path)}`);if(r.ok)manifest=await r.json()}catch{}
   selected={pid,path,manifest,sel:version??manifest?.current??null};
+  if(!isImgPath(path)){try{selected.text=await (await fetch(rawUrl(pid,path,null,selected.sel))).text()}catch{}}
   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x.dataset.tab==='inspect'));$('#inspect').hidden=false;$('#browse').hidden=true;
   renderInspect();refreshFiles();
 }
@@ -311,16 +353,18 @@ function renderInspect(){
   const box=$('#inspect');
   if(!selected){box.innerHTML='<div class="rempty">Select an image in Files or Browse to inspect it.</div>';return}
   const {pid,path,manifest,sel}=selected;const versions=manifest?.versions??[];const current=manifest?.current??null;const v=versions.find(x=>x.n===sel);const src=rawUrl(pid,path,v?null:Date.now(),v?sel:undefined);const s=v?.source||{};
-  box.innerHTML=`<div class="preview"><img class="big" src="${src}" alt="" title="Open fullscreen"><div class="nm">${esc(path.includes('/')?path.slice(0,path.lastIndexOf('/')+1):'')}<b>${esc(path.split('/').pop())}</b></div>
+  const isText=selected.text!=null;const starred=!!manifest?.starred;
+  box.innerHTML=`<div class="preview">${isText?`<pre class="brief" style="max-height:320px;overflow:auto;background:var(--card);border-radius:8px;box-shadow:inset 0 0 0 1px var(--line)">${esc(selected.text)}</pre>`:`<img class="big" src="${src}" alt="" title="Open fullscreen">`}<div class="nm">${esc(path.includes('/')?path.slice(0,path.lastIndexOf('/')+1):'')}<b>${esc(path.split('/').pop())}</b></div>
     <div class="sm">${v?`v${v.n}${v.n===current?' (current)':''} · `:''}${v?.width?`${v.width} × ${v.height} · `:''}${v?human(v.size)+' · ':''}${v?esc(fmtTime(v.createdAt)):'not versioned yet'}</div>
-    <div class="acts"><button class="btn primary" id="iattach">${ic('i-clip')}Attach to message</button>${v&&v.n!==current?`<button class="btn" id="irestore">Restore as new version</button>`:`<button class="btn" id="ifull">${ic('i-max')}Fullscreen</button>`}<a class="btn" href="${rawUrl(pid,path,null,v?sel:undefined)}" target="_blank" style="text-decoration:none">Open file</a>${v&&v.n!==current?`<button class="btn" id="ifull2">${ic('i-max')}Fullscreen</button>`:''}</div></div>
-    ${versions.length?`<details class="sec" open><summary>${ic('i-right','s chev')}<b>Versions</b><span style="color:var(--dim)">${versions.length}</span></summary><div class="strip">${versions.map(x=>`<div class="v${x.n===sel?' sel':''}${x.n===current?' cur':''}" data-n="${x.n}"><img loading="lazy" src="${rawUrl(pid,path,null,x.n)}" alt=""><div>v${x.n} ${esc(x.source?.kind||'')}</div></div>`).join('')}</div></details>`:''}
+    <div class="acts">${isText?`<button class="btn" id="istar">${ic('i-star')}${starred?'Unstar':'Star'}</button>`:`<button class="btn primary" id="iattach">${ic('i-clip')}Attach to message</button>`}${isText?'':`<button class="btn" id="istar" title="Starred files show under Picks">${ic('i-star')}${starred?'Unstar':'Star'}</button>`}${v&&v.n!==current?`<button class="btn" id="irestore">Restore as new version</button>`:`<button class="btn" id="ifull">${ic('i-max')}Fullscreen</button>`}<a class="btn" href="${rawUrl(pid,path,null,v?sel:undefined)}" target="_blank" style="text-decoration:none">Open file</a>${v&&v.n!==current?`<button class="btn" id="ifull2">${ic('i-max')}Fullscreen</button>`:''}</div></div>
+    ${versions.length?`<details class="sec" open><summary>${ic('i-right','s chev')}<b>Versions</b><span style="color:var(--dim)">${versions.length}</span></summary><div class="strip">${versions.map(x=>`<div class="v${x.n===sel?' sel':''}${x.n===current?' cur':''}" data-n="${x.n}">${isText?`<div style="width:64px;height:64px;border-radius:6px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line);display:grid;place-items:center;font-size:11px">${human(x.size)}</div>`:`<img loading="lazy" src="${rawUrl(pid,path,null,x.n)}" alt="">`}<div>v${x.n} ${esc(x.source?.kind||'')}</div></div>`).join('')}</div></details>`:''}
     ${v?`<details class="sec" open><summary>${ic('i-right','s chev')}<b>Generation</b></summary><dl class="gen"><dt>Source</dt><dd>${esc(s.kind)}${s.from?' of v'+s.from:''}</dd>${s.model?`<dt>Model</dt><dd>${esc(s.model)}${s.aspectRatio?' · '+esc(s.aspectRatio):''}${s.resolution?' · '+esc(s.resolution):''}</dd>`:''}${s.prompt?`<dt>Prompt</dt><dd>${esc(s.prompt)}</dd>`:''}${s.references?.length?`<dt>Refs</dt><dd>${s.references.map(esc).join('\n')}</dd>`:''}${s.originalName?`<dt>Uploaded as</dt><dd>${esc(s.originalName)}</dd>`:''}${s.durationMs?`<dt>Took</dt><dd>${(s.durationMs/1000).toFixed(1)}s</dd>`:''}${v.threadId?`<dt>Thread</dt><dd><a style="color:inherit" href="?thread=${esc(v.threadId)}">${esc(v.threadId.slice(0,8))}</a></dd>`:''}</dl></details>`:''}`;
-  box.querySelector('#iattach').onclick=()=>addAttachment(pid,v?`${path}@${v.n}`:path);
+  const ia=box.querySelector('#iattach');if(ia)ia.onclick=()=>addAttachment(pid,v?`${path}@${v.n}`:path);
+  box.querySelector('#istar').onclick=()=>send({type:'star',projectId:pid,path,starred:!starred});
   const rs=box.querySelector('#irestore');if(rs)rs.onclick=()=>send({type:'restore_version',projectId:pid,path,version:sel,threadId:currentThreadId||undefined});
   for(const id of ['#ifull','#ifull2']){const b=box.querySelector(id);if(b)b.onclick=()=>openViewer(src,path)}
-  box.querySelector('.big').onclick=()=>openViewer(src,path);
-  box.querySelectorAll('.strip .v').forEach(d=>d.onclick=()=>{selected.sel=Number(d.dataset.n);renderInspect()});
+  const big=box.querySelector('.big');if(big)big.onclick=()=>openViewer(src,path);
+  box.querySelectorAll('.strip .v').forEach(d=>d.onclick=async()=>{selected.sel=Number(d.dataset.n);if(isText){try{selected.text=await (await fetch(rawUrl(pid,path,null,selected.sel))).text()}catch{}}renderInspect()});
 }
 function openViewer(src,name){const r=document.createElement('div');r.className='viewer';r.innerHTML=`<div class="top"><b>${esc(name.split('/').pop())}</b><span>${esc(name)}</span><button class="btn x">Close (Esc)</button></div><div class="stage"><img src="${src}" alt=""></div>`;r.querySelector('.x').onclick=()=>r.remove();r.onclick=e=>{if(e.target===r||e.target.classList.contains('stage'))r.remove()};document.body.appendChild(r)}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelector('.viewer')?.remove()});

@@ -12,7 +12,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
-import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Readable, Writable } from "node:stream";
@@ -52,7 +52,11 @@ import { loadEnvFile, PROVIDER_KEYS } from "./env.js";
 import sharp from "sharp";
 import {
   commitVersion,
+  isImagePath,
+  isTrackable,
   isVersionable,
+  scanIndex,
+  setStarred,
   readManifest,
   resolveVersionPath,
   restoreVersion,
@@ -92,7 +96,8 @@ const IMAGE_TOOLS = join(here, "mcp/image-tools.ts");
 function mcpServersFor(thread: ThreadRow): acp.McpServer[] {
   const env = [
     { name: "PATH", value: process.env.PATH ?? "" },
-    { name: "AITHING_OUTPUT_DIR", value: join(thread.cwd, "generated") },
+    { name: "AITHING_PROJECT_DIR", value: thread.cwd },
+    { name: "AITHING_OUTPUT_DIR", value: join(thread.cwd, thread.out_dir ?? "generated") },
     { name: "AITHING_THREAD_ID", value: thread.id },
     ...configuredProviders.map((k) => ({ name: k, value: process.env[k]! })),
   ];
@@ -259,6 +264,31 @@ async function startAgent(kind: AgentKind): Promise<AgentConn> {
     .onRequest(acp.methods.client.session.requestPermission, (ctx) =>
       onRequestPermission(ctx.params),
     )
+    // Agents that honour the client filesystem (Claude Code does) read and write through here,
+    // so every write becomes an attributed version. Codex writes to disk itself; the watcher catches those.
+    .onRequest(acp.methods.client.fs.readTextFile, async (ctx) => {
+      const { path, line, limit } = ctx.params;
+      let text = readFileSync(path, "utf8");
+      if (line != null || limit != null) {
+        const lines = text.split(/\r?\n/);
+        const start = Math.max(0, (line ?? 1) - 1);
+        text = lines.slice(start, limit != null ? start + limit : undefined).join("\n");
+      }
+      return { content: text };
+    })
+    .onRequest(acp.methods.client.fs.writeTextFile, async (ctx) => {
+      const { path, content } = ctx.params;
+      const threadId = sessionThreads.get(ctx.params.sessionId);
+      const thread = threadId ? getThread(threadId) : null;
+      const rel = thread ? toRel(thread.cwd, path) : null;
+      if (thread && rel && isTrackable(rel)) {
+        commitVersion(thread.cwd, rel, Buffer.from(content, "utf8"), { kind: "agent_write" }, { threadId: thread.id });
+      } else {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, content);
+      }
+      return {};
+    })
     .onNotification(acp.methods.client.session.update, (ctx) => {
       const sessionId = ctx.params.sessionId;
       if (loadingSessions.has(sessionId)) return;
@@ -270,7 +300,7 @@ async function startAgent(kind: AgentKind): Promise<AgentConn> {
 
   const init = await conn.agent.request(acp.methods.agent.initialize, {
     protocolVersion: acp.PROTOCOL_VERSION,
-    clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
+    clientCapabilities: { fs: { readTextFile: true, writeTextFile: true } },
     clientInfo: { name: "ai-thing-harness", version: "0.0.1" },
   });
   console.log(`[${kind}] initialized`, JSON.stringify(init.agentInfo ?? {}), "auth:", init.authMethods?.map((m) => m.id));
@@ -349,6 +379,15 @@ async function createOrLoadSession(thread: ThreadRow): Promise<LiveSession> {
   return live;
 }
 
+/** threads/<date>-<slug> under the project: each thread gets its own output folder, but reads the whole project. */
+function threadOutDir(thread: ThreadRow, title: string): string {
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").split("-").slice(0, 6).join("-") || "thread";
+  const date = new Date(thread.created_at).toISOString().slice(0, 10);
+  let rel = `threads/${date}-${slug}`;
+  for (let i = 2; existsSync(join(thread.cwd, rel)); i++) rel = `threads/${date}-${slug}-${i}`;
+  return rel;
+}
+
 function titleFromPrompt(text: string): string {
   return text.split(/\r?\n/, 1)[0]!.trim().slice(0, 80);
 }
@@ -409,6 +448,7 @@ type ClientMsg =
   | { type: "seen"; threadId: string }
   | { type: "retry"; threadId: string }
   | { type: "restore_version"; projectId: string; path: string; version: number; threadId?: string }
+  | { type: "star"; projectId: string; path: string; starred: boolean }
   | { type: "upload"; projectId: string; name: string; data: string; mimeType?: string }
   | { type: "queue_send_now"; id: string }
   | { type: "queue_remove"; id: string }
@@ -458,6 +498,7 @@ async function handle(ws: WebSocket, msg: ClientMsg) {
         project_id: project.id,
         agent: msg.agent,
         cwd: project.path,
+        out_dir: null,
         title: "",
         acp_session_id: null,
         status: "idle",
@@ -527,10 +568,20 @@ async function handle(ws: WebSocket, msg: ClientMsg) {
       const project = getProject(msg.projectId);
       if (!project) throw new Error(`unknown project ${msg.projectId}`);
       const rel = toRel(project.path, resolve(project.path, msg.path));
-      if (!rel || !isVersionable(rel)) throw new Error("not a versioned file");
+      if (!rel || !isTrackable(rel)) throw new Error("not a versioned file");
       const { version, created } = restoreVersion(project.path, rel, msg.version, { threadId: msg.threadId });
       broadcast({ type: "files_changed", projectId: project.id });
       send(ws, { type: "restored", projectId: project.id, path: rel, version: version.n, created });
+      return;
+    }
+    case "star": {
+      const project = getProject(msg.projectId);
+      if (!project) throw new Error(`unknown project ${msg.projectId}`);
+      const rel = toRel(project.path, resolve(project.path, msg.path));
+      if (!rel || !isTrackable(rel)) throw new Error("not a project file");
+      const manifest = setStarred(project.path, rel, !!msg.starred);
+      if (!manifest) throw new Error("file not found");
+      broadcast({ type: "files_changed", projectId: project.id });
       return;
     }
     case "upload": {
@@ -658,7 +709,8 @@ async function pump(threadId: string) {
       if (!item) break;
       broadcastQueue(threadId);
       const thread = getThread(threadId)!;
-      setThread(threadId, { title: thread.title || titleFromPrompt(item.text), status: "running" });
+      const title = thread.title || titleFromPrompt(item.text);
+      setThread(threadId, { title, status: "running", ...(thread.out_dir ? {} : { out_dir: threadOutDir(thread, title) }) });
       persistEvent(threadId, "user_message", { text: item.text, attachments: item.attachments, ...(item.synthetic ? { synthetic: true } : {}) });
       const outcome = await runTurn(threadId, item.text, item.attachments);
       if (outcome === "auth") {
@@ -793,15 +845,23 @@ const http = createServer((req, res) => {
     res.end(readFileSync(join(here, "public/index.html")));
     return;
   }
-  const match = pathname.match(/^\/api\/projects\/([^/]+)\/(files|raw|versions)$/);
+  const match = pathname.match(/^\/api\/projects\/([^/]+)\/(files|raw|versions|index)$/);
   if (req.method === "GET" && match) {
     const project = getProject(decodeURIComponent(match[1]!));
     if (!project) return json(res, 404, { error: "unknown project" });
     const requested = url.searchParams.get("path") ?? "";
     try {
+      if (match[2] === "index") {
+        const files = scanIndex(project.path).map((e) => ({ ...e, image: isImagePath(e.path) }));
+        const briefs = readdirSync(project.path, { withFileTypes: true })
+          .filter((e) => e.isFile() && /\.(md|txt)$/i.test(e.name))
+          .map((e) => { const st = statSync(join(project.path, e.name)); return { name: e.name, size: st.size, mtime: st.mtimeMs }; })
+          .sort((a, b) => a.name.localeCompare(b.name));
+        return json(res, 200, { files, briefs });
+      }
       if (match[2] === "versions") {
         const rel = toRel(project.path, resolve(project.path, requested));
-        const manifest: Manifest | null = rel && isVersionable(rel) ? readManifest(project.path, rel) : null;
+        const manifest: Manifest | null = rel && isTrackable(rel) ? readManifest(project.path, rel) : null;
         return manifest ? json(res, 200, manifest) : json(res, 404, { error: "no versions" });
       }
       const versionParam = url.searchParams.get("version");
@@ -827,9 +887,9 @@ const http = createServer((req, res) => {
             const mime = entry.isFile() ? MIME[extname(entry.name).toLowerCase()] : undefined;
             const rel = requested ? `${requested.replace(/\/+$/, "")}/${entry.name}` : entry.name;
             let versions: { versions: number; current: number } | undefined;
-            if (entry.isFile() && isVersionable(rel)) {
+            if (entry.isFile() && isTrackable(rel)) {
               // Belt and braces for edits the watcher missed: reconcile the working file with its history on every listing.
-              try { syncExternal(project.path, rel); const m = readManifest(project.path, rel); if (m) versions = { versions: m.versions.length, current: m.current }; } catch { /* corrupt manifest: show as unversioned */ }
+              try { if (isVersionable(rel)) syncExternal(project.path, rel); const m = readManifest(project.path, rel); if (m) versions = { versions: m.versions.length, current: m.current }; } catch { /* corrupt manifest: show as unversioned */ }
             }
             return { name: entry.name, type: entry.isDirectory() ? "dir" : "file", size: stat.size, mtime: stat.mtimeMs, ...(mime ? { mime } : {}), ...(versions ?? {}) };
           })

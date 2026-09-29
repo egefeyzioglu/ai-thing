@@ -19,6 +19,7 @@ export type ThreadRow = {
   project_id: string;
   agent: AgentKind;
   cwd: string;
+  out_dir: string | null; // default output folder for this thread, relative to the project (assigned at first prompt)
   title: string;
   acp_session_id: string | null;
   status: ThreadStatus;
@@ -92,6 +93,7 @@ db.exec(`
     project_id TEXT REFERENCES projects(id),
     agent TEXT NOT NULL,
     cwd TEXT NOT NULL,
+    out_dir TEXT,
     title TEXT NOT NULL DEFAULT '',
     acp_session_id TEXT,
     status TEXT NOT NULL DEFAULT 'idle',
@@ -132,6 +134,11 @@ if (!queuedColumns.some((column) => column.name === "attachments")) {
 }
 if (!queuedColumns.some((column) => column.name === "synthetic")) {
   db.exec("ALTER TABLE queued_messages ADD COLUMN synthetic INTEGER NOT NULL DEFAULT 0");
+}
+if (!threadColumns.some((column) => column.name === "out_dir")) {
+  db.exec("ALTER TABLE threads ADD COLUMN out_dir TEXT");
+  // Threads that already ran wrote into generated/; keep them there.
+  db.exec("UPDATE threads SET out_dir = 'generated' WHERE acp_session_id IS NOT NULL");
 }
 if (!threadColumns.some((column) => column.name === "unread")) {
   db.exec("ALTER TABLE threads ADD COLUMN unread INTEGER NOT NULL DEFAULT 0");
@@ -195,13 +202,14 @@ export function getThread(id: string): ThreadRow | null {
 
 export function createThread(thread: ThreadRow): ThreadRow {
   db.prepare(`
-    INSERT INTO threads (id, project_id, agent, cwd, title, acp_session_id, status, unread, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO threads (id, project_id, agent, cwd, out_dir, title, acp_session_id, status, unread, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     thread.id,
     thread.project_id,
     thread.agent,
     thread.cwd,
+    thread.out_dir,
     thread.title,
     thread.acp_session_id,
     thread.status,
@@ -214,16 +222,16 @@ export function createThread(thread: ThreadRow): ThreadRow {
 
 export function updateThread(
   id: string,
-  patch: Partial<Pick<ThreadRow, "project_id" | "title" | "acp_session_id" | "status" | "unread" | "updated_at">>,
+  patch: Partial<Pick<ThreadRow, "project_id" | "out_dir" | "title" | "acp_session_id" | "status" | "unread" | "updated_at">>,
 ): ThreadRow | null {
   const current = getThread(id);
   if (!current) return null;
   const next: ThreadRow = { ...current, ...patch, updated_at: patch.updated_at ?? Date.now() };
   db.prepare(`
     UPDATE threads
-    SET project_id = ?, title = ?, acp_session_id = ?, status = ?, unread = ?, updated_at = ?
+    SET project_id = ?, out_dir = ?, title = ?, acp_session_id = ?, status = ?, unread = ?, updated_at = ?
     WHERE id = ?
-  `).run(next.project_id, next.title, next.acp_session_id, next.status, next.unread, next.updated_at, id);
+  `).run(next.project_id, next.out_dir, next.title, next.acp_session_id, next.status, next.unread, next.updated_at, id);
   return next;
 }
 

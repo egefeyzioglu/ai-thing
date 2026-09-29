@@ -16,7 +16,7 @@ const prompt = process.argv[3] ?? "a red circle on a white background";
 const refs = process.argv.slice(4);
 const outDir = process.env.AITHING_OUTPUT_DIR ?? join(harness, "workspace", "generated");
 
-const env: Record<string, string> = { PATH: process.env.PATH ?? "", AITHING_OUTPUT_DIR: outDir };
+const env: Record<string, string> = { PATH: process.env.PATH ?? "", AITHING_PROJECT_DIR: process.env.AITHING_PROJECT_DIR ?? join(harness, "workspace"), AITHING_OUTPUT_DIR: outDir };
 for (const k of PROVIDER_KEYS) if (process.env[k]) env[k] = process.env[k]!;
 
 const transport = new StdioClientTransport({

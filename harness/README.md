@@ -51,6 +51,27 @@ HTTP endpoints behind it (read-only, confined to the project folder):
 - `GET /api/projects/:id/files?path=<relative dir>` → `{path, entries:[{name,type,size,mtime,mime?}]}`
 - `GET /api/projects/:id/raw?path=<relative file>` → the file bytes
 
+## How a project is organised
+
+Nothing is imposed on disk. A project is a plain folder; agents read anything
+in it and the UI derives structure from metadata instead of folder names:
+
+- Each thread gets its own default output folder, `threads/<date>-<slug>/`,
+  assigned at its first prompt. That is where the image tools write unless
+  told otherwise. The thread's working directory stays the project root.
+- Instructions are whatever markdown or text files sit at the project root
+  (`AGENT.md`, `style.md`, ...). The Brief view lists them.
+- Refs, Outputs, This thread and Picks in the Browse panel are computed from
+  the version store: which files were used as references, which came from
+  generate or edit, which versions carry the open thread's id, and which are
+  starred. Star any file from its tile or the inspector.
+- The ACP client filesystem is enabled, so an agent that honours it (Claude
+  Code does; Codex writes to disk itself) has every Write and Edit recorded as
+  an attributed version of any file type. Everything else is caught by the
+  watcher, which auto-captures images and `.md`/`.txt` files.
+
+`GET /api/projects/:id/index` returns the summary the views are built from.
+
 ## Versioned files
 
 Images inside a project are versioned files. The working file (say
@@ -120,7 +141,7 @@ Tools:
 
 - `list_image_models` — models, availability, resolutions, aspect ratios.
 - `generate_image { prompt, model?, aspect_ratio?, resolution?, reference_images?, filename?, output? }`
-  — writes `<project>/generated/<slug>.png` as version 1 (or, with `output`,
+  — writes `<thread output folder>/<slug>.png` as version 1 (or, with `output`,
   a new version of an existing image). Returns the path, version and a ≤768px
   preview so the agent can look at the result.
 - `edit_image { path, prompt, model?, resolution?, extra_references?, output? }`

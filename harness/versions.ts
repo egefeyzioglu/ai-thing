@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export const STORE_DIR = ".aithing/versions";
@@ -9,16 +9,22 @@ export type VersionSource =
   | ({ kind: "generate" } & GenerationInfo)
   | ({ kind: "edit" } & GenerationInfo)
   | { kind: "upload"; originalName?: string }
+  | { kind: "agent_write"; tool?: string }        // written through the ACP client filesystem by an agent
   | { kind: "external" }
   | { kind: "restore"; from: number }
   | { kind: "adopt" };
 export type Version = { n: number; file: string; sha256: string; size: number; width?: number; height?: number; createdAt: string; threadId?: string; source: VersionSource };
-export type Manifest = { schemaVersion: number; path: string; current: number; versions: Version[] };
+export type Manifest = { schemaVersion: number; path: string; current: number; versions: Version[]; starred?: boolean };
 export type CommitOptions = { threadId?: string; width?: number; height?: number };
 
-export function isVersionable(rel: string): boolean {
-  return toRel("/", resolve("/", rel)) !== null && !isAbsolute(rel) && !rel.split("/").includes("..") && /\.(png|jpe?g|webp|gif)$/i.test(rel);
+/** Any project file may be tracked when a tool writes it; the watcher only auto-captures images and notes. */
+export function isTrackable(rel: string): boolean {
+  return toRel("/", resolve("/", rel)) !== null && !isAbsolute(rel) && !rel.split("/").includes("..") && !/(^|\/)\.tmp-/.test(rel);
 }
+export function isVersionable(rel: string): boolean {
+  return isTrackable(rel) && /\.(png|jpe?g|webp|gif|md|txt)$/i.test(rel);
+}
+export function isImagePath(rel: string): boolean { return /\.(png|jpe?g|webp|gif)$/i.test(rel); }
 
 export function toRel(root: string, abs: string): string | null {
   const rel = relative(resolve(root), resolve(abs));
@@ -75,7 +81,7 @@ function stealStaleLock(lock: string): void {
   }
 }
 function withLock<T>(root: string, rel: string, fn: () => T): T {
-  if (!isVersionable(rel)) throw new Error(`Not a versionable image path: ${rel}`);
+  if (!isTrackable(rel)) throw new Error(`Not a trackable project path: ${rel}`);
   const dir = storeDir(root, rel), lock = join(dir, ".lock"), deadline = Date.now() + 5000;
   mkdirSync(dir, { recursive: true });
   let owner: ReturnType<typeof statSync>;
@@ -108,7 +114,7 @@ function currentVersion(manifest: Manifest): Version { return manifest.versions.
 function append(root: string, rel: string, manifest: Manifest | null, bytes: Buffer, source: VersionSource, opts: CommitOptions = {}): { manifest: Manifest; version: Version } {
   const n = manifest ? Math.max(...manifest.versions.map(v => v.n)) + 1 : 1;
   const version: Version = { n, file: `v${n}${extname(rel)}`, sha256: sha256(bytes), size: bytes.length, ...opts, createdAt: new Date().toISOString(), source };
-  const next: Manifest = { schemaVersion: SCHEMA_VERSION, path: checkedRel(root, rel), current: n, versions: [...(manifest?.versions ?? []), version] };
+  const next: Manifest = { schemaVersion: SCHEMA_VERSION, path: checkedRel(root, rel), current: n, versions: [...(manifest?.versions ?? []), version], ...(manifest?.starred ? { starred: true } : {}) };
   atomicWrite(versionFile(root, rel, n), bytes);
   atomicWrite(join(storeDir(root, rel), "manifest.json"), JSON.stringify(next, null, 2) + "\n");
   return { manifest: next, version };
@@ -153,4 +159,57 @@ export function resolveVersionPath(root: string, ref: string): { rel: string; ve
   const abs = parsed.version === undefined ? resolve(root, rel) : versionFile(root, rel, parsed.version);
   if (!existsSync(abs) || !statSync(abs).isFile()) throw new Error(`Image not found: ${ref}`);
   return { rel, ...(parsed.version === undefined ? {} : { version: parsed.version }), abs };
+}
+
+export function setStarred(root: string, rel: string, starred: boolean): Manifest | null {
+  return withLock(root, rel, () => {
+    const manifest = readManifest(root, rel) ?? adoptUnderLock(root, rel);
+    if (!manifest) return null;
+    const next: Manifest = { ...manifest };
+    if (starred) next.starred = true; else delete next.starred;
+    atomicWrite(join(storeDir(root, rel), "manifest.json"), JSON.stringify(next, null, 2) + "\n");
+    return next;
+  });
+}
+function adoptUnderLock(root: string, rel: string): Manifest | null {
+  const bytes = workingBytes(root, rel);
+  return bytes === null ? null : append(root, rel, null, bytes, { kind: "adopt" }).manifest;
+}
+
+export type IndexEntry = {
+  path: string; current: number; versions: number; starred: boolean;
+  kinds: string[]; threads: string[]; refs: string[]; usedAsRef: boolean;
+  lastKind: string; lastCreatedAt: string; width?: number; height?: number; size: number; exists: boolean;
+};
+/** Every tracked file in the project, summarised from the manifests. Cheap enough to run per request for a PoC. */
+export function scanIndex(root: string): IndexEntry[] {
+  const base = join(resolve(root), STORE_DIR);
+  const out: IndexEntry[] = [];
+  const walk = (dir: string) => {
+    let entries: import("node:fs").Dirent[];
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    if (entries.some((e) => e.isFile() && e.name === "manifest.json")) {
+      const rel = relative(base, dir).split(sep).join("/");
+      try {
+        const m = readManifest(root, rel);
+        if (m) {
+          const cur = m.versions.find((v) => v.n === m.current) ?? m.versions[m.versions.length - 1]!;
+          out.push({
+            path: rel, current: m.current, versions: m.versions.length, starred: !!m.starred,
+            kinds: [...new Set(m.versions.map((v) => v.source.kind))],
+            threads: [...new Set(m.versions.map((v) => v.threadId).filter((t): t is string => !!t))],
+            refs: [...new Set(m.versions.flatMap((v) => ("references" in v.source && v.source.references) || []))],
+            usedAsRef: false, lastKind: cur.source.kind, lastCreatedAt: cur.createdAt, width: cur.width, height: cur.height, size: cur.size,
+            exists: existsSync(resolve(root, rel)),
+          });
+        }
+      } catch { /* corrupt manifest: skip */ }
+      return;
+    }
+    for (const e of entries) if (e.isDirectory() && e.name !== ".lock" && !e.name.endsWith("-steal")) walk(join(dir, e.name));
+  };
+  walk(base);
+  const refd = new Set(out.flatMap((e) => e.refs.map((r) => parseVersionRef(r).path)));
+  for (const e of out) e.usedAsRef = refd.has(e.path);
+  return out.sort((a, b) => (a.lastCreatedAt < b.lastCreatedAt ? 1 : -1));
 }
