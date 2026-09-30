@@ -52,10 +52,13 @@ import { loadEnvFile, PROVIDER_KEYS } from "./env.js";
 import sharp from "sharp";
 import {
   commitVersion,
+  family,
   isImagePath,
   isTrackable,
   isVersionable,
+  pickVersion,
   scanIndex,
+  setParents,
   setStarred,
   readManifest,
   resolveVersionPath,
@@ -448,6 +451,8 @@ type ClientMsg =
   | { type: "seen"; threadId: string }
   | { type: "retry"; threadId: string }
   | { type: "restore_version"; projectId: string; path: string; version: number; threadId?: string }
+  | { type: "relink"; projectId: string; path: string; version: number; parents: string[] }
+  | { type: "pick"; projectId: string; from: string; to: string; threadId?: string }
   | { type: "star"; projectId: string; path: string; starred: boolean }
   | { type: "upload"; projectId: string; name: string; data: string; mimeType?: string }
   | { type: "queue_send_now"; id: string }
@@ -572,6 +577,25 @@ async function handle(ws: WebSocket, msg: ClientMsg) {
       const { version, created } = restoreVersion(project.path, rel, msg.version, { threadId: msg.threadId });
       broadcast({ type: "files_changed", projectId: project.id });
       send(ws, { type: "restored", projectId: project.id, path: rel, version: version.n, created });
+      return;
+    }
+    case "relink": {
+      const project = getProject(msg.projectId);
+      if (!project) throw new Error(`unknown project ${msg.projectId}`);
+      const rel = toRel(project.path, resolve(project.path, msg.path));
+      if (!rel || !isTrackable(rel)) throw new Error("not a versioned file");
+      setParents(project.path, rel, msg.version, msg.parents);
+      broadcast({ type: "files_changed", projectId: project.id });
+      return;
+    }
+    case "pick": {
+      const project = getProject(msg.projectId);
+      if (!project) throw new Error(`unknown project ${msg.projectId}`);
+      const to = toRel(project.path, resolve(project.path, msg.to));
+      if (!to || !isTrackable(to)) throw new Error("not a project file");
+      const { version } = pickVersion(project.path, msg.from, to, { threadId: msg.threadId });
+      broadcast({ type: "files_changed", projectId: project.id });
+      send(ws, { type: "picked", projectId: project.id, path: to, version: version.n });
       return;
     }
     case "star": {
@@ -845,7 +869,7 @@ const http = createServer((req, res) => {
     res.end(readFileSync(join(here, "public/index.html")));
     return;
   }
-  const match = pathname.match(/^\/api\/projects\/([^/]+)\/(files|raw|versions|index)$/);
+  const match = pathname.match(/^\/api\/projects\/([^/]+)\/(files|raw|versions|family|index)$/);
   if (req.method === "GET" && match) {
     const project = getProject(decodeURIComponent(match[1]!));
     if (!project) return json(res, 404, { error: "unknown project" });
@@ -863,6 +887,13 @@ const http = createServer((req, res) => {
         const rel = toRel(project.path, resolve(project.path, requested));
         const manifest: Manifest | null = rel && isTrackable(rel) ? readManifest(project.path, rel) : null;
         return manifest ? json(res, 200, manifest) : json(res, 404, { error: "no versions" });
+      }
+      if (match[2] === "family") {
+        const rel = toRel(project.path, resolve(project.path, requested));
+        if (!rel || !isTrackable(rel)) return json(res, 400, { error: "bad path" });
+        if (isVersionable(rel)) syncExternal(project.path, rel);
+        if (!readManifest(project.path, rel)) return json(res, 404, { error: "no versions" });
+        return json(res, 200, family(project.path, rel));
       }
       const versionParam = url.searchParams.get("version");
       if (match[2] === "raw" && versionParam) {

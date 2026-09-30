@@ -78,19 +78,45 @@ Images inside a project are versioned files. The working file (say
 `generated/poster.png`) stays an ordinary file that any tool can read, and its
 history lives next to it in `<project>/.aithing/versions/generated/poster.png/`
 as `manifest.json` plus one file per version. Every write path records a
-version: `generate_image`, the `edit_image` tool (iterate on an existing image;
-the result becomes the next version of the same file), uploads, restores, and
+version: `generate_image`, the `edit_image` tool, uploads, restores, and
 external edits, which the server's folder watcher captures as an `external`
 version. Restoring an old version appends a new one rather than rewriting
 history, and any version is addressable as `path@N` in tool inputs, prompt
 attachments and the viewer.
+
+Versions can also record derivation parents: immutable refs like
+`generated/poster.png@2`. Overwriting in place is just a child version of the
+same path; saving `poster-alt1.png` is a child at another path. Reference images
+passed to `generate_image`, edits, restores, variants and picks all keep these
+links, so filenames are free-form and the family is derived from the graph.
+
+For first versions created by adoption or agent writes, the store tries a small
+heuristic: identical bytes link to the matching tracked version, and names such
+as `-v2`, `copy`, `alt1`, `final`, `fixed`, `variant2` or `option3` link back to
+the closest same-folder tracked file of the same media kind. Inferred links are
+marked faintly in the UI and can be detached with an empty parent list.
+
+The inspector's Lineage panel draws the whole family as a tree (see
+`poc-lineage.png`): each row is one version, alternatives sit as siblings
+under the version they were made from, inferred links get a dashed twig and an
+"unlink" button, and "use" on any other file's version copies it onto the
+inspected file as a `pick` version. Tiles show a branch badge with the number
+of related files.
 
 In the files panel a tile shows its current version number; clicking it opens
 the viewer with the version strip, the prompt/model that produced each version,
 "Restore as new version" and "Attach to message". Extra endpoints:
 
 - `GET /api/projects/:id/versions?path=<relative file>` → the manifest
+- `GET /api/projects/:id/family?path=<relative file>` → related versions across paths
 - `GET /api/projects/:id/raw?path=<relative file>&version=N` → that version's bytes
+
+WebSocket messages:
+
+- `{type:"relink", projectId, path, version, parents}` rewrites one version's
+  parent refs. Use `[]` to detach it.
+- `{type:"pick", projectId, from, to, threadId?}` copies a chosen version (or a
+  current path) onto another project path as a `pick` version linked to `from`.
 
 ## Attachments
 
@@ -142,11 +168,14 @@ Tools:
 - `list_image_models` — models, availability, resolutions, aspect ratios.
 - `generate_image { prompt, model?, aspect_ratio?, resolution?, reference_images?, filename?, output? }`
   — writes `<thread output folder>/<slug>.png` as version 1 (or, with `output`,
-  a new version of an existing image). Returns the path, version and a ≤768px
-  preview so the agent can look at the result.
-- `edit_image { path, prompt, model?, resolution?, extra_references?, output? }`
-  — iterate on an existing image; the result is the next version of that file.
-- `image_history { path }` — the version list of an image.
+  a new version of an existing image). Reference images become parents. Returns
+  the path, version and a ≤768px preview so the agent can look at the result.
+- `edit_image { path, prompt, model?, resolution?, extra_references?, output?, variants? }`
+  — iterate on an existing image; by default the result is the next version of
+  that file. With `output`, it branches to a new path. With `variants`, it saves
+  several alternatives next to the source as sibling branches.
+- `image_history { path }` — the version list of an image, its current parents,
+  and related paths in the same family.
 - `restore_image_version { path, version }` — make an older version current
   (appends a new version).
 - `view_image { path, max_side? }` — downscaled view of any image file.

@@ -14,7 +14,7 @@ import { z } from "zod";
 import sharp from "sharp";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
-import { adopt, commitVersion, isVersionable, parseVersionRef, readManifest, resolveVersionPath, restoreVersion, syncExternal, toRel, versionFile } from "../versions.js";
+import { adopt, commitVersion, family, isVersionable, parseVersionRef, readManifest, resolveVersionPath, restoreVersion, syncExternal, toRel, versionFile } from "../versions.js";
 
 const OUTPUT_DIR = resolve(process.env.AITHING_OUTPUT_DIR ?? join(process.cwd(), "generated"));
 const THREAD_CWD = resolve(process.env.AITHING_PROJECT_DIR ?? dirname(OUTPUT_DIR)); // project root: paths resolve and versions are stored here
@@ -322,7 +322,7 @@ server.registerTool(
           `${id}${id === DEFAULT_MODEL ? " (default)" : ""} | ${m.provider} | ${hasKey(m) ? "yes" : `no (${m.key} missing)`} | ${m.resolutions.join("/")} | ${m.aspectRatios.join(" ")} | ${m.references ? "yes" : "no"} | ${m.note}`,
       ),
       "",
-      `Images are written to ${OUTPUT_DIR}. Files are versioned; use edit_image to iterate and path@N to address older versions.`,
+      `Images are written to ${OUTPUT_DIR}. Files are versioned; use edit_image to iterate and path@N to address older versions. Alternatives you save under new names are linked to their source automatically.`,
     ];
     return { content: [{ type: "text", text: lines.join("\n") }] };
   },
@@ -332,7 +332,7 @@ server.registerTool(
   "generate_image",
   {
     description:
-      "Generate an image from a prompt (optionally guided by reference images) and save it as a PNG in this thread's output folder. Returns the saved path and a small preview of the result.",
+      "Generate an image from a prompt (optionally guided by reference images) and save it as a PNG in this thread's output folder. Reference images become the new image's parents in its history. Returns the saved path and a small preview of the result.",
     inputSchema: {
       prompt: z.string().min(1).describe("Detailed description of the image to create."),
       model: z.string().optional().describe(`Model id (see list_image_models). Default ${DEFAULT_MODEL}.`),
@@ -373,7 +373,7 @@ server.registerTool(
         kind: "generate", prompt: input.prompt, model, provider: spec.provider,
         providerModel: generated.providerModel, providerRequestId: generated.providerRequestId,
         aspectRatio, resolution, references: refs.map((r) => r.ref), durationMs: Date.now() - t0,
-      }, { width: p.width, height: p.height, threadId: THREAD_ID });
+      }, { width: p.width, height: p.height, threadId: THREAD_ID, parents: refs.map((r) => r.ref) });
       log(`saved ${pngPath} in ${Date.now() - t0}ms`);
       return {
         content: [
@@ -418,7 +418,7 @@ function managedPath(path: string): string {
 server.registerTool(
   "edit_image",
   {
-    description: "Use this to iterate on an existing image; history is kept and older versions stay addressable as path@N.",
+    description: "Iterate on an existing image. Overwrite in place (default) to make the next version; pass `output` with a new name to branch off an alternative; pass `variants` to get several takes at once. All results are linked to the source version, so any filename is fine.",
     inputSchema: {
       path: z.string().describe("Image to iterate on, optionally path@N."),
       prompt: z.string().min(1),
@@ -426,6 +426,7 @@ server.registerTool(
       resolution: z.enum(["1K", "2K", "4K"]).optional(),
       extra_references: z.array(z.string()).optional().describe("Additional reference images, optionally path@N."),
       output: z.string().optional().describe("Alternate output path relative to the thread folder."),
+      variants: z.number().int().min(1).max(8).optional().describe("Generate this many alternatives at once. Each is saved as its own file next to the source (stem-alt1, stem-alt2, ...) and recorded as a branch off the source version; the source is never overwritten when variants > 1."),
     },
   },
   async (input) => {
@@ -450,6 +451,34 @@ server.registerTool(
       const aspectRatio = spec.aspectRatios.reduce((best, ar) => Math.abs(ratioValue(ar) - ratio) < Math.abs(ratioValue(best) - ratio) ? ar : best);
       const { abs, rel: outputRel } = outputTarget(input.output ?? rel);
       const t0 = Date.now();
+      const sourceRef = `${rel}@${was}`;
+      const variants = input.variants ?? 1;
+      if (variants > 1) {
+        const results = await Promise.allSettled(Array.from({ length: variants }, () => GENERATORS[spec.provider]({ model, prompt: input.prompt, aspectRatio, resolution, refs })));
+        const successes = results.map((r, i) => ({ r, i })).filter((x): x is { r: PromiseFulfilledResult<Generated>; i: number } => x.r.status === "fulfilled");
+        if (!successes.length) throw new ToolError(results.map((r, i) => r.status === "rejected" ? `variant ${i + 1}: ${String(r.reason?.message ?? r.reason)}` : "").filter(Boolean).join("\n") || "all variants failed");
+        const dir = dirname(abs);
+        const ext = extname(abs) || ".png";
+        const stem = basename(abs, ext);
+        const content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: "image/jpeg" })[] = [];
+        const lines: string[] = [];
+        for (const { r, i } of successes) {
+          const targetAbs = uniquePath(dir, `${stem}-alt${i + 1}`, ext);
+          const targetRel = toRel(THREAD_CWD, targetAbs);
+          const bytes = await encodeFor(targetAbs, r.value.bytes);
+          const p = await preview(bytes, 512);
+          const source = { kind: "edit" as const, prompt: input.prompt, model, provider: spec.provider,
+            providerModel: r.value.providerModel, providerRequestId: r.value.providerRequestId,
+            aspectRatio, resolution, references: refs.map((ref) => ref.ref), durationMs: Date.now() - t0 };
+          let n: number | undefined;
+          if (targetRel === null) { mkdirSync(dirname(targetAbs), { recursive: true }); writeFileSync(targetAbs, bytes); }
+          else n = commitVersion(THREAD_CWD, targetRel, bytes, source, { width: p.width, height: p.height, threadId: THREAD_ID, parents: [sourceRef] }).version.n;
+          lines.push(`${targetRel ?? targetAbs} (${p.width}x${p.height})${n === undefined ? "" : ` — version ${n}`}`);
+          content.push({ type: "image", data: p.data, mimeType: p.mimeType });
+        }
+        for (const { r, i } of results.map((r, i) => ({ r, i }))) if (r.status === "rejected") lines.push(`variant ${i + 1} failed: ${String(r.reason?.message ?? r.reason)}`);
+        return { content: [{ type: "text", text: lines.join("\n") }, ...content] };
+      }
       const generated = await GENERATORS[spec.provider]({ model, prompt: input.prompt, aspectRatio, resolution, refs });
       const bytes = await encodeFor(abs, generated.bytes);
       const p = await preview(bytes, 768);
@@ -458,7 +487,7 @@ server.registerTool(
         aspectRatio, resolution, references: refs.map((r) => r.ref), durationMs: Date.now() - t0 };
       let n: number | undefined;
       if (outputRel === null) { mkdirSync(dirname(abs), { recursive: true }); writeFileSync(abs, bytes); }
-      else n = commitVersion(THREAD_CWD, outputRel, bytes, source, { width: p.width, height: p.height, threadId: THREAD_ID }).version.n;
+      else n = commitVersion(THREAD_CWD, outputRel, bytes, source, { width: p.width, height: p.height, threadId: THREAD_ID, parents: [sourceRef] }).version.n;
       return { content: [
         { type: "text", text: `Saved ${abs} (${p.width}x${p.height}, ${model})${n === undefined ? "" : ` — version ${n}`} (was version ${was})` },
         { type: "image", data: p.data, mimeType: p.mimeType },
@@ -481,6 +510,19 @@ server.registerTool(
         const prompt = "prompt" in source ? source.prompt.replace(/[\r\n|]/g, " ").slice(0, 80) : "";
         return `${v.n}${v.n === manifest.current ? " (current)" : ""} | ${v.createdAt} | ${source.kind} | ${"model" in source ? source.model : ""} | ${prompt} | ${v.width ?? "?"}x${v.height ?? "?"}`;
       })];
+      const cur = manifest.versions.find((v) => v.n === manifest.current)!;
+      lines.push("", `Derived from: ${(cur.parents ?? []).join(", ") || "(none)"}`);
+      const graph = family(THREAD_CWD, rel);
+      const currentParents = new Set(cur.parents ?? []);
+      const related = graph.nodes.filter((n) => n.current && n.path !== rel).sort((a, b) => a.path.localeCompare(b.path));
+      if (related.length) {
+        lines.push("", "Related:");
+        for (const node of related) {
+          const prompt = node.prompt ? node.prompt.replace(/[\r\n|]/g, " ").slice(0, 80) : "";
+          const alternative = node.parents.some((p) => currentParents.has(p)) ? " alternative" : "";
+          lines.push(`${node.path}@${node.n} | ${node.kind}${alternative}${prompt ? ` | ${prompt}` : ""}`);
+        }
+      }
       const p = await preview(readFileSync(versionFile(THREAD_CWD, rel, manifest.current)), 768);
       return { content: [{ type: "text", text: lines.join("\n") }, { type: "image", data: p.data, mimeType: p.mimeType }] };
     } catch (e: any) { return errorResult(`image_history failed: ${String(e?.message ?? e)}`); }

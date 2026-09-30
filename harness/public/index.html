@@ -117,6 +117,16 @@
   .tile{position:relative;min-width:0;cursor:pointer;font-size:10.5px;color:var(--mute)}.tile img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;background:#000;box-shadow:inset 0 0 0 1px var(--line);display:block}.tile.sel img{outline:2px solid var(--fg);outline-offset:1px}.tile div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px}
   .tile .ver{position:absolute;top:4px;left:4px;font:9px/1.5 "Geist Mono",ui-monospace,monospace;background:rgba(0,0,0,.7);color:#e5e9f0;border-radius:3px;padding:0 4px}
   .tile .att{position:absolute;top:3px;right:3px;width:20px;height:20px;display:grid;place-items:center;background:rgba(0,0,0,.7);border-radius:4px;color:#fff;opacity:0}.tile:hover .att{opacity:1}
+  .tile .fam{position:absolute;bottom:22px;left:4px;display:flex;align-items:center;gap:2px;font:9px/1.5 "Geist Mono",ui-monospace,monospace;background:rgba(0,0,0,.7);color:#e5e9f0;border-radius:3px;padding:0 4px}.tile .fam svg{width:10px;height:10px}
+  /* lineage tree */
+  .lineage{padding:0 12px 12px;display:flex;flex-direction:column;gap:2px}
+  .ln{display:flex;align-items:center;gap:8px;height:44px;padding:0 6px;border-radius:6px;cursor:pointer;font-size:11.5px;color:var(--mute);position:relative;min-width:0}.ln:hover{background:rgba(255,255,255,.04)}.ln.sel{background:rgba(255,255,255,.08);color:var(--fg)}
+  .ln img,.ln .ph{width:36px;height:36px;flex:none;object-fit:cover;border-radius:5px;background:#000;box-shadow:inset 0 0 0 1px var(--line);display:block}.ln .ph{display:grid;place-items:center;font-size:9px;background:var(--card)}
+  .ln.inf img,.ln.inf .ph{opacity:.55;box-shadow:inset 0 0 0 1px transparent;outline:1px dashed var(--dim);outline-offset:-1px}
+  .ln .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}.ln .t b{font:11.5px "Geist Mono",ui-monospace,monospace;font-weight:500;color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ln .t span{font-size:10.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ln.cur .t b::after{content:" current";color:var(--ok);font-size:9.5px;font-weight:400}.ln .k{flex:none;font:9.5px "Geist Mono",ui-monospace,monospace;color:var(--dim);background:rgba(255,255,255,.05);border-radius:3px;padding:0 5px;line-height:16px}
+  .ln .use,.ln .unl{flex:none;height:22px;padding:0 7px;border-radius:5px;font-size:10.5px;color:var(--mute);background:rgba(255,255,255,.06);opacity:0}.ln:hover .use,.ln:hover .unl{opacity:1}.ln .use:hover,.ln .unl:hover{color:var(--fg);background:rgba(255,255,255,.12)}
+  .ln .tw{flex:none;width:6px;align-self:stretch;border-left:1px solid var(--line);margin-left:4px}.ln .tw.dash{border-left-style:dashed}
   /* fullscreen viewer */
   .viewer{position:fixed;inset:0;background:rgba(3,5,8,.94);display:flex;flex-direction:column;z-index:10}
   .viewer .top{display:flex;align-items:center;gap:10px;padding:10px 14px;color:var(--mute);font-size:12px}.viewer .top b{color:var(--fg);font-weight:500}.viewer .top .x{margin-left:auto}
@@ -186,6 +196,7 @@
   <symbol id="i-hand" viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0v1"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></symbol>
   <symbol id="i-list" viewBox="0 0 24 24"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></symbol>
   <symbol id="i-star" viewBox="0 0 24 24"><path d="M11.5 3.6a.6.6 0 0 1 1 0l2.4 4.9 5.4.8a.6.6 0 0 1 .3 1l-3.9 3.8.9 5.4a.6.6 0 0 1-.9.6L12 17.5l-4.8 2.6a.6.6 0 0 1-.9-.6l.9-5.4-3.9-3.8a.6.6 0 0 1 .3-1l5.4-.8Z"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
   <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></symbol>
 </defs></svg>
 <script>
@@ -306,7 +317,7 @@ async function refreshIndex(){const pid=shownProjectId();if(!pid){index=null;ind
 function viewFiles(tab){const f=(index?.files||[]).filter(e=>e.exists);
   switch(tab){case 'thread':return f.filter(e=>currentThreadId&&e.threads.includes(currentThreadId));case 'outputs':return f.filter(e=>e.image&&e.kinds.some(k=>k==='generate'||k==='edit'));case 'refs':return f.filter(e=>e.image&&(e.usedAsRef||e.kinds.includes('upload')));case 'picks':return f.filter(e=>e.starred);default:return []}}
 function tileFor(pid,path,opts){const t=document.createElement('div');t.className='tile'+(selected&&selected.path===path?' sel':'');t.title=path;
-  t.innerHTML=`<img loading="lazy" src="${rawUrl(pid,path,opts.mtime)}" alt="">${opts.versions>1?`<span class="ver">v${opts.current}</span>`:''}<button class="att" title="Attach to message">+</button><button class="star${opts.starred?' on':''}" title="${opts.starred?'Unstar':'Star as a pick'}">${ic('i-star','s')}</button><div>${esc(path.split('/').pop())}</div>`;
+  t.innerHTML=`<img loading="lazy" src="${rawUrl(pid,path,opts.mtime)}" alt="">${opts.versions>1?`<span class="ver">v${opts.current}</span>`:''}${opts.family>1?`<span class="fam" title="${opts.family} related files">${ic('i-branch')}${opts.family}</span>`:''}<button class="att" title="Attach to message">+</button><button class="star${opts.starred?' on':''}" title="${opts.starred?'Unstar':'Star as a pick'}">${ic('i-star','s')}</button><div>${esc(path.split('/').pop())}</div>`;
   t.onclick=()=>selectFile(pid,path);t.querySelector('.att').onclick=ev=>{ev.stopPropagation();addAttachment(pid,opts.current?path+'@'+opts.current:path)};
   t.querySelector('.star').onclick=ev=>{ev.stopPropagation();send({type:'star',projectId:pid,path,starred:!opts.starred})};return t}
 function renderBrowse(){
@@ -320,7 +331,7 @@ function renderBrowse(){
     if(!listing){b.insertAdjacentHTML('beforeend','<div class="rempty">No folder open.</div>');return}
     const imgs=listing.entries.filter(isImg);if(!imgs.length){b.insertAdjacentHTML('beforeend','<div class="rempty">No images in this folder.</div>');return}
     const g=document.createElement('div');g.className='grid';const byPath=new Map((index?.files||[]).map(e=>[e.path,e]));
-    for(const e of imgs){const path=(listing.dir?listing.dir+'/':'')+e.name;const ix=byPath.get(path);g.appendChild(tileFor(listing.pid,path,{mtime:e.mtime,versions:e.versions,current:e.current,starred:!!ix?.starred}))}
+    for(const e of imgs){const path=(listing.dir?listing.dir+'/':'')+e.name;const ix=byPath.get(path);g.appendChild(tileFor(listing.pid,path,{mtime:e.mtime,versions:e.versions,current:e.current,starred:!!ix?.starred,family:ix?.familySize}))}
     b.appendChild(g);return}
   if(browseTab==='brief'){
     const briefs=index?.briefs||[];if(!briefs.length){b.insertAdjacentHTML('beforeend','<div class="rempty">No markdown or text files at the project root. Add an AGENT.md with instructions for the agents.</div>');return}
@@ -329,22 +340,24 @@ function renderBrowse(){
     b.appendChild(rows);return}
   const files=viewFiles(browseTab);if(!files.length){b.insertAdjacentHTML('beforeend','<div class="rempty">Nothing here yet.</div>');return}
   const g=document.createElement('div');g.className='grid';const rows=document.createElement('div');rows.className='brows';
-  for(const e of files){if(e.image)g.appendChild(tileFor(pid,e.path,{versions:e.versions,current:e.current,starred:e.starred}));
+  for(const e of files){if(e.image)g.appendChild(tileFor(pid,e.path,{versions:e.versions,current:e.current,starred:e.starred,family:e.familySize}));
     else{const d=document.createElement('div');d.className='frow'+(selected&&selected.path===e.path?' sel':'');d.innerHTML=`${ic('i-file')}<span class="n" title="${esc(e.path)}">${esc(e.path)}</span><span class="m">${e.versions>1?'v'+e.current:''}</span>`;d.onclick=()=>showBrief(pid,e.path);rows.appendChild(d)}}
   if(g.children.length)b.appendChild(g);if(rows.children.length)b.appendChild(rows);
 }
 async function showBrief(pid,path){
   let manifest=null;try{const r=await fetch(`/api/projects/${encodeURIComponent(pid)}/versions?path=${encodeURIComponent(path)}`);if(r.ok)manifest=await r.json()}catch{}
   let text='';try{text=await (await fetch(rawUrl(pid,path,Date.now()))).text()}catch(e){text=String(e)}
-  selected={pid,path,manifest,sel:manifest?.current??null,text};
+  selected={pid,path,manifest,family:manifest?await fetchFamily(pid,path):null,sel:manifest?.current??null,text};
   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x.dataset.tab==='inspect'));$('#inspect').hidden=false;$('#browse').hidden=true;renderInspect();renderBrowse();
 }
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===t));$('#inspect').hidden=t.dataset.tab!=='inspect';$('#browse').hidden=t.dataset.tab!=='browse'});
 // ---- inspector ----
 const fmtTime=iso=>{const d=new Date(iso);return isNaN(d)?iso:d.toLocaleString()};
+async function fetchFamily(pid,path){try{const r=await fetch(`/api/projects/${encodeURIComponent(pid)}/family?path=${encodeURIComponent(path)}`);return r.ok?await r.json():null}catch{return null}}
 async function selectFile(pid,path,version){
-  let manifest=null;try{const r=await fetch(`/api/projects/${encodeURIComponent(pid)}/versions?path=${encodeURIComponent(path)}`);if(r.ok)manifest=await r.json()}catch{}
-  selected={pid,path,manifest,sel:version??manifest?.current??null};
+  let manifest=null,family=null;
+  try{const [mr,fr]=await Promise.all([fetch(`/api/projects/${encodeURIComponent(pid)}/versions?path=${encodeURIComponent(path)}`),fetchFamily(pid,path)]);if(mr.ok)manifest=await mr.json();family=fr}catch{}
+  selected={pid,path,manifest,family,sel:version??manifest?.current??null};
   if(!isImgPath(path)){try{selected.text=await (await fetch(rawUrl(pid,path,null,selected.sel))).text()}catch{}}
   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x.dataset.tab==='inspect'));$('#inspect').hidden=false;$('#browse').hidden=true;
   renderInspect();refreshFiles();
@@ -358,13 +371,34 @@ function renderInspect(){
     <div class="sm">${v?`v${v.n}${v.n===current?' (current)':''} · `:''}${v?.width?`${v.width} × ${v.height} · `:''}${v?human(v.size)+' · ':''}${v?esc(fmtTime(v.createdAt)):'not versioned yet'}</div>
     <div class="acts">${isText?`<button class="btn" id="istar">${ic('i-star')}${starred?'Unstar':'Star'}</button>`:`<button class="btn primary" id="iattach">${ic('i-clip')}Attach to message</button>`}${isText?'':`<button class="btn" id="istar" title="Starred files show under Picks">${ic('i-star')}${starred?'Unstar':'Star'}</button>`}${v&&v.n!==current?`<button class="btn" id="irestore">Restore as new version</button>`:`<button class="btn" id="ifull">${ic('i-max')}Fullscreen</button>`}<a class="btn" href="${rawUrl(pid,path,null,v?sel:undefined)}" target="_blank" style="text-decoration:none">Open file</a>${v&&v.n!==current?`<button class="btn" id="ifull2">${ic('i-max')}Fullscreen</button>`:''}</div></div>
     ${versions.length?`<details class="sec" open><summary>${ic('i-right','s chev')}<b>Versions</b><span style="color:var(--dim)">${versions.length}</span></summary><div class="strip">${versions.map(x=>`<div class="v${x.n===sel?' sel':''}${x.n===current?' cur':''}" data-n="${x.n}">${isText?`<div style="width:64px;height:64px;border-radius:6px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line);display:grid;place-items:center;font-size:11px">${human(x.size)}</div>`:`<img loading="lazy" src="${rawUrl(pid,path,null,x.n)}" alt="">`}<div>v${x.n} ${esc(x.source?.kind||'')}</div></div>`).join('')}</div></details>`:''}
-    ${v?`<details class="sec" open><summary>${ic('i-right','s chev')}<b>Generation</b></summary><dl class="gen"><dt>Source</dt><dd>${esc(s.kind)}${s.from?' of v'+s.from:''}</dd>${s.model?`<dt>Model</dt><dd>${esc(s.model)}${s.aspectRatio?' · '+esc(s.aspectRatio):''}${s.resolution?' · '+esc(s.resolution):''}</dd>`:''}${s.prompt?`<dt>Prompt</dt><dd>${esc(s.prompt)}</dd>`:''}${s.references?.length?`<dt>Refs</dt><dd>${s.references.map(esc).join('\n')}</dd>`:''}${s.originalName?`<dt>Uploaded as</dt><dd>${esc(s.originalName)}</dd>`:''}${s.durationMs?`<dt>Took</dt><dd>${(s.durationMs/1000).toFixed(1)}s</dd>`:''}${v.threadId?`<dt>Thread</dt><dd><a style="color:inherit" href="?thread=${esc(v.threadId)}">${esc(v.threadId.slice(0,8))}</a></dd>`:''}</dl></details>`:''}`;
+    ${renderLineage()}
+    ${v?`<details class="sec" open><summary>${ic('i-right','s chev')}<b>Generation</b></summary><dl class="gen"><dt>Source</dt><dd>${esc(s.kind)}${s.from?' of '+esc(String(s.from).replace(/^(\d+)$/,'v$1')):''}</dd>${v.parents?.length?`<dt>Derived from</dt><dd>${v.parents.map(r=>`<a class="pref" style="color:inherit" href="?view=${encodeURIComponent(r)}" data-ref="${esc(r)}">${esc(r)}</a>`).join('\n')}${v.inferred?' <i style="color:var(--dim)">(inferred from the filename or identical bytes)</i>':''}</dd>`:''}${s.model?`<dt>Model</dt><dd>${esc(s.model)}${s.aspectRatio?' · '+esc(s.aspectRatio):''}${s.resolution?' · '+esc(s.resolution):''}</dd>`:''}${s.prompt?`<dt>Prompt</dt><dd>${esc(s.prompt)}</dd>`:''}${s.references?.length?`<dt>Refs</dt><dd>${s.references.map(esc).join('\n')}</dd>`:''}${s.originalName?`<dt>Uploaded as</dt><dd>${esc(s.originalName)}</dd>`:''}${s.durationMs?`<dt>Took</dt><dd>${(s.durationMs/1000).toFixed(1)}s</dd>`:''}${v.threadId?`<dt>Thread</dt><dd><a style="color:inherit" href="?thread=${esc(v.threadId)}">${esc(v.threadId.slice(0,8))}</a></dd>`:''}</dl></details>`:''}`;
   const ia=box.querySelector('#iattach');if(ia)ia.onclick=()=>addAttachment(pid,v?`${path}@${v.n}`:path);
   box.querySelector('#istar').onclick=()=>send({type:'star',projectId:pid,path,starred:!starred});
   const rs=box.querySelector('#irestore');if(rs)rs.onclick=()=>send({type:'restore_version',projectId:pid,path,version:sel,threadId:currentThreadId||undefined});
+  box.querySelectorAll('a.pref').forEach(a=>a.onclick=e=>{e.preventDefault();const {path:pp,version:pv}=splitRef(a.dataset.ref);selectFile(pid,pp,pv)});
+  box.querySelectorAll('.ln').forEach(d=>{d.onclick=()=>selectFile(pid,d.dataset.path,Number(d.dataset.n));
+    const use=d.querySelector('.use');if(use)use.onclick=ev=>{ev.stopPropagation();send({type:'pick',projectId:pid,from:d.dataset.ref,to:path,threadId:currentThreadId||undefined})};
+    const unl=d.querySelector('.unl');if(unl)unl.onclick=ev=>{ev.stopPropagation();send({type:'relink',projectId:pid,path:d.dataset.path,version:Number(d.dataset.n),parents:[]})}});
   for(const id of ['#ifull','#ifull2']){const b=box.querySelector(id);if(b)b.onclick=()=>openViewer(src,path)}
   const big=box.querySelector('.big');if(big)big.onclick=()=>openViewer(src,path);
   box.querySelectorAll('.strip .v').forEach(d=>d.onclick=async()=>{selected.sel=Number(d.dataset.n);if(isText){try{selected.text=await (await fetch(rawUrl(pid,path,null,selected.sel))).text()}catch{}}renderInspect()});
+}
+// The family is a DAG of version refs; draw it as a tree from the roots (a node with two parents hangs under the first one it was listed with).
+function renderLineage(){
+  const fam=selected?.family;if(!fam||!fam.nodes||fam.nodes.length<2)return '';
+  const {pid,path,sel}=selected;const byRef=new Map(fam.nodes.map(n=>[n.ref,n]));const kids=new Map();const placed=new Set();
+  for(const n of fam.nodes){const p=(n.parents||[]).find(r=>byRef.has(r));if(p){if(!kids.has(p))kids.set(p,[]);kids.get(p).push(n)}}
+  const roots=fam.nodes.filter(n=>!(n.parents||[]).some(r=>byRef.has(r)));
+  const paths=new Set(fam.nodes.map(n=>n.path)).size;
+  const row=(n,depth)=>{if(placed.has(n.ref))return '';placed.add(n.ref);
+    const isSel=n.path===path&&n.n===sel;const img=isImgPath(n.path);const other=n.path!==path;
+    const twigs=Array.from({length:depth},(_,i)=>`<span class="tw${i===depth-1&&n.inferred?' dash':''}"></span>`).join('');
+    const snippet=n.prompt?n.prompt.replace(/\s+/g,' ').slice(0,90):n.kind==='upload'?'uploaded':n.kind==='adopt'?'found on disk':n.kind==='external'?'edited outside the harness':n.kind==='agent_write'?'written by the agent':n.kind==='restore'||n.kind==='pick'?`copied from ${(n.parents?.[0]||'').split('/').pop()}`:'';
+    return `<div class="ln${isSel?' sel':''}${n.current?' cur':''}${n.inferred?' inf':''}" data-ref="${esc(n.ref)}" data-path="${esc(n.path)}" data-n="${n.n}" title="${esc(n.ref)}${n.inferred?' — link inferred from the filename or identical bytes':''}">${twigs}${img?`<img loading="lazy" src="${rawUrl(pid,n.path,null,n.n)}" alt="">`:`<span class="ph">${human(n.size||0)}</span>`}<div class="t"><b>${esc(n.path.split('/').pop())}<i style="color:var(--dim);font-style:normal"> v${n.n}</i></b><span>${esc(snippet)}</span></div><span class="k">${esc(n.kind)}</span>${n.inferred?`<button class="unl" title="Detach this inferred link">unlink</button>`:''}${other&&img?`<button class="use" title="Copy this version onto ${esc(path.split('/').pop())} as its next version">use</button>`:''}</div>`+
+      (kids.get(n.ref)||[]).map(c=>row(c,depth+1)).join('')};
+  const html=roots.map(r=>row(r,0)).join('')+fam.nodes.filter(n=>!placed.has(n.ref)).map(n=>row(n,0)).join('');
+  return `<details class="sec" open><summary>${ic('i-right','s chev')}<b>Lineage</b><span style="color:var(--dim)">${paths} file${paths>1?'s':''} · ${fam.nodes.length} versions</span></summary><div class="lineage">${html}</div></details>`;
 }
 function openViewer(src,name){const r=document.createElement('div');r.className='viewer';r.innerHTML=`<div class="top"><b>${esc(name.split('/').pop())}</b><span>${esc(name)}</span><button class="btn x">Close (Esc)</button></div><div class="stage"><img src="${src}" alt=""></div>`;r.querySelector('.x').onclick=()=>r.remove();r.onclick=e=>{if(e.target===r||e.target.classList.contains('stage'))r.remove()};document.body.appendChild(r)}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelector('.viewer')?.remove()});
@@ -408,6 +442,7 @@ function onMsg(m){
     case 'files_changed':if(m.projectId===shownProjectId()){refreshFiles();if(selected&&selected.pid===m.projectId)selectFile(selected.pid,selected.path,selected.sel===selected.manifest?.current?undefined:selected.sel)}break;
     case 'uploaded':if(m.projectId===currentThread?.project_id)addAttachment(m.projectId,m.path+'@'+m.version);break;
     case 'restored':break;
+    case 'picked':if(m.projectId===shownProjectId())selectFile(m.projectId,m.path,m.version);break;
     case 'event':if(m.threadId===currentThreadId){renderEvent(m.event);scrollDown()}break;
     case 'error':sys('error: '+m.message);setControls();break;
   }
