@@ -32,6 +32,12 @@ export type CommitOptions = {
   width?: number;
   height?: number;
   parents?: ReadonlyArray<string>;
+  /**
+   * Preloaded manifests for parent inference during bulk adoption. The list
+   * is updated in place with every manifest written, so one walk reads the
+   * store once instead of once per file.
+   */
+  manifests?: ImageManifest[];
 };
 
 export class VersionStoreError extends Error {
@@ -189,7 +195,7 @@ function append(
     n === 1 &&
     explicitParents === undefined &&
     (source.kind === "adopt" || source.kind === "agent_write" || source.kind === "external")
-      ? inferParents(root, rel, bytes)
+      ? inferParents(root, rel, bytes, opts.manifests)
       : null;
   const parents = explicitParents ?? inferredParents ?? undefined;
   const version: ImageVersion = {
@@ -214,19 +220,25 @@ function append(
   };
   atomicWrite(versionFile(root, rel, n), bytes);
   writeManifest(root, rel, next);
+  if (opts.manifests) {
+    const at = opts.manifests.findIndex((m) => m.path === next.path);
+    if (at >= 0) opts.manifests[at] = next;
+    else opts.manifests.push(next);
+  }
   return { manifest: next, version };
 }
 
 function syncInternal(
   root: string,
   rel: string,
+  opts?: CommitOptions,
 ): { manifest: ImageManifest | null; version: ImageVersion | null } {
   const manifest = readManifest(root, rel);
   const bytes = workingBytes(root, rel);
   if (bytes === null || (manifest && sha256(bytes) === currentVersion(manifest).sha256)) {
     return { manifest, version: null };
   }
-  return append(root, rel, manifest, bytes, { kind: manifest ? "external" : "adopt" });
+  return append(root, rel, manifest, bytes, { kind: manifest ? "external" : "adopt" }, opts);
 }
 
 /** Start tracking an existing working file (version 1 = its current bytes). */
@@ -245,7 +257,7 @@ export function syncExternal(
   opts?: CommitOptions,
 ): ImageVersion | null {
   if (!isTrackable(rel)) throw new VersionStoreError(`Not a trackable project path: ${rel}`, rel);
-  if (!source) return syncInternal(root, rel).version;
+  if (!source) return syncInternal(root, rel, opts).version;
   const manifest = readManifest(root, rel);
   const bytes = workingBytes(root, rel);
   if (bytes === null || (manifest && sha256(bytes) === currentVersion(manifest).sha256))
@@ -447,8 +459,12 @@ function sameKind(a: string, b: string): boolean {
 }
 
 /** Guess parents for a first version that arrived untracked: identical bytes, or a `-v2`/`alt1`/`final` style name. */
-export function inferParents(root: string, rel: string, bytes: Buffer): string[] | null {
-  const manifests = readAllManifests(root);
+export function inferParents(
+  root: string,
+  rel: string,
+  bytes: Buffer,
+  manifests: ReadonlyArray<ImageManifest> = readAllManifests(root),
+): string[] | null {
   const hash = sha256(bytes);
   const sameSha = manifests.flatMap((m) =>
     m.versions.filter((v) => v.sha256 === hash).map((v) => ({ m, v })),

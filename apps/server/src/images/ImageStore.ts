@@ -222,6 +222,8 @@ interface WatchedProject {
   readonly dirs: Map<string, NodeFS.FSWatcher>;
   readonly pending: Map<string, NodeJS.Timeout>;
   capped: boolean;
+  /** Open subscriptions; the watcher closes when the last one ends. */
+  subscribers: number;
 }
 
 export const make = Effect.gen(function* () {
@@ -240,10 +242,7 @@ export const make = Effect.gen(function* () {
     Effect.sync(() => {
       for (const timer of pendingPublish.values()) clearTimeout(timer);
       pendingPublish.clear();
-      for (const project of watched.values()) {
-        for (const timer of project.pending.values()) clearTimeout(timer);
-        for (const watcher of project.dirs.values()) watcher.close();
-      }
+      for (const project of watched.values()) closeProject(project);
       watched.clear();
     }),
   );
@@ -322,6 +321,8 @@ export const make = Effect.gen(function* () {
     adopted: { count: number },
   ) => {
     let captured = false;
+    // One read of the store for the whole walk; `append` keeps the list current.
+    const manifests = VersionStore.readAllManifests(root);
     const stack = [start];
     while (stack.length) {
       const dir = stack.pop()!;
@@ -355,7 +356,8 @@ export const make = Effect.gen(function* () {
         }
         adopted.count++;
         try {
-          if (VersionStore.syncExternal(root, rel) !== null) captured = true;
+          if (VersionStore.syncExternal(root, rel, undefined, { manifests }) !== null)
+            captured = true;
         } catch (cause) {
           logWarning("image watcher could not adopt file", { rel, cause: String(cause) });
         }
@@ -408,11 +410,36 @@ export const make = Effect.gen(function* () {
     project.pending.set(rel, timer);
   };
 
+  const closeProject = (project: WatchedProject) => {
+    for (const timer of project.pending.values()) clearTimeout(timer);
+    project.pending.clear();
+    for (const watcher of project.dirs.values()) watcher.close();
+    project.dirs.clear();
+  };
+
   const startWatcher = (root: string) => {
-    if (watched.has(root)) return;
-    const project: WatchedProject = { dirs: new Map(), pending: new Map(), capped: false };
+    const existing = watched.get(root);
+    if (existing) {
+      existing.subscribers++;
+      return;
+    }
+    const project: WatchedProject = {
+      dirs: new Map(),
+      pending: new Map(),
+      capped: false,
+      subscribers: 1,
+    };
     watched.set(root, project);
     if (walk(root, project, root, { count: 0 })) publishUnsafe(root);
+  };
+
+  const stopWatcher = (root: string) => {
+    const project = watched.get(root);
+    if (!project) return;
+    project.subscribers--;
+    if (project.subscribers > 0) return;
+    closeProject(project);
+    watched.delete(root);
   };
 
   // ---- reads -------------------------------------------------------------
@@ -429,6 +456,7 @@ export const make = Effect.gen(function* () {
               Effect.gen(function* () {
                 const subscription = yield* PubSub.subscribe(changes);
                 startWatcher(root);
+                yield* Effect.addFinalizer(() => Effect.sync(() => stopWatcher(root)));
                 Queue.offerUnsafe(mailbox, yield* indexOf(root));
                 yield* Stream.fromSubscription(subscription).pipe(
                   Stream.filter((changed) => changed === root),
