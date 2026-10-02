@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI thing — triage of alternatives (3 options)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script>
+  tailwind.config = { darkMode: 'class', theme: { extend: {
+    fontFamily: { sans: ['Geist','Inter','ui-sans-serif','system-ui','sans-serif'], mono: ['Geist Mono','JetBrains Mono','ui-monospace','monospace'] },
+    colors: { bg:'#05070b', panel:'#0a0d13', card:'#10141b', card2:'#161b24', line:'rgba(255,255,255,0.08)', line2:'rgba(255,255,255,0.14)', fg:'#f2f4f7', mute:'#8a93a3', dim:'#5b6472', run:'#f5b642', ok:'#4ade80', ask:'#7dd3fc', bad:'#f87171' },
+  } } }
+</script>
+<style>
+  :root { color-scheme: dark; }
+  body { -webkit-font-smoothing: antialiased; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.08); border-radius: 8px; }
+  .grain::after { content:""; position:absolute; inset:0; background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .22 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); mix-blend-mode: overlay; pointer-events:none; opacity:.7; }
+  .img { position: relative; overflow: hidden; border-radius: 6px; background-size: cover; }
+  .s0{background:radial-gradient(110% 80% at 30% 70%,#e9a86a 0%,#a84d2a 40%,#2d1711 85%)}
+  .a1{background:radial-gradient(120% 90% at 20% 80%,#f2a15c 0%,#b8562a 35%,#3b1d15 80%)}
+  .a2{background:radial-gradient(90% 120% at 80% 20%,#ffd08a 0%,#d8763a 40%,#2b1410 85%)}
+  .a3{background:linear-gradient(160deg,#f7c893 0%,#c8693a 45%,#4a2418 100%)}
+  .a4{background:radial-gradient(70% 70% at 50% 100%,#ffb672 0%,#8f3f22 55%,#1e0f0b 100%)}
+  .a5{background:conic-gradient(from 200deg at 55% 45%,#f6c793,#b85d33,#331812,#f6c793)}
+  .l0{background:linear-gradient(135deg,#f4e3cf 0%,#e6b48c 40%,#a9593a 100%)}
+  .b1{background:linear-gradient(120deg,#f8ead8 0%,#d99b6d 55%,#5e3a2a 100%)}
+  .b2{background:linear-gradient(200deg,#f3d7bd 0%,#dc8f5b 50%,#7b3d24 100%)}
+  .b3{background:linear-gradient(150deg,#efe0d0 0%,#c78a63 60%,#3d2a22 100%)}
+  kbd { font-family: inherit; font-size: 10px; padding: 1px 5px; border-radius: 4px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.04); color:#8a93a3 }
+  .tile .acts { opacity: 0; transition: opacity .12s; }
+  .tile:hover .acts, .tile:focus-within .acts { opacity: 1; }
+  .kept { outline: 2px solid #4ade80; outline-offset: 2px; }
+  .rejected .img { filter: grayscale(.7) brightness(.45); }
+  .picked { outline: 2px solid #f2f4f7; outline-offset: 2px; }
+  .focus-ring { outline: 2px solid #f2f4f7; outline-offset: 3px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body class="h-screen overflow-hidden bg-bg text-fg font-sans text-[13px] leading-[1.45] flex flex-col">
+
+<!-- option switcher -->
+<div class="h-11 shrink-0 border-b border-line bg-panel px-4 flex items-center gap-2 text-[12px]">
+  <span class="text-dim uppercase tracking-wider text-[11px] font-medium mr-2">Triage of alternatives</span>
+  <button data-opt="a" onclick="setOpt('a')" class="opt h-7 px-3 rounded-md ring-1 ring-line hover:bg-white/5">A · Inline in thread</button>
+  <button data-opt="b" onclick="setOpt('b')" class="opt h-7 px-3 rounded-md ring-1 ring-line hover:bg-white/5">B · Lightbox cull</button>
+  <button data-opt="c" onclick="setOpt('c')" class="opt h-7 px-3 rounded-md ring-1 ring-line hover:bg-white/5">C · Needs-review view</button>
+  <span id="opt-note" class="ml-3 text-mute truncate"></span>
+  <span class="flex-1"></span>
+  <span id="summary" class="text-mute"></span>
+  <button onclick="resetState()" class="h-7 px-2 rounded-md text-dim hover:text-fg hover:bg-white/5 flex items-center gap-1.5"><i data-lucide="rotate-ccw" class="h-3.5 w-3.5"></i>Reset decisions</button>
+</div>
+
+<div class="flex-1 min-h-0 flex">
+
+  <!-- LEFT: threads (static) -->
+  <aside class="w-[240px] shrink-0 border-r border-line bg-panel flex flex-col min-h-0">
+    <div class="h-12 px-3 flex items-center gap-2 border-b border-line">
+      <span class="h-6 w-6 rounded-md bg-fg/90 grid place-items-center text-[10px] font-bold text-bg">AI</span>
+      <span class="flex-1 font-medium">AI thing</span>
+      <i data-lucide="square-pen" class="h-4 w-4 text-mute"></i>
+    </div>
+    <div class="px-3 pt-3 pb-1.5 text-[11px] uppercase tracking-wider text-dim font-medium">Threads</div>
+    <div class="px-2 space-y-0.5">
+      <a class="block rounded-md bg-white/[.06] px-2 py-2 ring-1 ring-line2">
+        <div class="flex items-center gap-1.5 text-[11px] text-mute"><span class="h-4 w-4 rounded bg-gradient-to-br from-[#f2a15c] to-[#7a3c26]"></span><span class="truncate">Brand refresh · Q4</span><span class="ml-auto text-ask flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-ask"></span>Review</span></div>
+        <div class="mt-1 truncate font-medium">Hero poster — logo placement</div>
+        <div class="mt-0.5 text-[11px] text-mute truncate">5 alternatives of poster.png · awaiting you</div>
+      </a>
+      <a class="block rounded-md px-2 py-2 hover:bg-white/[.04]">
+        <div class="flex items-center gap-1.5 text-[11px] text-mute"><span class="h-4 w-4 rounded bg-gradient-to-br from-[#f2a15c] to-[#7a3c26]"></span><span class="truncate">Brand refresh · Q4</span><span class="ml-auto text-ok flex items-center gap-1"><i data-lucide="check" class="h-3 w-3"></i>Done</span></div>
+        <div class="mt-1 truncate">Logo mark, 3 options</div>
+        <div class="mt-0.5 text-[11px] text-mute truncate">3 alternatives of logo-mark.png</div>
+      </a>
+    </div>
+  </aside>
+
+  <!-- CENTER: thread -->
+  <main class="flex-1 min-w-0 flex flex-col bg-bg">
+    <header class="h-12 shrink-0 border-b border-line px-4 flex items-center gap-3">
+      <span class="h-2 w-2 rounded-full bg-ask"></span>
+      <h1 class="font-medium truncate">Hero poster — logo placement</h1>
+      <span class="text-[11px] text-mute">· Claude Code · threads/2026-10-01-hero-poster/</span>
+    </header>
+    <div class="flex-1 min-h-0 overflow-y-auto">
+      <div class="max-w-[820px] mx-auto px-6 py-6 space-y-6">
+        <div class="flex gap-3">
+          <span class="h-6 w-6 shrink-0 rounded-full bg-gradient-to-br from-slate-500 to-slate-800 mt-0.5"></span>
+          <div class="min-w-0">
+            <p>The logo feels cramped in the top-left. Move it, keep the warm palette, show me 5 alternatives.</p>
+            <div class="mt-2 flex gap-1.5"><span class="img s0 h-10 w-16 grain"></span><span class="text-[11px] text-mute self-center font-mono">hero/poster.png@3</span></div>
+          </div>
+        </div>
+        <div class="flex gap-3">
+          <span class="h-6 w-6 shrink-0 rounded-md bg-fg text-bg grid place-items-center mt-0.5"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i></span>
+          <div class="min-w-0 flex-1 space-y-3">
+            <p>I'll try five placements against the same composition: bottom-right, centred lockup, top-right, bottom-left with a sand band, and a vertical mark on the left edge.</p>
+            <div id="toolcard"></div>
+            <p id="agent-note" class="text-mute">My read: alt 2 and alt 4 keep the most negative space; alt 5 fights the product. Mark the ones you like and I'll refine from there.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="shrink-0 border-t border-line bg-panel">
+      <div class="max-w-[820px] mx-auto px-6 py-3">
+        <div class="rounded-xl border border-line2 bg-card">
+          <div id="composer-chips" class="px-3 pt-2 flex flex-wrap gap-1.5"></div>
+          <textarea id="composer" rows="2" class="w-full bg-transparent resize-none outline-none px-3 py-2 placeholder:text-dim" placeholder="Reply, redirect, or queue a follow-up…"></textarea>
+          <div class="px-2 pb-2 flex items-center gap-1 text-mute">
+            <i data-lucide="paperclip" class="h-4 w-4 ml-1.5"></i>
+            <span class="flex-1"></span>
+            <button class="h-7 px-3 rounded-md bg-fg text-bg font-medium flex items-center gap-1.5 text-[12px]">Send<i data-lucide="corner-down-left" class="h-3.5 w-3.5"></i></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- RIGHT: inspector -->
+  <aside class="w-[440px] shrink-0 border-l border-line bg-panel flex flex-col min-h-0">
+    <div class="h-12 shrink-0 border-b border-line px-3 flex items-center gap-1 text-[12px]">
+      <button id="tab-inspect" onclick="setInspTab('inspect')" class="h-7 px-2.5 rounded-md">Inspect</button>
+      <button id="tab-browse" onclick="setInspTab('browse')" class="h-7 px-2.5 rounded-md flex items-center gap-1.5">Browse <span id="review-badge" class="h-4 min-w-4 px-1 rounded-full bg-ask/20 text-ask text-[10px] grid place-items-center"></span></button>
+    </div>
+    <div id="inspector" class="flex-1 min-h-0 overflow-y-auto"></div>
+  </aside>
+</div>
+
+<!-- lightbox (option B) -->
+<div id="lightbox" hidden class="fixed inset-0 z-50 bg-black/92 backdrop-blur-sm flex flex-col select-none"></div>
+
+<script>
+// ---------- data ----------
+const families = [
+  { id:'poster', source:{ref:'hero/poster.png@3', name:'poster.png', v:3, cls:'s0'}, thread:'Hero poster — logo placement', when:'12 min ago', model:'Seedream 5 Pro', cost:4,
+    alts:[
+      {id:'p1', name:'poster-alt1.png', cls:'a1', note:'bottom-right, small'},
+      {id:'p2', name:'poster-alt2.png', cls:'a2', note:'centred lockup'},
+      {id:'p3', name:'poster-alt3.png', cls:'a3', note:'top-right'},
+      {id:'p4', name:'poster-alt4.png', cls:'a4', note:'bottom-left on sand band'},
+      {id:'p5', name:'poster-alt5.png', cls:'a5', note:'vertical mark, left edge'},
+    ] },
+  { id:'logo', source:{ref:'brand/logo-mark.png@2', name:'logo-mark.png', v:2, cls:'l0'}, thread:'Logo mark, 3 options', when:'2 h ago', model:'GPT Image 2', cost:3,
+    alts:[
+      {id:'l1', name:'logo-mark-option1.png', cls:'b1', note:'rounded'},
+      {id:'l2', name:'logo-mark-option2.png', cls:'b2', note:'sharp'},
+      {id:'l3', name:'logo-mark-option3.png', cls:'b3', note:'monoline'},
+    ] },
+];
+const F = families[0];
+let state;
+function resetState(){
+  state = { dec:{}, picked:{}, opt:'a', focus:0, compare:false, lb:false, insp:'inspect', selected:F.alts[1].id };
+  families.forEach(f => f.alts.forEach(a => state.dec[a.id]='undecided'));
+  render();
+}
+const altById = id => families.flatMap(f=>f.alts).find(a=>a.id===id);
+const famOf = id => families.find(f=>f.alts.some(a=>a.id===id));
+
+// ---------- actions ----------
+function keep(id){ state.dec[id] = state.dec[id]==='kept' ? 'undecided' : 'kept'; render(); }
+function reject(id){ state.dec[id] = state.dec[id]==='rejected' ? 'undecided' : 'rejected'; if(state.picked[famOf(id).id]===id) delete state.picked[famOf(id).id]; render(); }
+function pick(id){ const f=famOf(id); state.picked[f.id]=id; state.dec[id]='kept'; f.source.v += 0; render(); flash(`${f.source.name} → v${f.source.v+1} (pick from ${altById(id).name}@1)`); }
+function resolve(fid){ const f=families.find(x=>x.id===fid); f.alts.forEach(a=>{ if(state.dec[a.id]==='undecided') state.dec[a.id]='rejected'; }); render(); }
+function selectAlt(id){ state.selected=id; state.insp='inspect'; render(); }
+function openLb(id){ state.lb=true; state.focus=F.alts.findIndex(a=>a.id===id); state.compare=false; render(); }
+function closeLb(){ state.lb=false; render(); }
+function verdictText(){
+  const k=F.alts.filter(a=>state.dec[a.id]==='kept').map(a=>a.name.replace('poster-','').replace('.png',''));
+  const r=F.alts.filter(a=>state.dec[a.id]==='rejected').map(a=>a.name.replace('poster-','').replace('.png',''));
+  const p=state.picked[F.id];
+  let s=''; if(k.length) s+=`Keep ${k.join(', ')}. `; if(r.length) s+=`Drop ${r.join(', ')}. `; if(p) s+=`${altById(p).name.replace('.png','')} is now current. `; return s.trim();
+}
+function replyWithVerdict(){ document.getElementById('composer').value = verdictText() + (verdictText()?' Refine from the kept ones: ':''); document.getElementById('composer').focus(); }
+let flashT; function flash(msg){ const el=document.getElementById('flash')||document.body.appendChild(Object.assign(document.createElement('div'),{id:'flash',className:'fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] h-8 px-3 rounded-md bg-card2 ring-1 ring-line2 text-[12px] flex items-center gap-2 shadow-lg'})); el.innerHTML=`<i data-lucide="check" class="h-3.5 w-3.5 text-ok"></i>${msg}`; el.hidden=false; lucide.createIcons(); clearTimeout(flashT); flashT=setTimeout(()=>el.hidden=true,2200); }
+
+// ---------- renderers ----------
+const icon = (n,c='h-3.5 w-3.5') => `<i data-lucide="${n}" class="${c}"></i>`;
+function stateCls(id){ const d=state.dec[id]; const p=Object.values(state.picked).includes(id); return (d==='kept'?'kept ':'')+(d==='rejected'?'rejected ':'')+(p?'picked ':''); }
+function badge(id){ const d=state.dec[id]; const p=Object.values(state.picked).includes(id);
+  if(p) return `<span class="absolute top-1 left-1 h-4 px-1.5 rounded bg-fg text-bg text-[10px] font-medium">current</span>`;
+  if(d==='kept') return `<span class="absolute top-1 left-1 h-4 w-4 rounded-full bg-ok text-black grid place-items-center">${icon('check','h-3 w-3')}</span>`;
+  if(d==='rejected') return `<span class="absolute top-1 left-1 h-4 w-4 rounded-full bg-white/20 text-fg/70 grid place-items-center">${icon('x','h-3 w-3')}</span>`;
+  return ''; }
+function actBtn(title, ic, fn, cls='') { return `<button title="${title}" onclick="event.stopPropagation();${fn}" class="h-6 w-6 grid place-items-center rounded-md bg-black/60 ring-1 ring-white/15 hover:bg-black/80 ${cls}">${icon(ic,'h-3.5 w-3.5')}</button>`; }
+
+// tool card (A: hover actions; B: click opens lightbox; C: plain)
+function renderToolCard(){
+  const kept=F.alts.filter(a=>state.dec[a.id]==='kept').length, rej=F.alts.filter(a=>state.dec[a.id]==='rejected').length, und=F.alts.length-kept-rej;
+  const interactive = state.opt==='a' || state.opt==='b';
+  const tiles = F.alts.map((a,i)=>{
+    const d=state.dec[a.id]; const isPicked=state.picked[F.id]===a.id;
+    const open = state.opt==='b' ? `openLb('${a.id}')` : `selectAlt('${a.id}')`;
+    const acts = state.opt==='a' ? `<div class="acts absolute inset-x-1 bottom-1 flex items-center gap-1">
+        ${actBtn(d==='kept'?'Unkeep':'Keep (★)','check',`keep('${a.id}')`, d==='kept'?'text-ok':'text-fg')}
+        ${actBtn(d==='rejected'?'Restore':'Reject','x',`reject('${a.id}')`, d==='rejected'?'text-bad':'text-fg')}
+        <span class="flex-1"></span>
+        ${d!=='rejected' && !isPicked ? `<button title="Make this the current poster.png" onclick="event.stopPropagation();pick('${a.id}')" class="h-6 px-1.5 rounded-md bg-black/60 ring-1 ring-white/15 hover:bg-black/80 text-[11px] flex items-center gap-1">${icon('arrow-up-to-line','h-3 w-3')}Use</button>`:''}
+      </div>` : (state.opt==='b' ? `<div class="acts absolute inset-0 grid place-items-center"><span class="h-7 px-2 rounded-md bg-black/60 ring-1 ring-white/15 text-[11px] flex items-center gap-1.5">${icon('maximize-2','h-3 w-3')}Review</span></div>` : '');
+    return `<div class="tile relative ${stateCls(a.id)} ${state.selected===a.id&&state.opt!=='b'?'ring-1 ring-line2 rounded-md':''}" onclick="${open}" tabindex="0">
+      <div class="img ${a.cls} aspect-video grain cursor-pointer"></div>
+      ${badge(a.id)}
+      <span class="absolute top-1 right-1 h-4 px-1 rounded bg-black/60 text-[10px] text-fg/80 font-mono">alt${i+1}</span>
+      ${acts}
+    </div>`; }).join('');
+  const summary = interactive ? `<span class="ml-auto text-[11px] flex items-center gap-2">
+      ${kept?`<span class="text-ok">${kept} kept</span>`:''}${rej?`<span class="text-dim">${rej} dropped</span>`:''}${und?`<span class="text-mute">${und} to review</span>`:'<span class="text-ok flex items-center gap-1">'+icon('check','h-3 w-3')+'reviewed</span>'}
+    </span>` : `<span class="ml-auto text-[11px] text-dim">5 files · 20 cr · 38s</span>`;
+  const footer = state.opt==='a' ? `<div class="px-3 py-2 border-t border-line flex items-center gap-2 text-[12px]">
+      <span class="text-mute">Hover a tile to keep, drop or use. Decisions are saved on the files.</span>
+      <button onclick="replyWithVerdict()" class="ml-auto h-7 px-2.5 rounded-md ring-1 ring-line2 hover:bg-white/5 flex items-center gap-1.5 ${kept||rej?'':'opacity-40 pointer-events-none'}">${icon('reply','h-3.5 w-3.5')}Reply with verdict</button>
+    </div>` : (state.opt==='b' ? `<div class="px-3 py-2 border-t border-line flex items-center gap-2 text-[12px] text-mute">Click any alternative to review the set full-screen. <button onclick="openLb('p1')" class="ml-auto h-7 px-2.5 rounded-md ring-1 ring-line2 hover:bg-white/5 text-fg flex items-center gap-1.5">${icon('maximize-2','h-3.5 w-3.5')}Review 5</button></div>` : '');
+  document.getElementById('toolcard').innerHTML = `<div class="rounded-lg border border-line bg-card">
+    <div class="px-3 py-2 flex items-center gap-2 border-b border-line text-[12px]">
+      ${icon('wand-sparkles','h-3.5 w-3.5 text-mute')}<span class="font-medium">edit_image</span><span class="text-dim">·</span><span class="font-mono text-fg/80">poster.png@3</span><span class="text-dim">· variants 5 · Seedream 5 Pro</span>${summary}
+    </div>
+    <div class="p-3 grid grid-cols-5 gap-2">${tiles}</div>
+    ${footer}
+  </div>`;
+}
+
+// inspector
+function renderInspector(){
+  const el=document.getElementById('inspector');
+  const pending = families.filter(f=>f.alts.some(a=>state.dec[a.id]==='undecided') && !state.picked[f.id]);
+  document.getElementById('review-badge').textContent = pending.length; document.getElementById('review-badge').hidden = !pending.length;
+  for (const t of ['inspect','browse']) document.getElementById('tab-'+t).className = 'h-7 px-2.5 rounded-md flex items-center gap-1.5 ' + (state.insp===t ? 'bg-white/[.08] text-fg' : 'text-mute hover:text-fg hover:bg-white/5');
+  if(state.insp==='inspect'){ const a=altById(state.selected); const i=F.alts.indexOf(a); const d=state.dec[a.id];
+    el.innerHTML = `<div class="p-3 space-y-3">
+      <div class="img ${a.cls} aspect-video grain"></div>
+      <div class="flex items-center gap-2"><span class="font-mono text-[12px]">${a.name}</span><span class="text-[11px] text-dim">v1 · 1536×864</span>
+        <span class="ml-auto flex items-center gap-1">
+          <button onclick="keep('${a.id}')" class="h-6 px-2 rounded-md ring-1 ring-line hover:bg-white/5 text-[11px] flex items-center gap-1 ${d==='kept'?'text-ok ring-ok/40':''}">${icon('check','h-3 w-3')}${d==='kept'?'Kept':'Keep'}</button>
+          <button onclick="reject('${a.id}')" class="h-6 px-2 rounded-md ring-1 ring-line hover:bg-white/5 text-[11px] flex items-center gap-1 ${d==='rejected'?'text-bad ring-bad/40':''}">${icon('x','h-3 w-3')}${d==='rejected'?'Dropped':'Drop'}</button>
+        </span></div>
+      <div class="rounded-md border border-line p-2.5 text-[12px] space-y-1.5">
+        <div class="text-[11px] uppercase tracking-wider text-dim">Lineage</div>
+        <div class="flex items-center gap-2 text-mute">${icon('git-branch','h-3.5 w-3.5')}<span class="font-mono text-fg/80">poster.png@3</span><span>→</span><span>5 alternatives</span>${state.picked[F.id]?`<span class="ml-auto text-ok">→ poster.png@4</span>`:''}</div>
+        <div class="flex gap-1 pt-1">${F.alts.map((x,j)=>`<span class="img ${x.cls} h-7 w-11 grain ${stateCls(x.id)} ${x.id===a.id?'ring-1 ring-fg':''} cursor-pointer" onclick="selectAlt('${x.id}')"></span>`).join('')}</div>
+      </div>
+      <dl class="text-[12px] grid grid-cols-[90px_1fr] gap-y-1 text-mute"><dt>Prompt</dt><dd class="text-fg/85">Move the logo: ${a.note}. Keep the warm palette and composition.</dd><dt>Model</dt><dd class="text-fg/85">Seedream 5 Pro · 4 cr</dd><dt>Source</dt><dd class="font-mono text-fg/85">poster.png@3</dd><dt>Status</dt><dd class="${d==='kept'?'text-ok':d==='rejected'?'text-dim':'text-fg/85'}">${d}</dd></dl>
+      <button onclick="pick('${a.id}')" class="w-full h-8 rounded-md bg-fg text-bg font-medium text-[12px] flex items-center justify-center gap-1.5 ${d==='rejected'||state.picked[F.id]===a.id?'opacity-40 pointer-events-none':''}">${icon('arrow-up-to-line')}Use as current poster.png</button>
+    </div>`; }
+  else {
+    const chips=['This thread','Outputs','Refs','Picks','Needs review','Brief'].map(c=>`<button class="h-6 px-2 rounded-md text-[11.5px] whitespace-nowrap flex items-center gap-1.5 ${c==='Needs review'?'bg-white/[.08] text-fg':'text-mute hover:text-fg hover:bg-white/5'}">${c}${c==='Needs review'&&pending.length?`<span class="h-4 min-w-4 px-1 rounded-full bg-ask/20 text-ask text-[10px] grid place-items-center">${pending.length}</span>`:''}</button>`).join('');
+    const rows = families.map(f=>{
+      const und=f.alts.filter(a=>state.dec[a.id]==='undecided').length; const done = !und || state.picked[f.id];
+      return `<div class="rounded-lg border border-line bg-card ${done?'opacity-60':''}">
+        <div class="px-3 py-2 flex items-center gap-2 text-[12px] border-b border-line">
+          <span class="font-mono text-fg/90">${f.source.name}</span><span class="text-dim">v${f.source.v}${state.picked[f.id]?' → v'+(f.source.v+1):''}</span><span class="text-dim">· ${f.alts.length} alternatives</span>
+          <span class="ml-auto text-[11px] ${done?'text-ok':'text-mute'}">${done?icon('check','h-3 w-3 inline')+' reviewed':und+' to review'}</span>
+        </div>
+        <div class="px-3 pt-2 text-[11px] text-dim truncate">${f.thread} · ${f.when} · ${f.model}</div>
+        <div class="p-3 flex flex-wrap gap-2">
+          <div class="w-[92px]"><div class="img ${f.source.cls} aspect-video grain opacity-80"></div><div class="mt-1 text-[10px] text-dim text-center">source v${f.source.v}</div></div>
+          <div class="w-px bg-line self-stretch"></div>
+          ${f.alts.map((a,i)=>{const d=state.dec[a.id]; const p=state.picked[f.id]===a.id; return `<div class="w-[92px]">
+            <div class="relative ${stateCls(a.id)} cursor-pointer" onclick="${f===F?`selectAlt('${a.id}')`:''}"><div class="img ${a.cls} aspect-video grain"></div>${badge(a.id)}</div>
+            <div class="mt-1 flex items-center justify-center gap-0.5">
+              <button title="Keep" onclick="keep('${a.id}')" class="h-5 w-5 grid place-items-center rounded hover:bg-white/10 ${d==='kept'?'text-ok':'text-mute'}">${icon('check','h-3 w-3')}</button>
+              <button title="Drop" onclick="reject('${a.id}')" class="h-5 w-5 grid place-items-center rounded hover:bg-white/10 ${d==='rejected'?'text-bad':'text-mute'}">${icon('x','h-3 w-3')}</button>
+              <button title="Use as current" onclick="pick('${a.id}')" class="h-5 w-5 grid place-items-center rounded hover:bg-white/10 ${p?'text-fg':'text-mute'} ${d==='rejected'?'opacity-30 pointer-events-none':''}">${icon('arrow-up-to-line','h-3 w-3')}</button>
+            </div></div>`;}).join('')}
+        </div>
+        <div class="px-3 pb-2.5 flex items-center gap-2 text-[11.5px]">
+          <span class="text-dim">Drop the rest when you're done.</span>
+          <button onclick="resolve('${f.id}')" class="ml-auto h-6 px-2 rounded-md ring-1 ring-line hover:bg-white/5 ${done?'opacity-40 pointer-events-none':''}">Resolve</button>
+        </div>
+      </div>`; }).join('');
+    el.innerHTML = `<div class="px-3 pt-2 pb-1 flex gap-1 overflow-x-auto border-b border-line">${chips}</div>
+      <div class="p-3 space-y-3">
+        <p class="text-[12px] text-mute">Families with alternatives nobody has judged yet, across all threads in this project.</p>
+        ${rows}
+      </div>`;
+  }
+}
+
+// lightbox
+function renderLightbox(){
+  const el=document.getElementById('lightbox'); el.hidden=!state.lb; if(!state.lb) return;
+  const a=F.alts[state.focus]; const d=state.dec[a.id]; const isPicked=state.picked[F.id]===a.id;
+  const chip = isPicked?`<span class="h-5 px-1.5 rounded bg-fg text-bg text-[10px] font-medium">current poster.png</span>`:d==='kept'?`<span class="h-5 px-1.5 rounded bg-ok/15 text-ok text-[11px] flex items-center gap-1">${icon('check','h-3 w-3')}kept</span>`:d==='rejected'?`<span class="h-5 px-1.5 rounded bg-white/10 text-mute text-[11px] flex items-center gap-1">${icon('x','h-3 w-3')}dropped</span>`:`<span class="h-5 px-1.5 rounded bg-white/5 text-dim text-[11px]">undecided</span>`;
+  const kept=F.alts.filter(x=>state.dec[x.id]==='kept').length, rej=F.alts.filter(x=>state.dec[x.id]==='rejected').length;
+  el.innerHTML = `
+    <div class="h-12 px-4 flex items-center gap-3 text-[12px]">
+      <span class="font-mono">${a.name}</span><span class="text-dim">v1 · 1536×864</span>${chip}
+      <span class="text-dim">· ${a.note} · Seedream 5 Pro · 4 cr</span>
+      <span class="ml-auto text-mute">${state.focus+1} / ${F.alts.length}</span>
+      <span class="text-dim">·</span><span class="text-ok">${kept} kept</span><span class="text-dim">${rej} dropped</span>
+      <button onclick="closeLb()" class="h-8 w-8 grid place-items-center rounded-md hover:bg-white/10 text-mute ml-2">${icon('x','h-4 w-4')}</button>
+    </div>
+    <div class="flex-1 min-h-0 px-16 flex items-center justify-center gap-4 relative">
+      <button onclick="nav(-1)" class="absolute left-4 h-10 w-10 grid place-items-center rounded-full bg-white/5 hover:bg-white/10 text-mute">${icon('chevron-left','h-5 w-5')}</button>
+      ${state.compare?`<div class="flex-1 max-w-[46%]"><div class="img ${F.source.cls} aspect-video grain"></div><div class="mt-2 text-center text-[11px] text-dim">source · poster.png@3</div></div>`:''}
+      <div class="flex-1 ${state.compare?'max-w-[46%]':'max-w-[1100px]'}"><div class="img ${a.cls} aspect-video grain ${d==='rejected'?'opacity-50':''}"></div><div class="mt-2 text-center text-[11px] text-dim">${state.compare?a.name:''}</div></div>
+      <button onclick="nav(1)" class="absolute right-4 h-10 w-10 grid place-items-center rounded-full bg-white/5 hover:bg-white/10 text-mute">${icon('chevron-right','h-5 w-5')}</button>
+    </div>
+    <div class="px-4 pb-3">
+      <div class="flex items-center justify-center gap-2">
+        <button onclick="keep('${a.id}')" class="h-8 px-3 rounded-md ring-1 ring-line2 hover:bg-white/10 flex items-center gap-1.5 text-[12px] ${d==='kept'?'text-ok ring-ok/50':''}">${icon('check')}${d==='kept'?'Kept':'Keep'} <kbd>Space</kbd></button>
+        <button onclick="reject('${a.id}')" class="h-8 px-3 rounded-md ring-1 ring-line2 hover:bg-white/10 flex items-center gap-1.5 text-[12px] ${d==='rejected'?'text-bad ring-bad/50':''}">${icon('x')}${d==='rejected'?'Dropped':'Drop'} <kbd>⌫</kbd></button>
+        <button onclick="state.compare=!state.compare;render()" class="h-8 px-3 rounded-md ring-1 ring-line2 hover:bg-white/10 flex items-center gap-1.5 text-[12px] ${state.compare?'bg-white/10':''}">${icon('columns-2')}Compare with source <kbd>C</kbd></button>
+        <button onclick="pick('${a.id}')" class="h-8 px-3 rounded-md bg-fg text-bg font-medium flex items-center gap-1.5 text-[12px] ${d==='rejected'||isPicked?'opacity-40 pointer-events-none':''}">${icon('arrow-up-to-line')}Use as current <kbd class="!text-bg/60 !border-bg/20">↵</kbd></button>
+      </div>
+      <div class="mt-3 flex items-center justify-center gap-2">
+        <div class="w-[120px] opacity-70"><div class="img ${F.source.cls} aspect-video grain"></div><div class="mt-1 text-[10px] text-dim text-center">source v3</div></div>
+        <div class="w-px h-10 bg-line"></div>
+        ${F.alts.map((x,i)=>`<div class="w-[120px] cursor-pointer" onclick="state.focus=${i};render()"><div class="relative ${stateCls(x.id)} ${i===state.focus?'focus-ring rounded-md':''}"><div class="img ${x.cls} aspect-video grain"></div>${badge(x.id)}</div><div class="mt-1 text-[10px] text-dim text-center font-mono">alt${i+1}</div></div>`).join('')}
+      </div>
+      <div class="mt-2 text-center text-[11px] text-dim"><kbd>←</kbd> <kbd>→</kbd> move · <kbd>Space</kbd> keep · <kbd>⌫</kbd> drop · <kbd>↵</kbd> use as current · <kbd>C</kbd> compare · <kbd>Esc</kbd> close</div>
+    </div>`;
+}
+function nav(d){ state.focus=(state.focus+d+F.alts.length)%F.alts.length; render(); }
+document.addEventListener('keydown', e => {
+  if(!state.lb) return; const a=F.alts[state.focus];
+  if(e.key==='ArrowRight') nav(1); else if(e.key==='ArrowLeft') nav(-1);
+  else if(e.key===' ') { e.preventDefault(); keep(a.id); }
+  else if(e.key==='Backspace'||e.key==='x') reject(a.id);
+  else if(e.key==='Enter') pick(a.id);
+  else if(e.key==='c') { state.compare=!state.compare; render(); }
+  else if(e.key==='Escape') closeLb();
+});
+
+// shell
+const notes = { a:'Decisions live on the tool card. Hover a tile.', b:'Click a tile (or “Review 5”) for the full-screen filmstrip. Keyboard-driven.', c:'Browse → Needs review lists every unjudged set in the project.' };
+function setOpt(o){ state.opt=o; state.lb = o==='b'; state.insp = o==='c' ? 'browse' : 'inspect'; render(); }
+function setInspTab(t){ state.insp=t; render(); }
+function render(){
+  document.querySelectorAll('.opt').forEach(b=>b.className='opt h-7 px-3 rounded-md ring-1 '+(b.dataset.opt===state.opt?'ring-line2 bg-white/[.08] text-fg':'ring-line text-mute hover:text-fg hover:bg-white/5'));
+  document.getElementById('opt-note').textContent=notes[state.opt];
+  const all=Object.values(state.dec); document.getElementById('summary').textContent=`${all.filter(d=>d==='kept').length} kept · ${all.filter(d=>d==='rejected').length} dropped · ${all.filter(d=>d==='undecided').length} undecided`;
+  renderToolCard(); renderInspector(); renderLightbox();
+  const picked=state.picked[F.id]; document.getElementById('composer-chips').innerHTML = picked ? `<span class="h-6 pl-1 pr-2 rounded-md bg-white/[.06] flex items-center gap-1.5 text-[11.5px]"><span class="img ${altById(picked).cls} h-4 w-6"></span>poster.png@4 ${icon('x','h-3 w-3 text-mute')}</span>` : '';
+  lucide.createIcons();
+}
+resetState();
+const q=new URLSearchParams(location.search); if(q.get('opt')) setOpt(q.get('opt'));
+if(q.get('demo')){ keep('p2'); keep('p4'); reject('p5'); if(q.get('opt')==='c'){ keep('l1'); } }
+</script>
+</body>
+</html>
