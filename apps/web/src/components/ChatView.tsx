@@ -623,6 +623,7 @@ const DevicePanel = lazy(() =>
   import("./device/DevicePanel").then((module) => ({ default: module.DevicePanel })),
 );
 const FilePreviewPanel = lazy(() => import("./files/FilePreviewPanel"));
+const ImagesPanel = lazy(() => import("./images/ImagesPanel"));
 const EMPTY_PENDING_FILE_SURFACE_IDS: ReadonlySet<string> = new Set();
 const TYPE_TO_FOCUS_EDITABLE_SELECTOR = [
   "input",
@@ -4566,6 +4567,10 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef) return;
     useRightPanelStore.getState().open(activeThreadRef, "agents");
   }, [activeThreadRef]);
+  const addImagesSurface = useCallback(() => {
+    if (!activeThreadRef || !activeProject) return;
+    useRightPanelStore.getState().open(activeThreadRef, "images");
+  }, [activeProject, activeThreadRef]);
   const supportsThreadPullRequests =
     serverConfig?.environment.capabilities.threadPullRequests === true;
   const visiblePullRequests = visibleThreadPullRequests(
@@ -9636,6 +9641,16 @@ export default function ChatView(props: ChatViewProps) {
         environmentId={activeThreadRef?.environmentId ?? null}
         threadId={activeThreadRef?.threadId ?? null}
       />
+    ) : renderedRightPanelSurface?.kind === "images" && activeProject && activeWorkspaceRoot ? (
+      <Suspense fallback={null}>
+        <ImagesPanel
+          key={`${activeThreadRef.environmentId}:${activeWorkspaceRoot}`}
+          environmentId={activeThreadRef.environmentId}
+          cwd={activeWorkspaceRoot}
+          threadId={isServerThread ? activeThreadRef.threadId : null}
+          composerDraftTarget={composerDraftTarget}
+        />
+      </Suspense>
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>
         <DevicePanel
@@ -10292,6 +10307,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequest={addPullRequestSurface}
           onAddPullRequests={addPullRequestsSurface}
           onAddAgents={addAgentsSurface}
+          onAddImages={addImagesSurface}
           onAddDevice={addDeviceSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           terminalAvailable={activeProject !== null}
@@ -10300,6 +10316,7 @@ export default function ChatView(props: ChatViewProps) {
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
           agentsAvailable
+          imagesAvailable={activeProject !== null}
           deviceAvailable={activeThreadRef !== null}
           liveAgentCount={agentPanelModel.liveCount}
         >
@@ -10349,6 +10366,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddPullRequest={addPullRequestSurface}
             onAddPullRequests={addPullRequestsSurface}
             onAddAgents={addAgentsSurface}
+            onAddImages={addImagesSurface}
             onAddDevice={addDeviceSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             terminalAvailable={activeProject !== null}
@@ -10357,6 +10375,7 @@ export default function ChatView(props: ChatViewProps) {
             pullRequestAvailable={pullRequestSurfaceAvailable}
             pullRequestsAvailable={pullRequestsSurfaceAvailable}
             agentsAvailable
+            imagesAvailable={activeProject !== null}
             deviceAvailable={activeThreadRef !== null}
             liveAgentCount={agentPanelModel.liveCount}
           >

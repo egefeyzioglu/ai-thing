@@ -22,10 +22,6 @@
  */
 import { ClaudeDriver, type ClaudeDriverEnv } from "./Drivers/ClaudeDriver.ts";
 import { CodexDriver, type CodexDriverEnv } from "./Drivers/CodexDriver.ts";
-import { CursorDriver, type CursorDriverEnv } from "./Drivers/CursorDriver.ts";
-import { GrokDriver, type GrokDriverEnv } from "./Drivers/GrokDriver.ts";
-import { OpenCodeDriver, type OpenCodeDriverEnv } from "./Drivers/OpenCodeDriver.ts";
-import { AntigravityDriver, type AntigravityDriverEnv } from "./Drivers/AntigravityDriver.ts";
 import type { AnyProviderDriver } from "./ProviderDriver.ts";
 
 /**
@@ -33,24 +29,15 @@ import type { AnyProviderDriver } from "./ProviderDriver.ts";
  * driver. The registry layer declares `R = BuiltInDriversEnv`; the runtime
  * layer must provide every service in this union.
  */
-export type BuiltInDriversEnv =
-  | ClaudeDriverEnv
-  | CodexDriverEnv
-  | CursorDriverEnv
-  | GrokDriverEnv
-  | OpenCodeDriverEnv
-  | AntigravityDriverEnv;
+export type BuiltInDriversEnv = ClaudeDriverEnv | CodexDriverEnv;
 
 /**
- * Ordered list of built-in drivers. Order matters only for tie-breaking in
+ * Ordered list of built-in drivers. The AI Thing fork ships only Codex and
+ * Claude. Order matters only for tie-breaking in
  * UI presentation — the registry itself is keyed by `driverKind`, so
  * iteration order has no functional effect on instance lookup.
  */
 export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv>> = [
   CodexDriver,
   ClaudeDriver,
-  CursorDriver,
-  GrokDriver,
-  OpenCodeDriver,
-  AntigravityDriver,
 ];

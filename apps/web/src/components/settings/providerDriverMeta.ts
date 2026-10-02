@@ -90,7 +90,11 @@ const PROVIDER_CLIENT_DEFINITION_BY_VALUE: Partial<
   PROVIDER_CLIENT_DEFINITIONS.map((definition) => [definition.value, definition]),
 );
 
-export const DRIVER_OPTIONS = PROVIDER_CLIENT_DEFINITIONS;
+/** Drivers the AI Thing fork exposes in the UI; the by-value map stays complete. */
+const SUPPORTED_DRIVER_KINDS: ReadonlySet<string> = new Set(["codex", "claudeAgent"]);
+
+export const DRIVER_OPTIONS: readonly ProviderClientDefinition[] =
+  PROVIDER_CLIENT_DEFINITIONS.filter((definition) => SUPPORTED_DRIVER_KINDS.has(definition.value));
 export const DRIVER_OPTION_BY_VALUE = PROVIDER_CLIENT_DEFINITION_BY_VALUE;
 export type DriverOption = ProviderClientDefinition;
 

@@ -144,6 +144,7 @@ import { linkCreatedPullRequest } from "./git/linkCreatedPullRequest.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
+import { ImageStore } from "./images/ImageStore.ts";
 import * as NewProject from "./project/NewProject.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
@@ -622,6 +623,7 @@ const makeWsRpcLayer = (
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
       const worktreeSetupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
       const projectCloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
+      const imageStore = yield* ImageStore;
       const repositoryIdentityResolver =
         yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
       // Clone hooks run on the tracker's fiber, outside any RPC, so the
@@ -3319,6 +3321,60 @@ const makeWsRpcLayer = (
         [WS_METHODS.subscribeProjectClones]: () =>
           observeRpcStream(WS_METHODS.subscribeProjectClones, projectCloneTracker.stream, {
             "rpc.aggregate": "source-control",
+          }),
+        [WS_METHODS.imagesIndex]: (input) =>
+          observeRpcEffect(WS_METHODS.imagesIndex, imageStore.index(input.cwd), {
+            "rpc.aggregate": "images",
+          }),
+        [WS_METHODS.imagesVersions]: (input) =>
+          observeRpcEffect(WS_METHODS.imagesVersions, imageStore.versions(input.cwd, input.path), {
+            "rpc.aggregate": "images",
+          }),
+        [WS_METHODS.imagesFamily]: (input) =>
+          observeRpcEffect(WS_METHODS.imagesFamily, imageStore.family(input.cwd, input.path), {
+            "rpc.aggregate": "images",
+          }),
+        [WS_METHODS.imagesStar]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.imagesStar,
+            imageStore.star(input.cwd, input.path, input.starred),
+            { "rpc.aggregate": "images" },
+          ),
+        [WS_METHODS.imagesReject]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.imagesReject,
+            imageStore.reject(input.cwd, input.path, input.version, input.rejected),
+            { "rpc.aggregate": "images" },
+          ),
+        [WS_METHODS.imagesRelink]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.imagesRelink,
+            imageStore.relink(input.cwd, input.path, input.version, input.parents),
+            { "rpc.aggregate": "images" },
+          ),
+        [WS_METHODS.imagesPick]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.imagesPick,
+            imageStore.pick(input.cwd, input.from, input.to, input.threadId),
+            { "rpc.aggregate": "images" },
+          ),
+        [WS_METHODS.imagesRestore]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.imagesRestore,
+            imageStore.restore(input.cwd, input.path, input.version, input.threadId),
+            { "rpc.aggregate": "images" },
+          ),
+        [WS_METHODS.imagesGenerate]: (input) =>
+          observeRpcEffect(WS_METHODS.imagesGenerate, imageStore.generate(input), {
+            "rpc.aggregate": "images",
+          }),
+        [WS_METHODS.imagesListModels]: () =>
+          observeRpcEffect(WS_METHODS.imagesListModels, imageStore.listModels(), {
+            "rpc.aggregate": "images",
+          }),
+        [WS_METHODS.subscribeImages]: (input) =>
+          observeRpcStream(WS_METHODS.subscribeImages, imageStore.subscribe(input.cwd), {
+            "rpc.aggregate": "images",
           }),
         [WS_METHODS.sourceControlPublishRepository]: (input) =>
           observeRpcEffect(

@@ -285,6 +285,24 @@ import {
   SourceControlRepositoryLookupInput,
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
+import {
+  ImageCommitResult,
+  ImageFamilyGraph,
+  ImageIndex,
+  ImageManifest,
+  ImagesError,
+  ImagesGenerateInput,
+  ImagesIndexInput,
+  ImagesListModelsInput,
+  ImagesListModelsResult,
+  ImagesPathInput,
+  ImagesPickInput,
+  ImagesRejectInput,
+  ImagesRelinkInput,
+  ImagesRestoreInput,
+  ImagesStarInput,
+  ImagesSubscribeInput,
+} from "./images.ts";
 
 export const WS_METHODS = {
   // Project registry methods
@@ -446,6 +464,19 @@ export const WS_METHODS = {
   projectCloneCancel: "projectClone.cancel",
   projectCloneRetry: "projectClone.retry",
   subscribeProjectClones: "subscribeProjectClones",
+
+  // Versioned project images
+  imagesIndex: "images.index",
+  imagesVersions: "images.versions",
+  imagesFamily: "images.family",
+  imagesStar: "images.star",
+  imagesReject: "images.reject",
+  imagesRelink: "images.relink",
+  imagesPick: "images.pick",
+  imagesRestore: "images.restore",
+  imagesGenerate: "images.generate",
+  imagesListModels: "images.listModels",
+  subscribeImages: "subscribeImages",
 
   // Streaming subscriptions
   subscribeVcsStatus: "subscribeVcsStatus",
@@ -960,6 +991,64 @@ const WsSubscribeProjectClonesRpc = Rpc.make(WS_METHODS.subscribeProjectClones, 
   payload: ProjectCloneSubscribeInput,
   success: ProjectCloneListEvent,
   error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
+const ImagesRpcError = Schema.Union([ImagesError, EnvironmentAuthorizationError]);
+const WsImagesIndexRpc = Rpc.make(WS_METHODS.imagesIndex, {
+  payload: ImagesIndexInput,
+  success: ImageIndex,
+  error: ImagesRpcError,
+});
+const WsImagesVersionsRpc = Rpc.make(WS_METHODS.imagesVersions, {
+  payload: ImagesPathInput,
+  success: ImageManifest,
+  error: ImagesRpcError,
+});
+const WsImagesFamilyRpc = Rpc.make(WS_METHODS.imagesFamily, {
+  payload: ImagesPathInput,
+  success: ImageFamilyGraph,
+  error: ImagesRpcError,
+});
+const WsImagesStarRpc = Rpc.make(WS_METHODS.imagesStar, {
+  payload: ImagesStarInput,
+  success: ImageManifest,
+  error: ImagesRpcError,
+});
+const WsImagesRejectRpc = Rpc.make(WS_METHODS.imagesReject, {
+  payload: ImagesRejectInput,
+  success: ImageManifest,
+  error: ImagesRpcError,
+});
+const WsImagesRelinkRpc = Rpc.make(WS_METHODS.imagesRelink, {
+  payload: ImagesRelinkInput,
+  success: ImageManifest,
+  error: ImagesRpcError,
+});
+const WsImagesPickRpc = Rpc.make(WS_METHODS.imagesPick, {
+  payload: ImagesPickInput,
+  success: ImageCommitResult,
+  error: ImagesRpcError,
+});
+const WsImagesRestoreRpc = Rpc.make(WS_METHODS.imagesRestore, {
+  payload: ImagesRestoreInput,
+  success: ImageCommitResult,
+  error: ImagesRpcError,
+});
+const WsImagesGenerateRpc = Rpc.make(WS_METHODS.imagesGenerate, {
+  payload: ImagesGenerateInput,
+  success: ImageCommitResult,
+  error: ImagesRpcError,
+});
+const WsImagesListModelsRpc = Rpc.make(WS_METHODS.imagesListModels, {
+  payload: ImagesListModelsInput,
+  success: ImagesListModelsResult,
+  error: ImagesRpcError,
+});
+const WsSubscribeImagesRpc = Rpc.make(WS_METHODS.subscribeImages, {
+  payload: ImagesSubscribeInput,
+  success: ImageIndex,
+  error: ImagesRpcError,
   stream: true,
 });
 
@@ -1526,6 +1615,17 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectCloneCancelRpc,
   WsProjectCloneRetryRpc,
   WsSubscribeProjectClonesRpc,
+  WsImagesIndexRpc,
+  WsImagesVersionsRpc,
+  WsImagesFamilyRpc,
+  WsImagesStarRpc,
+  WsImagesRejectRpc,
+  WsImagesRelinkRpc,
+  WsImagesPickRpc,
+  WsImagesRestoreRpc,
+  WsImagesGenerateRpc,
+  WsImagesListModelsRpc,
+  WsSubscribeImagesRpc,
   WsProjectsListEntriesRpc,
   WsProjectsReadFileRpc,
   WsProjectsSearchContentsRpc,

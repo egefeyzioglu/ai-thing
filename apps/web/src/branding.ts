@@ -16,12 +16,16 @@ export const HOSTED_APP_CHANNEL =
   hostedAppChannel === "latest" || hostedAppChannel === "nightly" ? hostedAppChannel : null;
 export const HOSTED_APP_CHANNEL_LABEL =
   HOSTED_APP_CHANNEL === "nightly" ? "Nightly" : HOSTED_APP_CHANNEL === "latest" ? "Latest" : null;
-export const APP_BASE_NAME = injectedDesktopAppBranding?.baseName ?? "T3 Code";
+export const APP_BASE_NAME = injectedDesktopAppBranding?.baseName ?? "AI Thing";
 export const APP_STAGE_LABEL =
   injectedDesktopAppBranding?.stageLabel ??
   HOSTED_APP_CHANNEL_LABEL ??
   (import.meta.env.DEV ? "Dev" : "Alpha");
+// AI Thing fork: no "(Alpha)"/"(Dev)" suffix on the product name. Hosted
+// channel builds still carry their channel label.
 export const APP_DISPLAY_NAME =
   injectedDesktopAppBranding?.displayName ??
-  formatAppDisplayName({ baseName: APP_BASE_NAME, stageLabel: APP_STAGE_LABEL });
+  (HOSTED_APP_CHANNEL_LABEL === null
+    ? APP_BASE_NAME
+    : formatAppDisplayName({ baseName: APP_BASE_NAME, stageLabel: APP_STAGE_LABEL }));
 export const APP_VERSION = import.meta.env.APP_VERSION || "0.0.0";

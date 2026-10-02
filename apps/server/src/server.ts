@@ -3,11 +3,7 @@ import * as NodeHttp from "node:http";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import {
-  EnvironmentHttpApi,
-  ProviderDriverKind,
-  type RepositoryIdentity,
-} from "@t3tools/contracts";
+import { EnvironmentHttpApi, type RepositoryIdentity } from "@t3tools/contracts";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -112,6 +108,8 @@ import * as VcsProcess from "./vcs/VcsProcess.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
+import * as ImageAgentWriteRelay from "./images/ImageAgentWriteRelay.ts";
+import * as ImageStore from "./images/ImageStore.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
@@ -385,6 +383,12 @@ const ProjectCloneTrackerLayerLive = ProjectCloneTracker.layer.pipe(
   Layer.provide(SourceControlRepositoryServiceLayerLive),
 );
 
+// Versioned project images: the store is the one writer; the relay attributes
+// agent file writes to threads. Both reach every transport (WebSocket and MCP).
+const ImagesLayerLive = ImageAgentWriteRelay.layer.pipe(
+  Layer.provideMerge(ImageStore.layer.pipe(Layer.provide(WorkspacePaths.layer))),
+);
+
 const ReviewLayerLive = ReviewService.layer.pipe(
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(VcsDriverRegistryLayerLive),
@@ -522,6 +526,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   ),
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(VcsLayerLive),
+  Layer.provideMerge(ImagesLayerLive),
   Layer.provideMerge(ProviderRuntimeLayerLive),
   Layer.provideMerge(Layer.mergeAll(TerminalLayerLive, PreviewLayerLive, DeviceLayerLive)),
   Layer.provideMerge(PersistenceLayerLive),

@@ -1,3 +1,11 @@
+# AI Thing (fork of T3 Code)
+
+- This repository is the **AI Thing** fork of T3 Code; the user-facing product name is "AI Thing".
+- T3 Tools Inc.'s MIT licence, copyright lines, and third-party licence notices must stay intact.
+- Package names (`@t3tools/*`, `t3`), `T3CODE_*` env vars, and the `t3-code` MCP server name are unchanged.
+- Only the Codex and Claude providers are supported; do not re-enable other drivers.
+- The upstream T3 Code guidelines below still apply unless they conflict with the above.
+
 # T3 Code
 
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web, desktop, and mobile clients.

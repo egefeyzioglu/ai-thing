@@ -18,6 +18,7 @@ import { PreviewAutomationError } from "@t3tools/contracts";
 import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
 import * as DeviceService from "../device/DeviceService.ts";
+import { ImagesToolkitRegistrationLive } from "./ImagesToolRegistration.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
@@ -671,4 +672,5 @@ export const layer = Layer.mergeAll(
   PreviewToolkitRegistrationLive,
   PullRequestsToolkitRegistrationLive,
   DeviceToolkitRegistrationLive,
+  ImagesToolkitRegistrationLive,
 ).pipe(Layer.provideMerge(McpTransportLive));

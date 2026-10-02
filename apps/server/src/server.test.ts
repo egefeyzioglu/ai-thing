@@ -157,6 +157,7 @@ import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
+import { ImageStore } from "./images/ImageStore.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
@@ -853,6 +854,7 @@ const buildAppUnderTest = (options?: {
             currentReadiness: () => Effect.succeed(null),
             sessionsForThread: () => Effect.succeed([]),
           }),
+          Layer.mock(ImageStore)({ providerEnvFiles: [] }),
         ),
       ),
       Layer.provide(

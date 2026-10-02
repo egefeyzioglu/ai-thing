@@ -123,6 +123,7 @@ function renderTabs(
       onAddDiff={() => undefined}
       onAddFiles={() => undefined}
       onAddAgents={() => undefined}
+      onAddImages={() => undefined}
       onAddDevice={() => undefined}
       liveAgentCount={0}
       browserAvailable
@@ -132,6 +133,7 @@ function renderTabs(
       pullRequestAvailable={false}
       pullRequestsAvailable={false}
       agentsAvailable={false}
+      imagesAvailable={false}
       deviceAvailable={false}
     >
       <div>content</div>
