@@ -313,18 +313,24 @@ export const make = Effect.gen(function* () {
     }
   };
 
-  /** Watch `start` and everything below it; adopt untracked files on the way. Returns whether anything was captured. */
-  const walk = (
+  /**
+   * Watch `start` and everything below it; adopt untracked files on the way.
+   * A generator so the initial walk of a large project can yield to the event
+   * loop between directories; returns whether anything was captured.
+   */
+  function* walkSteps(
     root: string,
     project: WatchedProject,
     start: string,
     adopted: { count: number },
-  ) => {
+  ): Generator<void, boolean> {
     let captured = false;
     // One read of the store for the whole walk; `append` keeps the list current.
     const manifests = VersionStore.readAllManifests(root);
     const stack = [start];
     while (stack.length) {
+      // The project was released while we were walking.
+      if (watched.get(root) !== project) return captured;
       const dir = stack.pop()!;
       if (!watchDir(root, project, dir)) continue;
       let entries: NodeFS.Dirent[];
@@ -362,9 +368,38 @@ export const make = Effect.gen(function* () {
           logWarning("image watcher could not adopt file", { rel, cause: String(cause) });
         }
       }
+      yield;
     }
     return captured;
+  }
+
+  /** Synchronous walk for small subtrees that appear while watching. */
+  const walk = (
+    root: string,
+    project: WatchedProject,
+    start: string,
+    adopted: { count: number },
+  ) => {
+    const steps = walkSteps(root, project, start, adopted);
+    for (;;) {
+      const step = steps.next();
+      if (step.done) return step.value;
+    }
   };
+
+  /** The initial walk of a project, yielding between directories so the server stays responsive. */
+  const walkInBackground = (root: string, project: WatchedProject) =>
+    Effect.gen(function* () {
+      const steps = walkSteps(root, project, root, { count: 0 });
+      for (;;) {
+        const step = steps.next();
+        if (step.done) {
+          if (step.value) publishUnsafe(root);
+          return;
+        }
+        yield* Effect.yieldNow;
+      }
+    });
 
   const onWatchEvent = (root: string, project: WatchedProject, dir: string, filename: string) => {
     const abs = NodePath.join(dir, filename);
@@ -417,11 +452,12 @@ export const make = Effect.gen(function* () {
     project.dirs.clear();
   };
 
-  const startWatcher = (root: string) => {
+  /** Registers a subscriber; returns the project when its watcher still needs the initial walk. */
+  const startWatcher = (root: string): WatchedProject | null => {
     const existing = watched.get(root);
     if (existing) {
       existing.subscribers++;
-      return;
+      return null;
     }
     const project: WatchedProject = {
       dirs: new Map(),
@@ -430,7 +466,7 @@ export const make = Effect.gen(function* () {
       subscribers: 1,
     };
     watched.set(root, project);
-    if (walk(root, project, root, { count: 0 })) publishUnsafe(root);
+    return project;
   };
 
   const stopWatcher = (root: string) => {
@@ -455,9 +491,10 @@ export const make = Effect.gen(function* () {
             (mailbox) =>
               Effect.gen(function* () {
                 const subscription = yield* PubSub.subscribe(changes);
-                startWatcher(root);
+                const fresh = startWatcher(root);
                 yield* Effect.addFinalizer(() => Effect.sync(() => stopWatcher(root)));
                 Queue.offerUnsafe(mailbox, yield* indexOf(root));
+                if (fresh) yield* Effect.forkScoped(walkInBackground(root, fresh));
                 yield* Stream.fromSubscription(subscription).pipe(
                   Stream.filter((changed) => changed === root),
                   Stream.mapEffect(() => indexOf(root).pipe(Effect.option)),

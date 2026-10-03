@@ -8,9 +8,10 @@
  * relay only adds who wrote them. Best-effort: a payload we cannot read is
  * skipped, never a reason to fail the stream.
  */
+import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-import type { ProviderRuntimeEvent } from "@t3tools/contracts";
+import { IMAGE_STORE_DIR, type ProviderRuntimeEvent } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
@@ -78,6 +79,10 @@ export const make = Effect.gen(function* () {
       const writes = agentWritesOf(event);
       if (writes.length === 0) return;
       const cwd = yield* images.threadCwd(event.threadId);
+      // Only projects that already use the image store get attributed writes;
+      // otherwise an agent editing a README in a code project would create
+      // `.aithing` there.
+      if (!NodeFS.existsSync(NodePath.join(cwd, IMAGE_STORE_DIR))) return;
       for (const write of writes) {
         const abs = NodePath.isAbsolute(write.path)
           ? write.path

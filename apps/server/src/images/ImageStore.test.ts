@@ -35,7 +35,12 @@ describe("ImageStore", () => {
           const first = yield* Deferred.make<void>();
           const collector = yield* store.subscribe(root).pipe(
             Stream.tap(() => Deferred.succeed(first, undefined)),
-            Stream.take(2),
+            // The publish debounce may group the writes into one or several
+            // emissions; stop once the final state has arrived.
+            Stream.takeUntil((index) => {
+              const entry = index.entries.find((e) => e.path === "a.png");
+              return entry?.starred === true && entry.versions === 2 && entry.rejected;
+            }),
             Stream.runCollect,
             Effect.forkScoped,
           );
@@ -47,16 +52,14 @@ describe("ImageStore", () => {
         }).pipe(Effect.scoped),
       );
 
-      expect(emitted).toHaveLength(2);
+      expect(emitted.length).toBeGreaterThanOrEqual(2);
       const initial = emitted[0]!;
       expect(initial.cwd).toBe(root);
       expect(initial.briefFiles).toEqual(["brief.md"]);
-      expect(initial.entries.map((e) => e.path).sort()).toEqual(["a.png", "brief.md"]);
-      expect(initial.entries.find((e) => e.path === "a.png")).toMatchObject({
-        starred: false,
-        lastKind: "adopt",
-      });
-      expect(emitted[1]!.entries.find((e) => e.path === "a.png")).toMatchObject({
+      // The initial index goes out before the background walk adopts files.
+      const final = emitted[emitted.length - 1]!;
+      expect(final.entries.map((e) => e.path).sort()).toEqual(["a.png", "brief.md"]);
+      expect(final.entries.find((e) => e.path === "a.png")).toMatchObject({
         starred: true,
         versions: 2,
         rejected: true,

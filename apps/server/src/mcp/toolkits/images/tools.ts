@@ -13,12 +13,13 @@ const PATH_HELP =
 const ImagePath = Schema.String.annotate({ description: PATH_HELP });
 const ModelId = Schema.optional(
   Schema.String.annotate({
-    description: "Model id from list_image_models. Defaults to the cheapest available model.",
+    description: "Model id from list_image_models. Defaults to gemini-2.5-flash-image.",
   }),
 );
 const Resolution = Schema.optional(
   ImageResolution.annotate({
-    description: "1K, 2K or 4K; the model must support it. Defaults to 1K.",
+    description:
+      "1K, 2K or 4K; the model must support it. Defaults to 1K, or the model's lowest supported resolution when it has no 1K.",
   }),
 );
 
