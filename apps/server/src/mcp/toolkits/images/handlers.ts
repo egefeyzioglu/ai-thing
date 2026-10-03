@@ -254,9 +254,14 @@ export const make = Effect.gen(function* () {
       const model = input.model ?? ImageProviders.DEFAULT_MODEL;
       const spec = ImageProviders.MODELS[model];
       if (!spec) return yield* fail(`Unknown model "${model}". Call list_image_models.`);
-      const dims = yield* Effect.promise(() =>
-        ImageProviders.dimensions(NodeFS.readFileSync(source.abs)),
-      );
+      const dims = yield* Effect.tryPromise({
+        try: () => ImageProviders.dimensions(NodeFS.readFileSync(source.abs)),
+        catch: (cause) =>
+          new ImagesError({
+            message: `Could not read ${input.path}: ${cause instanceof Error ? cause.message : String(cause)}`,
+            path: input.path,
+          }),
+      });
       const aspectRatio = dims
         ? ImageProviders.closestAspectRatio(spec, dims.width, dims.height)
         : undefined;
