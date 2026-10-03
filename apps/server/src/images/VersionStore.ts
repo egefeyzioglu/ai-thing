@@ -341,7 +341,7 @@ export function pickVersion(
   );
 }
 
-/** Resolve `path` or `path@N` to a readable file. Paths outside the project are allowed read-only when absolute. */
+/** Resolve `path` or `path@N` to a readable file. Outside the project only absolute image paths are readable (references, `view_image`). */
 export function resolveVersionPath(
   root: string,
   ref: string,
@@ -356,6 +356,12 @@ export function resolveVersionPath(
     if (parsed.version !== undefined || !isOutside) {
       throw new VersionStoreError(
         `Path must be inside the project and outside .aithing: ${parsed.path}`,
+        parsed.path,
+      );
+    }
+    if (!isImagePath(parsed.path)) {
+      throw new VersionStoreError(
+        `Only image files can be read from outside the project: ${parsed.path}`,
         parsed.path,
       );
     }
