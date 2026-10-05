@@ -2,12 +2,10 @@
  * All text `t3 triage` hands to the coding agent. Kept as bare template strings
  * on purpose: to change triage behavior, edit the text.
  *
- * `TRIAGE_PLAYBOOK` must stay byte-identical to `.github/triage/PLAYBOOK.md`
+ * `TRIAGE_PLAYBOOK` is a copy of upstream T3 Code's `.github/triage/PLAYBOOK.md`
  * (only backticks and backslashes are escaped here). Agents fetch that file
- * from `main` and
- * follow it when it differs, so old releases pick up playbook edits without a
- * release; this copy is the offline fallback. `triagePrompt.test.ts` fails
- * when the two drift.
+ * from upstream `main` and follow it when it differs; this copy is the offline
+ * fallback. The fork does not ship the playbook file itself.
  */
 
 export const TRIAGE_PLAYBOOK = `# T3 Code triage playbook

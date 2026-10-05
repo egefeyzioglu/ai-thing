@@ -1,7 +1,3 @@
-// @effect-diagnostics nodeBuiltinImport:off
-import * as NodeFS from "node:fs";
-import * as NodePath from "node:path";
-
 import { assert, it } from "@effect/vitest";
 
 import {
@@ -10,18 +6,6 @@ import {
   buildTriageSeedPrompt,
   TRIAGE_PLAYBOOK,
 } from "./triagePrompt.ts";
-
-it("stays byte-identical to .github/triage/PLAYBOOK.md", () => {
-  // Old releases fetch the repo copy from `main` and follow it when it differs
-  // from their bundled playbook. The two must say the same thing at HEAD, or a
-  // playbook edit silently changes behavior only for old (or only for new)
-  // installs. Edit both files together.
-  const canonicalPath = NodePath.join(
-    import.meta.dirname,
-    "../../../../.github/triage/PLAYBOOK.md",
-  );
-  assert.equal(TRIAGE_PLAYBOOK, NodeFS.readFileSync(canonicalPath, "utf8"));
-});
 
 it("seed prompt names the context file and embeds the playbook", () => {
   const prompt = buildTriageSeedPrompt("/tmp/triage-run/context.md");

@@ -146,15 +146,20 @@ describe("provider installation routing", () => {
 
   it.effect("keeps external installs manual without hiding shared install status", () =>
     Effect.gen(function* () {
+      // The fork only ships Codex and Claude, so a custom executable is a Codex binary path.
+      const codexId = ProviderInstanceId.make("codex");
       const harness = yield* makeHarness({
-        settings: { providers: { antigravity: { binaryPath: "/external/agy" } } },
+        instance: instance(ProviderDriverKind.make("codex"), codexId),
+        settings: {
+          providers: { codex: { setupMode: "managed", binaryPath: "/external/codex" } },
+        },
       });
-      const start = yield* Effect.flip(harness.router.start({ instanceId }));
-      const remove = yield* Effect.flip(harness.router.remove({ instanceId }));
+      const start = yield* Effect.flip(harness.router.start({ instanceId: codexId }));
+      const remove = yield* Effect.flip(harness.router.remove({ instanceId: codexId }));
       assert.include(start.detail, "custom executable");
       assert.include(remove.detail, "custom executable");
-      const observed = yield* Stream.runCollect(harness.router.subscribe({ instanceId }));
-      assert.deepEqual(Array.from(observed), [state]);
+      const observed = yield* Stream.runCollect(harness.router.subscribe({ instanceId: codexId }));
+      assert.equal(Array.from(observed)[0]?.driver, "codex");
       assert.deepEqual(harness.calls, []);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );

@@ -2628,7 +2628,7 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
       );
 
       it.effect(
-        "keeps Cursor disabled and skips provider probing when settings use their defaults",
+        "lists only Codex and Claude and never probes Cursor when settings use their defaults",
         () =>
           Effect.gen(function* () {
             const serverSettings = yield* makeMutableServerSettingsService(
@@ -2708,20 +2708,12 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
                 (provider) => provider.instanceId === ProviderInstanceId.make("cursor"),
               );
 
+              // The fork only ships Codex and Claude; Cursor is never listed or probed.
               assert.deepStrictEqual(providers.map((provider) => provider.instanceId).toSorted(), [
-                "antigravity",
                 "claudeAgent",
                 "codex",
-                "cursor",
-                "grok",
-                "opencode",
               ]);
-              assert.strictEqual(cursorProvider?.enabled, false);
-              assert.strictEqual(cursorProvider?.status, "disabled");
-              assert.strictEqual(
-                cursorProvider?.message,
-                "Cursor is disabled in T3 Code settings.",
-              );
+              assert.strictEqual(cursorProvider, undefined);
               assert.strictEqual(cursorSpawned, false);
             }).pipe(Effect.provide(runtimeServices));
           }),
