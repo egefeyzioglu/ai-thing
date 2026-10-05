@@ -19,11 +19,13 @@ local server and serves a web UI (and an Electron desktop app) on top.
 ## Running it
 
 ```bash
-corepack pnpm install
-PATH=$PWD/node_modules/.bin:$PATH node scripts/dev-runner.ts dev --home-dir $PWD/.t3
+pnpm install
+PATH=$PWD/node_modules/.bin:$PATH node scripts/dev-runner.ts dev
 ```
 
 The log prints a pairing URL; open it in your browser to connect to the local server.
+Development state lives under `~/.ai-thing` (pass `--home-dir <dir>` to use another
+directory), so it never touches an installed T3 Code's `~/.t3`.
 
 Install and sign in to at least one provider first:
 
@@ -39,6 +41,7 @@ Image models are called with API keys read from a gitignored `.env` at the repo 
 GEMINI_API_KEY=...
 OPENAI_API_KEY=...
 ARK_API_KEY=...
+ANTHROPIC_API_KEY=...
 ```
 
 Only the keys for the models you want to use are required.
@@ -52,6 +55,6 @@ vp lint <files>
 
 ## Attribution
 
-AI Thing is a fork of [T3 Code](https://github.com/pingdotgg/t3code) by T3 Tools Inc.,
-used under the MIT License; see [LICENSE](./LICENSE). Package names (`@t3tools/*`, `t3`),
-environment variables (`T3CODE_*`), and third-party licence notices are kept from upstream.
+AI Thing is a fork of T3 Code by T3 Tools Inc. It is used under the MIT License; see
+[LICENSE](./LICENSE). Package names (`@t3tools/*`, `t3`), environment variables (`T3CODE_*`),
+and third-party licence notices are kept from upstream.

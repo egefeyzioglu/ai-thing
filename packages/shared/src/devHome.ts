@@ -1,6 +1,6 @@
 /**
  * Where development state lives, and how to keep it away from the shared
- * `~/.t3` that an installed T3 Code runs against: AI Thing defaults to `~/.ai-thing`.
+ * `~/.t3` that an installed AI Thing runs against: AI Thing defaults to `~/.ai-thing`.
  *
  * A linked git worktree gets its own (gitignored) `.ai-thing`: feature work in a
  * throwaway branch must not share a database with the real app, and an ambient
