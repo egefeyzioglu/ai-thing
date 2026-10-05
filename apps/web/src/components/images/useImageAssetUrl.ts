@@ -16,7 +16,7 @@ import { useAssetUrlState, type AssetUrlState } from "~/assets/assetUrls";
 import { imagesEnvironment } from "~/state/images";
 
 /** Path of stored version `N` of a tracked file, relative to the workspace root. */
-export function imageVersionStorePath(path: string, version: number): string {
+function imageVersionStorePath(path: string, version: number): string {
   const slash = path.lastIndexOf("/");
   const dot = path.lastIndexOf(".");
   const ext = dot > slash ? path.slice(dot) : "";
@@ -165,7 +165,7 @@ export interface LightboxRequest {
   initialIndex: number;
 }
 
-export function entryToItem(entry: ImageIndexEntry, version = entry.current): ImageVersionItem {
+function entryToItem(entry: ImageIndexEntry, version = entry.current): ImageVersionItem {
   return {
     path: entry.path,
     version,

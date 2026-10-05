@@ -155,15 +155,6 @@ export const ViewImageTool = readonlyTool(
   }).annotate(Tool.Title, "View image"),
 );
 
-export const IMAGE_TOOLS = [
-  ListImageModelsTool,
-  GenerateImageTool,
-  EditImageTool,
-  ImageHistoryTool,
-  RestoreImageVersionTool,
-  ViewImageTool,
-] as const;
-
 export type ListImageModelsInput = Tool.Parameters<typeof ListImageModelsTool>;
 export type GenerateImageInput = Tool.Parameters<typeof GenerateImageTool>;
 export type EditImageInput = Tool.Parameters<typeof EditImageTool>;

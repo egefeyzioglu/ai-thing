@@ -25,7 +25,7 @@ import {
   parseImageVersionRef,
 } from "@t3tools/contracts";
 
-export const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 1;
 
 export type CommitOptions = {
   threadId?: string;
@@ -56,7 +56,7 @@ export function isTextPath(rel: string): boolean {
   return /\.(md|txt)$/i.test(rel);
 }
 /** Any project file may be tracked when a tool writes it; the watcher only auto-captures images and notes. */
-export function isTrackable(rel: string): boolean {
+function isTrackable(rel: string): boolean {
   return (
     !NodePath.isAbsolute(rel) &&
     rel.length > 0 &&
@@ -89,7 +89,7 @@ function checkedRel(root: string, rel: string): string {
   return clean;
 }
 
-export function storeDir(root: string, rel: string): string {
+function storeDir(root: string, rel: string): string {
   return NodePath.join(NodePath.resolve(root), IMAGE_STORE_DIR, checkedRel(root, rel));
 }
 export function versionFile(root: string, rel: string, n: number): string {
@@ -97,11 +97,6 @@ export function versionFile(root: string, rel: string, n: number): string {
     throw new VersionStoreError(`Invalid version number: ${n}`, rel);
   return NodePath.join(storeDir(root, rel), `v${n}${NodePath.extname(rel)}`);
 }
-/** Project-relative path of a version's bytes, for signed asset URLs. */
-export function versionFileRel(rel: string, n: number): string {
-  return `${IMAGE_STORE_DIR}/${rel}/v${n}${NodePath.extname(rel)}`;
-}
-
 export function readManifest(root: string, rel: string): ImageManifest | null {
   let json: string;
   try {
@@ -133,7 +128,7 @@ export function readManifestSafe(root: string, rel: string): ImageManifest | nul
   }
 }
 
-export function sha256(bytes: Buffer): string {
+function sha256(bytes: Buffer): string {
   return NodeCrypto.createHash("sha256").update(bytes).digest("hex");
 }
 
@@ -465,7 +460,7 @@ function sameKind(a: string, b: string): boolean {
 }
 
 /** Guess parents for a first version that arrived untracked: identical bytes, or a `-v2`/`alt1`/`final` style name. */
-export function inferParents(
+function inferParents(
   root: string,
   rel: string,
   bytes: Buffer,

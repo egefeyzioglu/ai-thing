@@ -17,7 +17,7 @@ import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 
 export const THREAD_ID = ThreadId.make("thread-images-1");
 
-export const threadShell = (
+const threadShell = (
   overrides: Partial<OrchestrationThreadShell> = {},
 ): OrchestrationThreadShell => ({
   id: THREAD_ID,

@@ -226,7 +226,7 @@ interface WatchedProject {
   subscribers: number;
 }
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
@@ -789,7 +789,7 @@ export const make = Effect.gen(function* () {
 });
 
 /** `name.png`, then `name-2.png`, ... until neither the file nor a manifest for it exists. */
-export function uniquePath(root: string, rel: string): string {
+function uniquePath(root: string, rel: string): string {
   const ext = NodePath.extname(rel);
   const stem = rel.slice(0, rel.length - ext.length);
   const taken = (candidate: string) =>

@@ -1,10 +1,15 @@
 # AI Thing (fork of T3 Code)
 
-- This repository is the **AI Thing** fork of T3 Code; the user-facing product name is "AI Thing".
+- This repository is the **AI Thing** fork of T3 Code. The user-facing product name is "AI Thing"; this is the default branch and the only app in the repo. The previous Next.js web app lives on the `web` branch and is not developed here.
 - T3 Tools Inc.'s MIT licence, copyright lines, and third-party licence notices must stay intact.
 - Package names (`@t3tools/*`, `t3`), `T3CODE_*` env vars, and the `t3-code` MCP server name are unchanged.
-- Only the Codex and Claude providers are supported; do not re-enable other drivers.
-- The upstream T3 Code guidelines below still apply unless they conflict with the above.
+- Only the Codex and Claude providers are supported. Do not re-enable the other drivers, even where the upstream text below still lists them.
+- The fork adds versioned project images: the `apps/server/src/images` store, the image MCP toolkit under `apps/server/src/mcp/toolkits/images`, and the right panel's Images tab in `apps/web`. Image versions live in a project-local `.aithing/` directory, which the image store excludes from walks.
+- Model provider keys (`OPENAI_API_KEY`, `GEMINI_API_KEY`, `ARK_API_KEY`, `ANTHROPIC_API_KEY`) go in a gitignored `.env` at the repo root; see `.env.example`.
+- Development state defaults to `~/.ai-thing` (and a worktree-local `.ai-thing` inside linked git worktrees), never the installed T3 Code's `~/.t3`. Pass `--home-dir` to the dev runner to override.
+- CI is the trimmed `.github/workflows/ci.yml` plus the PR size labeller. Upstream release, relay, mobile, desktop-preview, vouch, and triage automation has been removed; do not reintroduce it.
+- This is a single-maintainer repo. PRs are still used for review (often opened by agents), so keep the PR template's Problem / Change / Verification sections filled in.
+- The upstream T3 Code guidelines below still apply unless they conflict with the above. Ignore their references to app.t3.codes, T3 Connect, mobile, release channels, and contributor triage.
 
 # T3 Code
 

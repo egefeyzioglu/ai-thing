@@ -123,7 +123,7 @@ const SEEDREAM_SIZES: Record<string, Partial<Record<ImageResolution, Record<stri
   },
 };
 
-export function hasKey(spec: ModelSpec, env: NodeJS.ProcessEnv = process.env): boolean {
+function hasKey(spec: ModelSpec, env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env[spec.key]);
 }
 
@@ -148,7 +148,7 @@ export function estimateCost(model: string, resolution: ImageResolution): number
   return MODELS[model]?.cost[resolution];
 }
 
-export class ImageProviderError extends Error {
+class ImageProviderError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ImageProviderError";
@@ -171,7 +171,7 @@ export type Generated = {
   providerModel: string;
 };
 
-export function ratioValue(ar: string): number {
+function ratioValue(ar: string): number {
   const [w, h] = ar.split(":").map(Number);
   return w! / h!;
 }

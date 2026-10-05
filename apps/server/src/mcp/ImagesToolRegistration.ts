@@ -42,7 +42,7 @@ function failureText(cause: Cause.Cause<unknown>): string {
   return "The image tool failed.";
 }
 
-export function toCallToolResult(output: ImagesToolOutput): McpSchema.CallToolResult {
+function toCallToolResult(output: ImagesToolOutput): McpSchema.CallToolResult {
   return new McpSchema.CallToolResult({
     isError: false,
     structuredContent: output.structured ?? { text: output.text },

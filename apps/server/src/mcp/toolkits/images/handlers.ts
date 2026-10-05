@@ -74,7 +74,7 @@ const readable = (root: string, ref: string): boolean => {
  * image folder. Unresolvable refs are returned as given so the store reports
  * the real error.
  */
-export function locateImageRef(context: ThreadImageContext, ref: string): string {
+function locateImageRef(context: ThreadImageContext, ref: string): string {
   const parsed = parseImageVersionRef(ref);
   if (NodePath.isAbsolute(parsed.path) || readable(context.cwd, ref)) return ref;
   const inFolder = `${context.outputFolder}/${parsed.path}`;
@@ -100,11 +100,7 @@ function describeVersion(v: ImageVersion): string {
   return `${bits.join("  ")}${parents}`;
 }
 
-export function historyText(
-  path: string,
-  manifest: ImageManifest,
-  family: ImageFamilyGraph,
-): string {
+function historyText(path: string, manifest: ImageManifest, family: ImageFamilyGraph): string {
   const current = manifest.versions.find((v) => v.n === manifest.current)!;
   const lines = [
     `${path} — ${manifest.versions.length} version${manifest.versions.length === 1 ? "" : "s"}, current v${manifest.current}${manifest.starred ? ", starred" : ""}`,

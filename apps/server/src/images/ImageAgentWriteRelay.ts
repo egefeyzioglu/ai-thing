@@ -28,7 +28,7 @@ export interface AgentWrite {
 }
 
 /** Paths written by a completed `file_change` item, for Claude (`data.input.file_path`) and Codex (`data.item.changes[].path`). */
-export function agentWritesOf(event: ProviderRuntimeEvent): ReadonlyArray<AgentWrite> {
+function agentWritesOf(event: ProviderRuntimeEvent): ReadonlyArray<AgentWrite> {
   if (event.type !== "item.completed" || event.payload.itemType !== "file_change") return [];
   if (event.payload.status !== undefined && event.payload.status !== "completed") return [];
   const data = event.payload.data;
@@ -70,7 +70,7 @@ export function agentWritesOf(event: ProviderRuntimeEvent): ReadonlyArray<AgentW
   return [];
 }
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const providers = yield* ProviderService.ProviderService;
   const images = yield* ImageStore;
 

@@ -256,7 +256,3 @@ export function parseImageVersionRef(ref: string): { path: string; version?: num
 export function imageVersionRef(path: string, version: number): string {
   return `${path}@${version}`;
 }
-
-export function isImageStorePath(path: string): boolean {
-  return `${IMAGE_STORE_DIR}/${path}`.length > 0 && /(^|\/)\.aithing(\/|$)/.test(path);
-}
