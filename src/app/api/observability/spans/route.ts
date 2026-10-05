@@ -130,22 +130,21 @@ async function readBodyWithinLimit(
   return new TextDecoder().decode(bytes);
 }
 
-async function incrementRateLimit(key: string, now: Date): Promise<number> {
-  const windowCutoff = new Date(now.getTime() - RATE_LIMIT_WINDOW_MS);
+async function incrementRateLimit(key: string): Promise<number> {
   const [limit] = await db
     .insert(observabilityRateLimits)
-    .values({ count: 1, key, windowStartedAt: now })
+    .values({ count: 1, key, windowStartedAt: sql`current_timestamp` })
     .onConflictDoUpdate({
       target: observabilityRateLimits.key,
       set: {
         count: sql<number>`case
-          when ${observabilityRateLimits.windowStartedAt} <= ${windowCutoff}
+          when ${observabilityRateLimits.windowStartedAt} <= current_timestamp - ${RATE_LIMIT_WINDOW_MS / 1_000} * interval '1 second'
             then 1
           else ${observabilityRateLimits.count} + 1
         end`,
         windowStartedAt: sql<Date>`case
-          when ${observabilityRateLimits.windowStartedAt} <= ${windowCutoff}
-            then ${now}
+          when ${observabilityRateLimits.windowStartedAt} <= current_timestamp - ${RATE_LIMIT_WINDOW_MS / 1_000} * interval '1 second'
+            then current_timestamp
           else ${observabilityRateLimits.windowStartedAt}
         end`,
       },
@@ -160,12 +159,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const now = new Date();
-  const userCount = await incrementRateLimit(`user:${userId}`, now);
+  const userCount = await incrementRateLimit(`user:${userId}`);
   if (userCount > MAX_SPANS_PER_USER_PER_MINUTE) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
-  const globalCount = await incrementRateLimit("global", now);
+  const globalCount = await incrementRateLimit("global");
   if (globalCount > MAX_GLOBAL_SPANS_PER_MINUTE) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
