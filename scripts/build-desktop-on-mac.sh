@@ -86,6 +86,7 @@ if ! git -C "$REPO_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$REPO_DIR"
 fi
 cd "$REPO_DIR"
+REPO_DIR="$(pwd -P)"
 
 # 6. Dependencies, scoped to what the desktop build needs (same filters as CI).
 log "Installing dependencies"
@@ -101,7 +102,7 @@ case "$(uname -m)" in
 esac
 log "Building AI Thing DMG for mac/$ARCH"
 OUT_DIR="$REPO_DIR/release"
-T3CODE_DESKTOP_SIGNED=false vp run dist:desktop:artifact --platform mac --target dmg --arch "$ARCH" --output-dir "$OUT_DIR" --verbose
+T3CODE_DESKTOP_SIGNED=false T3CODE_DESKTOP_SKIP_BUILD=false vp run dist:desktop:artifact --platform mac --target dmg --arch "$ARCH" --output-dir "$OUT_DIR" --verbose
 
 log "Done. Artifacts:"
 ls -la "$OUT_DIR"
