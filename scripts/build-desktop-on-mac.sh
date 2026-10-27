@@ -86,7 +86,7 @@ case "$(uname -m)" in
   *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;;
 esac
 log "Building AI Thing DMG for mac/$ARCH"
-vp run dist:desktop:artifact --platform mac --target dmg --arch "$ARCH" --verbose
+T3CODE_DESKTOP_SIGNED=false vp run dist:desktop:artifact --platform mac --target dmg --arch "$ARCH" --verbose
 
 log "Done. Artifacts:"
 ls -la "$REPO_DIR/release"/*.dmg "$REPO_DIR/release"/mac*/*.app 2>/dev/null || ls -la "$REPO_DIR/release"
