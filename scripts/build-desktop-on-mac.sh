@@ -12,7 +12,8 @@
 #
 # Installs only what is missing: Xcode Command Line Tools (not Xcode),
 # Node 24 via nvm, vite-plus (`vp`), and Rust via rustup. No Apple developer
-# account is needed: electron-builder ad-hoc signs the app on Apple Silicon.
+# account is needed: unsigned builds get an ad-hoc signature, which is enough
+# to launch on Apple Silicon but not to pass Gatekeeper on another Mac.
 set -euo pipefail
 
 REPO_URL="https://github.com/egefeyzioglu/ai-thing.git"
@@ -25,9 +26,15 @@ log() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 if ! xcode-select -p >/dev/null 2>&1; then
   log "Installing Xcode Command Line Tools (a GUI dialog will appear; accept it)"
   xcode-select --install || true
+  waited=0
   until xcode-select -p >/dev/null 2>&1; do
+    if [ "$waited" -ge 1800 ]; then
+      echo "Command Line Tools did not finish installing in 30 minutes. Rerun this script after installing them." >&2
+      exit 1
+    fi
     printf '   waiting for the Command Line Tools install to finish...\n'
     sleep 15
+    waited=$((waited + 15))
   done
 fi
 for tool in clang make sips; do
@@ -38,8 +45,15 @@ xcrun --find iconutil >/dev/null
 # 2. Node 24 (repo engines: ^24.13.1).
 export NVM_DIR="$HOME/.nvm"
 if [ -s "$NVM_DIR/nvm.sh" ]; then . "$NVM_DIR/nvm.sh"; fi
-node_major() { node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/'; }
-if [ "$(node_major)" != "24" ]; then
+# Repo engines field: ^24.13.1.
+node_ok() {
+  local v
+  v="$(node -v 2>/dev/null | sed -E 's/^v//')" || return 1
+  [ -n "$v" ] || return 1
+  [ "${v%%.*}" = "24" ] || return 1
+  [ "$(printf '%s\n' "24.13.1" "$v" | sort -V | head -1)" = "24.13.1" ]
+}
+if ! node_ok; then
   log "Installing Node 24 via nvm"
   if [ ! -s "$NVM_DIR/nvm.sh" ]; then
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | PROFILE=/dev/null bash
@@ -67,7 +81,7 @@ fi
 cargo --version
 
 # 5. Source.
-if [ ! -d "$REPO_DIR/.git" ]; then
+if ! git -C "$REPO_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   log "Cloning $REPO_URL ($REPO_BRANCH) into $REPO_DIR"
   git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$REPO_DIR"
 fi
@@ -78,22 +92,23 @@ log "Installing dependencies"
 vp install --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts...
 vp run --filter @t3tools/desktop ensure:electron
 
-# 7. Build the DMG. Unsigned by default: CSC_IDENTITY_AUTO_DISCOVERY is forced
-#    off by the script and electron-builder falls back to an ad-hoc signature.
+# 7. Build the DMG. T3CODE_DESKTOP_SIGNED=false keeps signing off even if the
+#    environment enables it; the artifact script then ad-hoc signs the app.
 case "$(uname -m)" in
   arm64) ARCH=arm64 ;;
   x86_64) ARCH=x64 ;;
   *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;;
 esac
 log "Building AI Thing DMG for mac/$ARCH"
-T3CODE_DESKTOP_SIGNED=false vp run dist:desktop:artifact --platform mac --target dmg --arch "$ARCH" --verbose
+OUT_DIR="$REPO_DIR/release"
+T3CODE_DESKTOP_SIGNED=false vp run dist:desktop:artifact --platform mac --target dmg --arch "$ARCH" --output-dir "$OUT_DIR" --verbose
 
 log "Done. Artifacts:"
-ls -la "$REPO_DIR/release"/*.dmg "$REPO_DIR/release"/mac*/*.app 2>/dev/null || ls -la "$REPO_DIR/release"
+ls -la "$OUT_DIR"
 cat <<'EOF'
 
-Open the .dmg and drag "AI Thing" to Applications, or run the .app directly
-from release/. It was built locally, so Gatekeeper will not quarantine it.
-If you copy the .dmg to another Mac, run this once there:
+Open the .dmg and drag "AI Thing" to Applications (the .zip holds the same
+app). Built locally, it is not quarantined and opens on double click.
+If you copy it to another Mac, clear the quarantine flag there once:
   xattr -dr com.apple.quarantine "/Applications/AI Thing.app"
 EOF

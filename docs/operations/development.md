@@ -17,12 +17,14 @@ Prefer a container? See [Dev container](../internals/devcontainer.md) for VS Cod
 
 ## Unsigned macOS build for a demo
 
-`scripts/build-desktop-on-mac.sh` produces a DMG and `.app` on a Mac without an Apple
-developer account. It installs the Xcode Command Line Tools, Node 24, `vp`, and Rust if they
-are missing, then runs the regular desktop artifact build with signing off, so electron-builder
-ad-hoc signs the app. Run it on the target Mac; the DMG pipeline needs macOS tools. Pass an
-existing checkout as the first argument, or let it clone `main` into `~/ai-thing`
-(`AITHING_BRANCH` picks another branch). Output lands in `release/`.
+`scripts/build-desktop-on-mac.sh` produces a DMG and zip on a Mac without an Apple developer
+account. It installs the Xcode Command Line Tools, Node 24, `vp`, and Rust if they are
+missing, then runs the regular desktop artifact build with signing off. Unsigned macOS builds
+carry an ad-hoc signature so they launch on Apple Silicon; they are not notarized, so another
+Mac must clear the quarantine flag (`xattr -dr com.apple.quarantine`) or approve the app in
+System Settings before it opens. Run the script on the target Mac; the DMG pipeline needs
+macOS tools. Pass an existing checkout as the first argument, or let it clone `main` into
+`~/ai-thing` (`AITHING_BRANCH` picks another branch). Output lands in `release/`.
 
 ## Choosing a dev process
 
