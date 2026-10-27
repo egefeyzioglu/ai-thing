@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
@@ -142,7 +142,7 @@ export const referenceImageRouter = createTRPCRouter({
                 )
               : eq(referenceImages.userId, ctx.user),
           )
-          .orderBy(referenceImages.uploadedAt);
+          .orderBy(desc(referenceImages.uploadedAt));
         return Promise.all(ret.map(async (img) => {
           if(img.url !== null) {
             try {
