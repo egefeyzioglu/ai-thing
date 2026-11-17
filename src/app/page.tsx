@@ -196,9 +196,11 @@ export default function Home() {
       ? 14
       : undefined;
   const modeRef = useRef(mode);
+  const generationDetailsRef = useRef(generationDetails);
   const maxImageReferenceImagesRef = useRef(maxImageReferenceImages);
   useLayoutEffect(() => {
     modeRef.current = mode;
+    generationDetailsRef.current = generationDetails;
     maxImageReferenceImagesRef.current = maxImageReferenceImages;
   });
   const [advanced, setAdvanced] = useSessionStorage("imageGenerationAdvanced");
@@ -841,31 +843,39 @@ export default function Home() {
       const composer = promptComposerRef.current;
       if (!composer) return;
       const previous = composer.getValue();
-      const previousSettings = {
-        mode: generationDetails.mode,
-        aspect: generationDetails.aspect,
-      };
+      const { mode: previousMode, aspect: previousAspect } =
+        generationDetailsRef.current;
+      const previousSettings = { mode: previousMode, aspect: previousAspect };
+      const nextAspect = options.aspectRatio ?? previousAspect;
       composer.setValue(text);
       composer.focus();
       updateGenerationDetails({
         mode: options.mode,
         ...(options.aspectRatio ? { aspect: options.aspectRatio } : {}),
       });
-      if (previous.trim() && previous !== text) {
-        toast("Prompt replaced in the editor", {
-          action: {
-            label: "Undo",
-            onClick: () => {
-              composer.setValue(previous);
-              updateGenerationDetails(previousSettings);
+      const replacedDraft = previous.trim() !== "" && previous !== text;
+      const changedSettings =
+        options.mode !== previousMode || nextAspect !== previousAspect;
+      if (replacedDraft || changedSettings) {
+        toast(
+          replacedDraft
+            ? "Prompt replaced in the editor"
+            : "Prompt and settings loaded into the editor",
+          {
+            action: {
+              label: "Undo",
+              onClick: () => {
+                composer.setValue(previous);
+                updateGenerationDetails(previousSettings);
+              },
             },
           },
-        });
+        );
       } else {
         toast.success("Prompt loaded into the editor");
       }
     },
-    [generationDetails.mode, generationDetails.aspect, updateGenerationDetails],
+    [updateGenerationDetails],
   );
 
   const handleReuseAsReference = useCallback(

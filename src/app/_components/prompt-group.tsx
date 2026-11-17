@@ -12,6 +12,7 @@ import {
   CornerUpLeft,
   Download,
   FolderInput,
+  ImageOff,
   ImagePlus,
   Loader2,
   MoreHorizontal,
@@ -413,7 +414,7 @@ function FailureDetails({ error }: { error: string }) {
             render={
               <button
                 type="button"
-                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring cursor-pointer rounded text-[11px] underline underline-offset-2 outline-none focus-visible:ring-2"
+                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring pointer-events-auto cursor-pointer rounded text-[11px] underline underline-offset-2 outline-none focus-visible:ring-2"
               />
             }
           >
@@ -450,6 +451,10 @@ function ImageCell({
   const canOpen =
     Boolean(onOpen) && (image.status === "succeeded" || Boolean(openLabel));
   const [hovered, setHovered] = useState(false);
+  // Storage can be slow or briefly unavailable; offer a retry instead of the
+  // browser's broken-image icon.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   let body: React.ReactNode;
   if (image.status === "pending" || image.status === "running") {
@@ -473,7 +478,7 @@ function ImageCell({
         className="bg-muted relative min-h-40 w-full"
         style={{ aspectRatio: parseAspectRatio(ar) }}
       >
-        <div className="pointer-events-none absolute inset-0 z-[2] flex flex-col items-center justify-center gap-1.5 px-4 py-3 *:pointer-events-auto">
+        <div className="pointer-events-none absolute inset-0 z-[2] flex flex-col items-center justify-center gap-1.5 px-4 py-3">
           <AlertTriangle className="text-destructive size-4 shrink-0" />
           <p className="text-foreground text-xs font-medium">
             Generation failed
@@ -484,7 +489,7 @@ function ImageCell({
               variant="outline"
               size="xs"
               onClick={onRetry}
-              className="mt-1 cursor-pointer"
+              className="pointer-events-auto mt-1 cursor-pointer"
             >
               <RotateCw />
               Retry
@@ -506,14 +511,37 @@ function ImageCell({
         className="relative w-full"
         style={{ aspectRatio: parseAspectRatio(ar) }}
       >
-        <Image
-          src={image.url}
-          alt="Generated image"
-          fill
-          loading="lazy"
-          className="object-cover"
-          sizes="(max-width: 1280px) 50vw, 33vw"
-        />
+        {loadFailed ? (
+          <div className="bg-muted pointer-events-none absolute inset-0 z-[2] flex flex-col items-center justify-center gap-1.5 px-4">
+            <ImageOff className="text-muted-foreground size-4" />
+            <p className="text-muted-foreground text-xs">
+              Couldn&apos;t load this image
+            </p>
+            <Button
+              variant="outline"
+              size="xs"
+              className="pointer-events-auto cursor-pointer"
+              onClick={() => {
+                setLoadFailed(false);
+                setLoadAttempt((n) => n + 1);
+              }}
+            >
+              <RotateCw />
+              Try again
+            </Button>
+          </div>
+        ) : (
+          <Image
+            key={loadAttempt}
+            src={image.url}
+            alt="Generated image"
+            fill
+            loading="lazy"
+            className="object-cover"
+            sizes="(max-width: 1280px) 50vw, 33vw"
+            onError={() => setLoadFailed(true)}
+          />
+        )}
       </div>
     );
   }
@@ -634,7 +662,12 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
   const pinned = images
     .filter((i) => pinnedMap.has(i.id))
     .sort((a, b) => (pinnedMap.get(b.id) ?? 0) - (pinnedMap.get(a.id) ?? 0));
-  const unpinned = images.filter((i) => !pinnedMap.has(i.id));
+  // Same priority as the cover: results first, then work in progress, then failures.
+  const statusRank = (i: MediaShape) =>
+    i.status === "succeeded" ? 0 : i.status === "failed" ? 2 : 1;
+  const unpinned = images
+    .filter((i) => !pinnedMap.has(i.id))
+    .sort((a, b) => statusRank(a) - statusRank(b));
   const allDisplay = [...pinned, ...unpinned];
 
   const successCount = images.filter((i) => i.status === "succeeded").length;

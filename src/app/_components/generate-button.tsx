@@ -75,11 +75,12 @@ export const GenerateButton = memo(function GenerateButton({
     <>
       <p
         id={statusId}
-        aria-live="polite"
         className="text-muted-foreground flex min-h-4 items-center justify-between gap-2 text-xs tabular-nums"
       >
         {disabledReason ? (
-          <span className="text-foreground/90">{disabledReason}</span>
+          <span aria-live="polite" className="text-foreground/90">
+            {disabledReason}
+          </span>
         ) : (
           <span>{summary}</span>
         )}
