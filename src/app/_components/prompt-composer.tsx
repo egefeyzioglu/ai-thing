@@ -8,13 +8,13 @@ import {
   useRef,
   type Ref,
 } from "react";
-import clsx from "clsx";
 import { MessagesSquare } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "src/components/ui/button";
 import { Field, FieldLabel } from "src/components/ui/field";
 import { Textarea } from "src/components/ui/textarea";
+import { isWorkshopEnabled } from "src/lib/feature-flags";
 import { useSessionStorage } from "src/lib/sessionStorage";
 import { WORKSHOP_DRAFT_STORAGE_KEY } from "src/lib/workshop";
 
@@ -24,6 +24,7 @@ type TextChangeListener = (value: string) => void;
 export type PromptComposerHandle = {
   getValue: () => string;
   setValue: (value: string) => void;
+  focus: () => void;
   getHasContent: () => boolean;
   subscribeHasContent: (listener: HasContentListener) => () => void;
   subscribeTextChange: (listener: TextChangeListener) => () => void;
@@ -43,6 +44,7 @@ export const PromptComposer = memo(function PromptComposer({
   const [promptText, setPromptText] = useSessionStorage("promptText");
 
   const valueRef = useRef("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   valueRef.current = promptText;
 
   const hasContentRef = useRef(false);
@@ -73,6 +75,12 @@ export const PromptComposer = memo(function PromptComposer({
         valueRef.current = value;
         notifyHasContent(value);
         notifyTextChange(value);
+      },
+      focus: () => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
       },
       getHasContent: () => hasContentRef.current,
       subscribeHasContent: (listener) => {
@@ -111,31 +119,34 @@ export const PromptComposer = memo(function PromptComposer({
   const getValue = useCallback(() => valueRef.current, []);
 
   return (
-    <Field>
-      <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
+    <Field className="gap-2">
+      <FieldLabel
+        htmlFor="prompt"
+        className="text-muted-foreground text-xs font-medium"
+      >
         Prompt
       </FieldLabel>
       <Textarea
         id="prompt"
-        placeholder="What do you want to create?.."
+        ref={textareaRef}
+        placeholder="Describe what you want to create…"
         value={promptText}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
+        className="max-h-72 min-h-28 resize-none text-sm leading-relaxed"
       />
-      <ComposerFooter isMacOS={isMacOS} getValue={getValue} />
+      {isWorkshopEnabled && <WorkshopLink getValue={getValue} />}
     </Field>
   );
 });
 
-type ComposerFooterProps = {
-  isMacOS: boolean | null;
+type WorkshopLinkProps = {
   getValue: () => string;
 };
 
-const ComposerFooter = memo(function ComposerFooter({
-  isMacOS,
+const WorkshopLink = memo(function WorkshopLink({
   getValue,
-}: ComposerFooterProps) {
+}: WorkshopLinkProps) {
   const router = useRouter();
 
   const handleOpenWorkshop = () => {
@@ -152,25 +163,15 @@ const ComposerFooter = memo(function ComposerFooter({
   };
 
   return (
-    <div className="flex items-center justify-between gap-2">
-      <span
-        className={clsx(
-          "mx-0 text-xs text-(--muted-foreground)",
-          isMacOS === null ? "opacity-0" : "opacity-80",
-        )}
-      >
-        Press {isMacOS ? "⌘" : "Ctrl"} + Enter to submit
-      </span>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="cursor-pointer"
-        onClick={handleOpenWorkshop}
-      >
-        <MessagesSquare />
-        Workshop
-      </Button>
-    </div>
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="w-fit cursor-pointer"
+      onClick={handleOpenWorkshop}
+    >
+      <MessagesSquare />
+      Workshop
+    </Button>
   );
 });

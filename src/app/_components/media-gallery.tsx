@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { Image as ImageIcon } from "lucide-react";
 
 import PromptGroup from "./prompt-group";
 import { ProjectSwitcher } from "./project-switcher";
@@ -31,6 +32,7 @@ type MediaGalleryProps = {
   onDeleteMedia: (mediaId: string) => void;
   onReuseAsReference: (mediaId: string) => Promise<void>;
   onRetryMedia: (mediaId: string) => void;
+  onReusePrompt: (text: string) => void;
 };
 
 function PromptGroupSkeleton() {
@@ -83,14 +85,15 @@ export const MediaGallery = memo(function MediaGallery({
   onDeleteMedia,
   onReuseAsReference,
   onRetryMedia,
+  onReusePrompt,
 }: MediaGalleryProps) {
   const promptCount = prompts?.length ?? 0;
   const [pinnedImages, setPinnedImages] = useLocalStorage("pinnedImages");
 
   return (
-    <div className="flex max-h-screen w-full flex-col overflow-x-hidden overflow-y-scroll">
-      <div className="bg-background/95 sticky top-0 z-30 flex items-center justify-between gap-3 px-9 py-4 backdrop-blur">
-        <div className="flex items-center gap-3">
+    <div className="flex h-screen min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
+      <header className="bg-background/85 sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-3 border-b px-6 backdrop-blur-md lg:px-8">
+        <div className="flex min-w-0 items-center gap-3">
           <ProjectSwitcher
             projects={projects}
             selectedProject={project}
@@ -99,76 +102,41 @@ export const MediaGallery = memo(function MediaGallery({
             onSelectProject={onSelectProject}
           />
           {promptCount > 0 && (
-            <p className="text-muted-foreground/60 text-xs font-medium">
-              {promptCount} {promptCount === 1 ? "generation" : "generations"}{" "}
-              in this project
+            <p className="text-muted-foreground text-xs tabular-nums">
+              {promptCount} {promptCount === 1 ? "generation" : "generations"}
             </p>
           )}
         </div>
-      </div>
+      </header>
       {errorMessage ? (
-        <div className="flex flex-1 items-center justify-center">
-          <p className="text-muted-foreground text-sm">
-            Failed to load generations: {errorMessage}
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+          <p className="text-sm font-medium">Couldn&apos;t load generations</p>
+          <p className="text-muted-foreground max-w-md text-xs">
+            {errorMessage}
           </p>
         </div>
       ) : isLoading ? (
-        <div className="flex w-full flex-col gap-12 px-9 py-8">
+        <div className="flex w-full flex-col gap-12 px-6 py-6 lg:px-8">
           {Array.from({ length: 3 }).map((_, index) => (
             <PromptGroupSkeleton key={index} />
           ))}
         </div>
       ) : promptCount === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3">
-          <div className="bg-card border-border flex size-11 items-center justify-center rounded-xl border">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <rect
-                x="2"
-                y="2"
-                width="7"
-                height="7"
-                rx="1.5"
-                stroke="var(--muted-foreground)"
-                strokeWidth="1.5"
-              />
-              <rect
-                x="11"
-                y="2"
-                width="7"
-                height="7"
-                rx="1.5"
-                stroke="var(--muted-foreground)"
-                strokeWidth="1.5"
-              />
-              <rect
-                x="2"
-                y="11"
-                width="7"
-                height="7"
-                rx="1.5"
-                stroke="var(--muted-foreground)"
-                strokeWidth="1.5"
-              />
-              <rect
-                x="11"
-                y="11"
-                width="7"
-                height="7"
-                rx="1.5"
-                stroke="var(--muted-foreground)"
-                strokeWidth="1.5"
-              />
-            </svg>
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+          <div className="bg-card text-muted-foreground flex size-12 items-center justify-center rounded-xl border">
+            <ImageIcon className="size-5" />
           </div>
-          <p className="text-muted-foreground text-sm">
-            No generations in this project yet
-          </p>
-          <p className="text-muted-foreground/60 text-xs">
-            Write a prompt and hit Generate
-          </p>
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-medium">Nothing here yet</p>
+            <p className="text-muted-foreground max-w-xs text-sm">
+              Describe an image or video in the panel on the left, pick some
+              models and hit Generate. Results from every model show up here
+              side by side.
+            </p>
+          </div>
         </div>
       ) : (
-        <div className="flex w-full flex-col gap-12 px-9 py-8">
+        <div className="flex w-full flex-col divide-y px-6 lg:px-8 [&>*]:py-8">
           {(prompts ?? []).map((prompt) => (
             <PromptGroup
               key={prompt.id}
@@ -219,6 +187,7 @@ export const MediaGallery = memo(function MediaGallery({
               onDeleteMedia={onDeleteMedia}
               onReuseAsReference={onReuseAsReference}
               onRetryMedia={onRetryMedia}
+              onReusePrompt={() => onReusePrompt(prompt.text)}
               pinnedImages={pinnedImages}
               onPinnedImagesChange={setPinnedImages}
             />

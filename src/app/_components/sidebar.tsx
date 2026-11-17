@@ -5,23 +5,28 @@ import { createPortal } from "react-dom";
 
 import { UserButton } from "@clerk/nextjs";
 import {
+  AlertTriangle,
   Check,
   ChevronDown,
-  ChevronUp,
   Gauge,
   HelpCircle,
   Image as ImageIcon,
+  Info,
   Maximize2,
+  Minus,
+  Plus,
+  Sparkles,
   Trash2,
   Upload,
   Video as VideoIcon,
-  AlertTriangle,
   X,
 } from "lucide-react";
 import Image from "next/image";
-import clsx from "clsx";
 import { toast } from "sonner";
-import { isExtendedImageQuality, type ImageQuality } from "src/lib/image-quality";
+import {
+  isExtendedImageQuality,
+  type ImageQuality,
+} from "src/lib/image-quality";
 import {
   getEffectiveImageResolution,
   IMAGE_RESOLUTION_OPTIONS,
@@ -34,11 +39,9 @@ import {
   CollapsibleTrigger,
 } from "src/components/ui/collapsible";
 import { Button } from "src/components/ui/button";
-import { ButtonGroup } from "src/components/ui/button-group";
 import { Checkbox } from "src/components/ui/checkbox";
 import { Field, FieldLabel } from "src/components/ui/field";
 import { Input } from "src/components/ui/input";
-import { Label } from "src/components/ui/label";
 import {
   Popover,
   PopoverContent,
@@ -58,12 +61,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "src/components/ui/tooltip";
+import { cn } from "src/lib/utils";
 import type { RouterInputs, RouterOutputs } from "src/trpc/react";
 import { GenerateButton } from "./generate-button";
-import {
-  PromptComposer,
-  type PromptComposerHandle,
-} from "./prompt-composer";
+import { PromptComposer, type PromptComposerHandle } from "./prompt-composer";
+import { SegmentedControl } from "./segmented-control";
 import { UsageModal } from "./usage-modal";
 
 export type PromptModelSlug =
@@ -95,6 +97,18 @@ export const VIDEO_MOTION_OPTIONS: { value: VideoMotion; label: string }[] = [
 
 export type VideoReferenceRole = "first" | "last" | "refimg";
 export const MAX_VIDEO_REFERENCE_IMAGES = 9;
+export const MAX_RUNS_PER_MODEL = 8;
+
+const IMAGE_ASPECT_OPTIONS = ["1:1", "4:3", "3:4", "16:9", "9:16"] as const;
+const VIDEO_ASPECT_OPTIONS = [
+  "1:1",
+  "4:3",
+  "3:4",
+  "16:9",
+  "9:16",
+  "21:9",
+  "adaptive",
+] as const;
 
 const VIDEO_REFERENCE_ROLE_OPTIONS: {
   value: VideoReferenceRole;
@@ -103,9 +117,27 @@ const VIDEO_REFERENCE_ROLE_OPTIONS: {
   hint: string;
   accent: boolean;
 }[] = [
-  { value: "first", label: "First frame", short: "First", hint: "Start of the clip", accent: true },
-  { value: "last", label: "Last frame", short: "Last", hint: "End of the clip", accent: true },
-  { value: "refimg", label: "Reference image", short: "Ref", hint: "Guides style & subject", accent: false },
+  {
+    value: "first",
+    label: "First frame",
+    short: "First",
+    hint: "Start of the clip",
+    accent: true,
+  },
+  {
+    value: "last",
+    label: "Last frame",
+    short: "Last",
+    hint: "End of the clip",
+    accent: true,
+  },
+  {
+    value: "refimg",
+    label: "Reference image",
+    short: "Ref",
+    hint: "Guides style & subject",
+    accent: false,
+  },
 ];
 
 const VIDEO_REFERENCE_ROLE_BY_VALUE = Object.fromEntries(
@@ -135,16 +167,80 @@ export const THINKING_OPTIONS: { value: ThinkingOption; label: string }[] = [
   { value: "high", label: "High" },
 ];
 
-function ModelCard({
+function formatShortDate(date: Date | string) {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeZone: "UTC",
+  }).format(new Date(date));
+}
+
+/** Labelled block in the sidebar with an optional element on the right. */
+function Section({
+  title,
+  aside,
+  children,
+  className,
+}: {
+  title: React.ReactNode;
+  aside?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={cn("flex flex-col gap-2", className)}>
+      <div className="flex min-h-5 items-center justify-between gap-2">
+        <h2 className="text-muted-foreground text-xs font-medium">{title}</h2>
+        {aside}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** Header row that toggles a collapsible section. */
+function SectionTrigger({
+  title,
+  badge,
+  open,
+}: {
+  title: string;
+  badge?: React.ReactNode;
+  open: boolean;
+}) {
+  return (
+    <CollapsibleTrigger className="group/trigger text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -mx-1.5 flex w-[calc(100%+0.75rem)] cursor-pointer items-center justify-between gap-2 rounded-md px-1.5 py-1 text-xs font-medium outline-none focus-visible:ring-3">
+      <span className="flex items-center gap-2">
+        {title}
+        {badge}
+      </span>
+      <ChevronDown
+        className={cn(
+          "size-4 transition-transform duration-200",
+          open && "rotate-180",
+        )}
+      />
+    </CollapsibleTrigger>
+  );
+}
+
+function CountBadge({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="bg-primary/15 text-primary rounded-full px-1.5 py-px text-[10px] leading-4 font-semibold tabular-nums">
+      {children}
+    </span>
+  );
+}
+
+function ModelRow({
   slug,
   name,
-  kind,
+  provider,
   isSelected,
   onToggle,
 }: {
   slug: string;
   name: string;
-  kind: OutputMode;
+  provider: string;
   isSelected: boolean;
   onToggle: () => void;
 }) {
@@ -154,9 +250,12 @@ function ModelCard({
       aria-checked={isSelected}
       aria-labelledby={`model-select-${slug}-label`}
       tabIndex={0}
-      className={clsx(
-        "flex cursor-pointer flex-row items-center gap-4 rounded-md border border-1 px-4 py-2 text-(--foreground)",
-        isSelected ? "border-blue-500 bg-gray-800" : "hover:bg-gray-900",
+      title={slug}
+      className={cn(
+        "focus-visible:ring-ring/50 flex h-9 cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-sm outline-none select-none focus-visible:ring-3",
+        isSelected
+          ? "bg-primary/10 text-foreground"
+          : "text-foreground/80 hover:bg-muted/60",
       )}
       onClick={onToggle}
       onKeyDown={(e) => {
@@ -167,32 +266,38 @@ function ModelCard({
       }}
     >
       <Checkbox
-        id={`model-select-${slug}`}
-        accentColor="blue-500"
         checked={isSelected}
         tabIndex={-1}
+        aria-hidden
         className="pointer-events-none"
       />
-      <Label
-        id={`model-select-${slug}-label`}
-        className="pointer-events-none min-w-0 grow cursor-pointer flex-col items-start"
-      >
-        <span className="truncate">{name}</span>
-        <span className="truncate text-xs text-(--muted-foreground)">
-          {slug}
-        </span>
-      </Label>
-      <span
-        className={clsx(
-          "shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold tracking-wider uppercase",
-          kind === "video"
-            ? "border-blue-500/40 bg-blue-500/10 text-blue-400"
-            : "border-(--border) text-(--muted-foreground)",
-        )}
-      >
-        {kind}
+      <span id={`model-select-${slug}-label`} className="min-w-0 truncate">
+        {name}
+      </span>
+      <span className="text-muted-foreground ml-auto shrink-0 text-xs">
+        {provider}
       </span>
     </div>
+  );
+}
+
+function AspectShape({ ratio }: { ratio: string }) {
+  const [w, h] = ratio.split(":").map(Number);
+  if (!w || !h) {
+    return (
+      <span
+        aria-hidden
+        className="size-3 rounded-[2px] border border-dashed border-current"
+      />
+    );
+  }
+  const scale = 12 / Math.max(w, h);
+  return (
+    <span
+      aria-hidden
+      className="rounded-[2px] border border-current"
+      style={{ width: Math.max(4, w * scale), height: Math.max(4, h * scale) }}
+    />
   );
 }
 
@@ -204,7 +309,7 @@ function AdvancedControlLabel({
   help: string;
 }) {
   return (
-    <FieldLabel className="text-xxs flex items-center gap-1 text-(--muted-foreground) uppercase">
+    <FieldLabel className="text-muted-foreground flex items-center gap-1 text-xs font-normal">
       <span>{label}</span>
       <Tooltip>
         <TooltipTrigger
@@ -212,15 +317,44 @@ function AdvancedControlLabel({
             <button
               type="button"
               aria-label={`What does ${label} do?`}
-              className="focus-visible:outline-ring inline-flex cursor-help items-center justify-center text-(--muted-foreground)/60 hover:text-(--muted-foreground) focus-visible:outline focus-visible:outline-1"
+              className="text-muted-foreground/60 hover:text-muted-foreground focus-visible:outline-ring inline-flex cursor-help items-center justify-center focus-visible:outline focus-visible:outline-1"
             >
               <HelpCircle size={12} />
             </button>
           }
         />
-        <TooltipContent>{help}</TooltipContent>
+        <TooltipContent className="max-w-64">{help}</TooltipContent>
       </Tooltip>
     </FieldLabel>
+  );
+}
+
+function ProviderGroup({
+  name,
+  active,
+  children,
+}: {
+  name: string;
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-2.5 rounded-lg border p-3 transition-opacity",
+        !active && "opacity-50",
+      )}
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xs font-medium">{name}</span>
+        {!active && (
+          <span className="text-muted-foreground text-[11px]">
+            No {name} model selected
+          </span>
+        )}
+      </div>
+      {children}
+    </div>
   );
 }
 
@@ -243,78 +377,66 @@ function ReferenceImage(props: ReferenceImageProps) {
     : undefined;
   return (
     <div
-      className={clsx(
-        "group relative flex aspect-square flex-col justify-center overflow-clip rounded-md border-1",
+      className={cn(
+        "group bg-muted relative aspect-square overflow-hidden rounded-md ring-1 transition-shadow",
+        props.isSelected ? "ring-primary ring-2" : "ring-border",
       )}
     >
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-10 bg-linear-to-b from-black/55 via-black/25 to-transparent"
-      />
-
-      {/* Image body: click to preview */}
-      <button
-        type="button"
-        onClick={props.onPreview}
-        aria-label="Preview reference image"
-        className="block flex grow-1 cursor-pointer bg-transparent text-left"
-      >
-        <Image
-          src={props.src}
-          alt={props.alt}
-          width={100}
-          height={100}
-          loading="lazy"
-          className="m-auto w-full"
-        />
-
-        {/* Maximize hint on hover (image body only) */}
-        <div
-          aria-hidden="true"
-          className={clsx(
-            "pointer-events-none absolute right-1.5 z-10 flex items-center justify-center rounded-md bg-black/50 p-1 opacity-0 transition-opacity group-hover:opacity-100",
-            showRolePill ? "bottom-7" : "bottom-1.5",
-          )}
-        >
-          <Maximize2 className="size-3 text-white" strokeWidth={2} />
-        </div>
-      </button>
-
-      {/* Select checkbox: top-left, always visible, click to toggle */}
+      {/* Image body: click to select, so the main target is the common action. */}
       <button
         type="button"
         role="checkbox"
-        onClick={(e) => {
-          e.stopPropagation();
-          props.setSelected();
-        }}
+        aria-checked={props.isSelected}
         aria-label={
           props.isSelected
             ? "Deselect reference image"
             : "Select reference image"
         }
-        aria-checked={props.isSelected}
-        className={clsx(
-          "focus-visible:outline-ring absolute top-1.5 left-1.5 z-10 flex size-5 cursor-pointer items-center justify-center rounded-md border-2 opacity-60 transition group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2",
+        onClick={props.setSelected}
+        className="focus-visible:ring-ring absolute inset-0 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset"
+      >
+        <Image
+          src={props.src}
+          alt={props.alt}
+          fill
+          sizes="96px"
+          loading="lazy"
+          className="object-cover"
+        />
+      </button>
+
+      <span
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute top-1 left-1 flex size-4 items-center justify-center rounded-[4px] border transition-opacity",
           props.isSelected
-            ? "border-blue-500 bg-blue-500 text-white"
-            : "border-white/80 bg-black/40 text-transparent hover:border-white",
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-white/80 bg-black/40 text-transparent opacity-0 group-hover:opacity-100",
         )}
       >
         <Check className="size-3" strokeWidth={3} />
-      </button>
+      </span>
 
-      <button
-        type="button"
-        aria-label="Delete reference image"
-        onClick={(e) => {
-          e.stopPropagation();
-          props.onDelete();
-        }}
-        className="focus-visible:outline-ring absolute top-1.5 right-1.5 z-10 flex size-5 cursor-pointer items-center justify-center rounded-md border-2 border-white/80 bg-black/40 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2"
-      >
-        <Trash2 className="size-3 text-white" strokeWidth={2.2} />
-      </button>
+      <div className="absolute top-1 right-1 flex gap-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+        <button
+          type="button"
+          aria-label="Preview reference image"
+          title="Preview"
+          onClick={props.onPreview}
+          className="focus-visible:outline-ring flex size-5 cursor-pointer items-center justify-center rounded-[4px] bg-black/60 text-white hover:bg-black/80 focus-visible:outline-2"
+        >
+          <Maximize2 className="size-3" strokeWidth={2} />
+        </button>
+        <button
+          type="button"
+          aria-label="Delete reference image"
+          title="Delete"
+          onClick={props.onDelete}
+          className="focus-visible:outline-ring flex size-5 cursor-pointer items-center justify-center rounded-[4px] bg-black/60 text-white hover:bg-red-500/80 focus-visible:outline-2"
+        >
+          <Trash2 className="size-3" strokeWidth={2} />
+        </button>
+      </div>
 
       {showRolePill && roleInfo && props.onChangeRole && (
         <Popover>
@@ -322,61 +444,64 @@ function ReferenceImage(props: ReferenceImageProps) {
             render={
               <button
                 type="button"
-                onClick={(e) => e.stopPropagation()}
-                className={clsx(
-                  "focus-visible:outline-ring absolute right-1 bottom-1 left-1 z-20 flex cursor-pointer items-center justify-center gap-0.5 rounded-full border px-1 py-0.5 text-[9.5px] font-medium leading-none backdrop-blur-md transition-colors focus-visible:outline focus-visible:outline-2",
+                className={cn(
+                  "focus-visible:outline-ring absolute right-1 bottom-1 left-1 z-20 flex cursor-pointer items-center justify-center gap-0.5 rounded-full border px-1 py-0.5 text-[10px] leading-none font-medium backdrop-blur-md transition-colors focus-visible:outline focus-visible:outline-2",
                   roleInfo.accent
-                    ? "border-blue-400/45 bg-black/55 text-blue-400 hover:bg-black/70"
-                    : "border-(--border) bg-black/55 text-(--foreground) hover:bg-black/70",
+                    ? "border-primary/50 text-primary bg-black/60 hover:bg-black/75"
+                    : "border-border text-foreground bg-black/60 hover:bg-black/75",
                 )}
                 aria-label={`Role: ${roleInfo.label}. Click to change.`}
               >
                 <span>{roleInfo.short}</span>
-                <ChevronDown className="size-2.5 opacity-70" strokeWidth={2.5} />
+                <ChevronDown
+                  className="size-2.5 opacity-70"
+                  strokeWidth={2.5}
+                />
               </button>
             }
           />
           <PopoverContent
             align="start"
             sideOffset={4}
-            className="w-44 gap-0.5 p-1"
-            onClick={(e) => e.stopPropagation()}
+            className="w-48 gap-0.5 p-1"
           >
-            {(props.availableRoles ?? VIDEO_REFERENCE_ROLE_OPTIONS.map((o) => o.value)).map(
-              (roleValue) => {
-                const opt = VIDEO_REFERENCE_ROLE_BY_VALUE[roleValue];
-                const selected = props.role === roleValue;
-                return (
-                  <button
-                    key={roleValue}
-                    type="button"
-                    onClick={() => props.onChangeRole?.(roleValue)}
-                    className={clsx(
-                      "flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs",
-                      selected
-                        ? "bg-blue-500/15"
-                        : "hover:bg-gray-800",
+            {(
+              props.availableRoles ??
+              VIDEO_REFERENCE_ROLE_OPTIONS.map((o) => o.value)
+            ).map((roleValue) => {
+              const opt = VIDEO_REFERENCE_ROLE_BY_VALUE[roleValue];
+              const selected = props.role === roleValue;
+              return (
+                <button
+                  key={roleValue}
+                  type="button"
+                  onClick={() => props.onChangeRole?.(roleValue)}
+                  className={cn(
+                    "flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs",
+                    selected ? "bg-primary/15" : "hover:bg-muted",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "size-2 shrink-0 rounded-full",
+                      opt.accent ? "bg-primary" : "bg-muted-foreground",
                     )}
-                  >
-                    <span
-                      className={clsx(
-                        "size-2 shrink-0 rounded-full",
-                        opt.accent ? "bg-blue-400" : "bg-(--muted-foreground)",
-                      )}
-                    />
-                    <span className="flex min-w-0 flex-col leading-tight">
-                      <span className="text-xs">{opt.label}</span>
-                      <span className="text-[10px] text-(--muted-foreground)">
-                        {opt.hint}
-                      </span>
+                  />
+                  <span className="flex min-w-0 flex-col leading-tight">
+                    <span className="text-xs">{opt.label}</span>
+                    <span className="text-muted-foreground text-[10px]">
+                      {opt.hint}
                     </span>
-                    {selected && (
-                      <Check className="ml-auto size-3 shrink-0 text-blue-400" strokeWidth={3} />
-                    )}
-                  </button>
-                );
-              },
-            )}
+                  </span>
+                  {selected && (
+                    <Check
+                      className="text-primary ml-auto size-3 shrink-0"
+                      strokeWidth={3}
+                    />
+                  )}
+                </button>
+              );
+            })}
           </PopoverContent>
         </Popover>
       )}
@@ -385,9 +510,8 @@ function ReferenceImage(props: ReferenceImageProps) {
 }
 
 /**
- * Full-bleed lightbox preview, used both from the sidebar grid and from
- * the Browse modal. Includes a "Use as reference" toggle so users can
- * select/deselect without closing the preview.
+ * Full-bleed lightbox preview for a reference image, with a "Use as
+ * reference" toggle so users can select/deselect without closing it.
  */
 function ReferenceImageLightbox({
   src,
@@ -433,7 +557,7 @@ function ReferenceImageLightbox({
           e.stopPropagation();
           onClose();
         }}
-        className="absolute top-4 right-4 z-10 flex size-9 cursor-pointer items-center justify-center rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm"
+        className="absolute top-4 right-4 z-10 flex size-9 cursor-pointer items-center justify-center rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm hover:bg-black/70"
       >
         <X className="size-4" strokeWidth={2} />
       </button>
@@ -442,7 +566,7 @@ function ReferenceImageLightbox({
         className="relative z-10 flex max-h-[90vh] max-w-[90vw] flex-col items-center gap-3"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Reserved-height image slot — keeps button position stable while the image loads. */}
+        {/* Reserved-height image slot keeps the button still while loading. */}
         <div className="relative flex h-[75vh] w-[80vw] max-w-[1100px] items-center justify-center">
           {!loaded && (
             <Skeleton className="absolute inset-0 size-full rounded-lg" />
@@ -452,29 +576,79 @@ function ReferenceImageLightbox({
             src={src}
             alt={alt}
             onLoad={() => setLoaded(true)}
-            className={clsx(
+            className={cn(
               "relative block h-auto max-h-full w-auto max-w-full rounded-lg border border-white/10 shadow-2xl transition-opacity duration-150",
               loaded ? "opacity-100" : "opacity-0",
             )}
           />
         </div>
-        <button
+        <Button
           type="button"
+          size="lg"
+          variant={isSelected ? "default" : "outline"}
           onClick={onToggleSelected}
           aria-pressed={isSelected}
-          className={clsx(
-            "flex cursor-pointer items-center gap-2 rounded-md border-2 px-4 py-2 text-sm font-medium transition-colors",
-            isSelected
-              ? "border-blue-500 bg-blue-500 text-white"
-              : "border-white/40 bg-black/40 text-white hover:border-white",
-          )}
         >
-          <Check className={clsx("size-4", !isSelected && "opacity-40")} strokeWidth={3} />
+          <Check className={cn(!isSelected && "opacity-40")} strokeWidth={3} />
           {isSelected ? "Selected as reference" : "Use as reference"}
-        </button>
+        </Button>
       </div>
     </div>,
     document.body,
+  );
+}
+
+function UsageMeter({
+  usage,
+  isLoading,
+  bypassMonthlyQuota,
+  onOpen,
+}: {
+  usage: RouterOutputs["usage"]["getCurrent"] | undefined;
+  isLoading: boolean;
+  bypassMonthlyQuota: boolean;
+  onOpen: () => void;
+}) {
+  if (isLoading || !usage) {
+    return <Skeleton className="h-7 w-24 rounded-md" />;
+  }
+  const percent =
+    usage.limit > 0 ? Math.min(100, (usage.used / usage.limit) * 100) : 0;
+  const tone = bypassMonthlyQuota
+    ? "bg-yellow-400"
+    : percent >= 100
+      ? "bg-red-500"
+      : percent > 70
+        ? "bg-amber-500"
+        : "bg-primary";
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            onClick={onOpen}
+            aria-label={`Usage: ${usage.remaining} of ${usage.limit} credits left`}
+            className="hover:bg-muted focus-visible:ring-ring/50 flex h-7 cursor-pointer flex-col justify-center gap-1 rounded-md px-2 outline-none focus-visible:ring-3"
+          >
+            <span className="text-muted-foreground flex items-center gap-1 text-[11px] leading-none tabular-nums">
+              <Gauge className="size-3" />
+              {usage.remaining.toLocaleString()} left
+            </span>
+            <span className="bg-muted block h-1 w-full overflow-hidden rounded-full">
+              <span
+                className={cn("block h-full rounded-full", tone)}
+                style={{ width: `${Math.max(percent, 2)}%` }}
+              />
+            </span>
+          </button>
+        }
+      />
+      <TooltipContent>
+        {usage.used.toLocaleString()} of {usage.limit.toLocaleString()} credits
+        used · resets {formatShortDate(usage.periodEnd)}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -495,6 +669,7 @@ type SidebarProps = {
   ) => void;
   selectedModels: PromptModelSlug[];
   onToggleSelectedModel: (slug: PromptModelSlug) => void;
+  onSelectedModelsChange: (slugs: PromptModelSlug[]) => void;
   mode: OutputMode;
   onModeChange: (mode: OutputMode) => void;
   resolution: ResolutionOption;
@@ -545,7 +720,6 @@ type SidebarProps = {
   activeModels: RouterOutputs["prompt"]["getModels"];
   archivedModels: RouterOutputs["prompt"]["getModels"];
   totalGenerations: number;
-  userFullName: string | null | undefined;
   usage: RouterOutputs["usage"]["getCurrent"] | undefined;
   isLoadingUsage: boolean;
   currentRequestCost: number;
@@ -565,6 +739,7 @@ export function Sidebar({
   onVideoReferenceRolesChange,
   selectedModels,
   onToggleSelectedModel,
+  onSelectedModelsChange,
   mode,
   onModeChange,
   resolution,
@@ -613,7 +788,6 @@ export function Sidebar({
   activeModels,
   archivedModels,
   totalGenerations,
-  userFullName,
   usage,
   isLoadingUsage,
   currentRequestCost,
@@ -758,193 +932,248 @@ export function Sidebar({
 
   const firstFrameRefImage =
     mode === "video" && hasFirst
-      ? referenceImages?.find(
-          (img) => videoReferenceRoles[img.id] === "first",
-        )
+      ? referenceImages?.find((img) => videoReferenceRoles[img.id] === "first")
       : undefined;
   const lastFrameRefImage =
     mode === "video" && hasLast
-      ? referenceImages?.find(
-          (img) => videoReferenceRoles[img.id] === "last",
-        )
+      ? referenceImages?.find((img) => videoReferenceRoles[img.id] === "last")
       : undefined;
 
+  const referenceImageLimit =
+    mode === "video" ? MAX_VIDEO_REFERENCE_IMAGES : maxImageReferenceImages;
+
+  const allModels = [...activeModels, ...archivedModels];
+  const selectedArchivedCount = archivedModels.filter((m) =>
+    selectedModels.includes(m.slug),
+  ).length;
+  const allActiveSelected =
+    activeModels.length > 0 &&
+    activeModels.every((m) => selectedModels.includes(m.slug));
+
+  const resolutionAdjustments =
+    mode === "image"
+      ? selectedModels.flatMap((slug) => {
+          const effectiveResolution = getEffectiveImageResolution(
+            slug,
+            resolution,
+          );
+          if (!effectiveResolution || effectiveResolution === resolution) {
+            return [];
+          }
+          return [
+            `${allModels.find((model) => model.slug === slug)?.name ?? slug} (${effectiveResolution})`,
+          ];
+        })
+      : [];
+
+  const advancedModified =
+    mode === "image"
+      ? quality !== "auto" ||
+        background !== "auto" ||
+        negativePrompt.trim().length > 0 ||
+        seed.trim().length > 0 ||
+        thinking !== "auto"
+      : motion !== "auto" || cameraFixed;
+
+  const isOverQuota = Boolean(usage?.isOverQuota) && !bypassMonthlyQuota;
+  const outputNoun = mode === "video" ? "video" : "image";
+
   return (
-    <aside className="flex h-screen w-1/5 shrink-0 flex-col border border-x border-(--border)">
-      <div className="flex flex-row items-center gap-4 border-y border-(--border) p-5">
-        <div className="h-8 w-8 rounded-md bg-blue-400"></div>
-        <div>
-          <h1 className="font-heading text-lg font-bold">AI Thing</h1>
-          <p className="text-xs text-(--muted-foreground)">
-            All your models, in one place
-          </p>
+    <aside className="bg-sidebar flex h-screen w-[360px] shrink-0 flex-col border-r xl:w-[380px]">
+      {/* Header: brand, usage, account */}
+      <div className="flex h-14 shrink-0 items-center gap-2.5 border-b px-4">
+        <div className="bg-primary text-primary-foreground flex size-7 items-center justify-center rounded-lg">
+          <Sparkles className="size-4" />
+        </div>
+        <h1 className="font-heading text-[15px] font-semibold tracking-tight">
+          AI Thing
+        </h1>
+        <div className="ml-auto flex items-center gap-1.5">
+          <UsageMeter
+            usage={usage}
+            isLoading={isLoadingUsage}
+            bypassMonthlyQuota={bypassMonthlyQuota}
+            onOpen={() => setUsageOpen(true)}
+          />
+          <UserButton>
+            <UserButton.MenuItems>
+              <UserButton.Action
+                label="Usage"
+                labelIcon={<Gauge className="size-4" />}
+                onClick={() => setUsageOpen(true)}
+              />
+            </UserButton.MenuItems>
+          </UserButton>
         </div>
       </div>
-      <div className="flex min-w-0 grow flex-col gap-3 overflow-y-scroll p-5">
+
+      {/* Settings */}
+      <div className="flex min-h-0 grow flex-col gap-5 overflow-y-auto px-4 py-4 [scrollbar-gutter:stable]">
+        <SegmentedControl
+          aria-label="Output type"
+          value={mode}
+          onValueChange={onModeChange}
+          className="[&_[data-slot=toggle-group-item]]:h-8 [&_[data-slot=toggle-group-item]]:text-sm"
+          options={[
+            {
+              value: "image",
+              label: "Image",
+              icon: <ImageIcon className="size-4" />,
+            },
+            {
+              value: "video",
+              label: "Video",
+              icon: <VideoIcon className="size-4" />,
+            },
+          ]}
+        />
+
         <PromptComposer
           ref={promptComposerRef}
           isMacOS={isMacOS}
           onSubmit={onGenerate}
         />
+
         <Collapsible
           open={referenceImagesOpen}
           onOpenChange={onReferenceImagesOpenChange}
+          className="flex flex-col gap-2"
         >
-          <CollapsibleTrigger className="flex w-full cursor-pointer flex-row items-baseline justify-between">
-            <div className="flex items-baseline gap-1.5">
-              <FieldLabel className="text-xxs cursor-pointer text-(--muted-foreground) uppercase">
-                Reference Images
-              </FieldLabel>
-              {selectedReferenceImages.length > 0 && (
-                <span className="text-xs text-(--muted-foreground)">
-                  ({selectedReferenceImages.length} selected)
-                </span>
-              )}
+          <SectionTrigger
+            title="Reference images"
+            open={referenceImagesOpen}
+            badge={
+              selectedReferenceImages.length > 0 ? (
+                <CountBadge>
+                  {selectedReferenceImages.length}
+                  {referenceImageLimit !== undefined
+                    ? ` / ${referenceImageLimit}`
+                    : ""}
+                </CountBadge>
+              ) : null
+            }
+          />
+          <CollapsibleContent className="flex flex-col gap-2">
+            <div
+              ref={refImagesScrollRef}
+              className="-m-1 max-h-72 overflow-y-auto p-1"
+            >
+              <div className="grid grid-cols-4 gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  aria-label="Add reference images"
+                  className="text-muted-foreground hover:text-foreground hover:border-foreground/40 hover:bg-muted/40 focus-visible:ring-ring/50 flex aspect-square cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed outline-none focus-visible:ring-3"
+                >
+                  <Upload className="size-4" />
+                  <span className="text-[11px]">Upload</span>
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={onFileUpload}
+                />
+                {Array.from({ length: pendingRefImageUploads }).map((_, i) => (
+                  <Skeleton
+                    key={`pending-${i}`}
+                    aria-label="Uploading reference image"
+                    className="aspect-square rounded-md"
+                  />
+                ))}
+                {isLoadingRefImages
+                  ? Array.from({ length: 3 }).map((_, i) => (
+                      <Skeleton key={i} className="aspect-square rounded-md" />
+                    ))
+                  : referenceImages?.map((img) => {
+                      const isSelected = selectedReferenceImages.includes(
+                        img.id,
+                      );
+                      const role =
+                        mode === "video" && isSelected
+                          ? (videoReferenceRoles[img.id] ?? "refimg")
+                          : undefined;
+                      return (
+                        <ReferenceImage
+                          key={img.id}
+                          src={img.url ?? ""}
+                          alt="Reference image"
+                          isSelected={isSelected}
+                          setSelected={() => toggleSelected(img.id)}
+                          onDelete={() => onDeleteReferenceImage(img.id)}
+                          onPreview={() =>
+                            setPreviewImage({ id: img.id, url: img.url ?? "" })
+                          }
+                          role={role}
+                          availableRoles={
+                            mode === "video"
+                              ? availableRolesFor(img.id)
+                              : undefined
+                          }
+                          onChangeRole={
+                            mode === "video"
+                              ? (newRole) => handleChangeRole(img.id, newRole)
+                              : undefined
+                          }
+                        />
+                      );
+                    })}
+              </div>
             </div>
-            {referenceImagesOpen ? (
-              <ChevronUp color="var(--muted-foreground)" />
-            ) : (
-              <ChevronDown color="var(--muted-foreground)" />
-            )}
-          </CollapsibleTrigger>
-          <CollapsibleContent
-            ref={refImagesScrollRef}
-            className="max-h-80 overflow-scroll"
-          >
-            <div className="my-2 grid grid-cols-3 gap-2 p-2">
+            {!isLoadingRefImages &&
+              (referenceImages?.length ?? 0) === 0 &&
+              pendingRefImageUploads === 0 && (
+                <p className="text-muted-foreground text-xs">
+                  Upload images to guide style, subject or composition. You can
+                  also reuse any generated image from the gallery.
+                </p>
+              )}
+            {selectedReferenceImages.length > 0 && (
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
-                aria-label="Add reference images"
-                className="flex aspect-square cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-1 border-dashed border-(--muted-foreground) hover:bg-gray-900"
+                className="text-muted-foreground hover:text-foreground w-fit cursor-pointer text-xs underline-offset-2 hover:underline"
+                onClick={() => onSelectedReferenceImagesChange([])}
               >
-                <Upload size={16} className="text-(--muted-foreground)" />
-                <span className="text-xs text-(--muted-foreground)">Add</span>
+                Clear selection
               </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={onFileUpload}
-              />
-              {Array.from({ length: pendingRefImageUploads }).map((_, i) => (
-                <Skeleton
-                  key={`pending-${i}`}
-                  aria-label="Uploading reference image"
-                  className="aspect-square rounded-md"
-                />
-              ))}
-              {isLoadingRefImages
-                ? Array.from({ length: 6 }).map((_, i) => (
-                    <Skeleton key={i} className="aspect-square rounded-md" />
-                  ))
-                : referenceImages?.map((img) => {
-                    const isSelected = selectedReferenceImages.includes(img.id);
-                    const role =
-                      mode === "video" && isSelected
-                        ? videoReferenceRoles[img.id] ?? "refimg"
-                        : undefined;
-                    return (
-                      <ReferenceImage
-                        key={img.id}
-                        src={img.url ?? ""}
-                        alt="Reference image"
-                        isSelected={isSelected}
-                        setSelected={() => toggleSelected(img.id)}
-                        onDelete={() => onDeleteReferenceImage(img.id)}
-                        onPreview={() =>
-                          setPreviewImage({ id: img.id, url: img.url ?? "" })
-                        }
-                        role={role}
-                        availableRoles={
-                          mode === "video" ? availableRolesFor(img.id) : undefined
-                        }
-                        onChangeRole={
-                          mode === "video"
-                            ? (newRole) => handleChangeRole(img.id, newRole)
-                            : undefined
-                        }
-                      />
-                    );
-                  })}
-            </div>
-            {mode === "video" && (
-              <div className="flex items-center gap-3 px-2 pb-1 text-[11px] text-(--muted-foreground)">
-                <span
-                  className={clsx(
-                    "inline-flex items-center gap-1",
-                    selectedReferenceImages.length >= MAX_VIDEO_REFERENCE_IMAGES &&
-                      "text-blue-400",
-                  )}
-                >
-                  <ImageIcon className="size-3 opacity-80" strokeWidth={1.5} />
-                  {selectedReferenceImages.length}/{MAX_VIDEO_REFERENCE_IMAGES}
-                </span>
-              </div>
-            )}
-            {mode === "image" && maxImageReferenceImages !== undefined && (
-              <div className="flex items-center gap-1 px-2 pb-1 text-[11px] text-(--muted-foreground)">
-                <ImageIcon className="size-3 opacity-80" strokeWidth={1.5} />
-                {selectedReferenceImages.length}/{maxImageReferenceImages}
-              </div>
             )}
           </CollapsibleContent>
         </Collapsible>
-        <Field>
-          <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
-            Output Type
-          </FieldLabel>
-          <div className="flex flex-row gap-2">
-            <button
-              type="button"
-              aria-pressed={mode === "image"}
-              onClick={() => onModeChange("image")}
-              className={clsx(
-                "flex grow cursor-pointer items-center justify-center gap-1.5 rounded-md border border-1 px-2 py-1.5 text-sm transition-colors",
-                mode === "image"
-                  ? "border-blue-500 bg-blue-500/15 text-(--foreground)"
-                  : "text-(--muted-foreground) hover:bg-gray-900",
-              )}
-            >
-              <ImageIcon size={14} />
-              Image
-            </button>
-            <button
-              type="button"
-              aria-pressed={mode === "video"}
-              onClick={() => onModeChange("video")}
-              className={clsx(
-                "flex grow cursor-pointer items-center justify-center gap-1.5 rounded-md border border-1 px-2 py-1.5 text-sm transition-colors",
-                mode === "video"
-                  ? "border-blue-500 bg-blue-500/15 text-(--foreground)"
-                  : "text-(--muted-foreground) hover:bg-gray-900",
-              )}
-            >
-              <VideoIcon size={14} />
-              Video
-            </button>
-          </div>
-        </Field>
-        <Field>
-          <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
-            Models
-          </FieldLabel>
+
+        <Section
+          title="Models"
+          aside={
+            activeModels.length > 1 ? (
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground cursor-pointer text-xs"
+                onClick={() =>
+                  onSelectedModelsChange(
+                    allActiveSelected ? [] : activeModels.map((m) => m.slug),
+                  )
+                }
+              >
+                {allActiveSelected ? "Clear" : "Select all"}
+              </button>
+            ) : null
+          }
+        >
           {isLoadingModels ? (
-            <div className="flex flex-col gap-2">
-              {Array.from({ length: 2 }).map((_, i) => (
-                <Skeleton key={i} className="h-12 rounded-md" />
+            <div className="flex flex-col gap-1">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-9 rounded-md" />
               ))}
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
-              {activeModels.map(({ slug, name, kind }) => (
-                <ModelCard
+            <div className="-mx-1 flex flex-col gap-0.5">
+              {activeModels.map(({ slug, name, provider }) => (
+                <ModelRow
                   key={slug}
                   slug={slug}
                   name={name}
-                  kind={kind}
+                  provider={provider}
                   isSelected={selectedModels.includes(slug)}
                   onToggle={() => onToggleSelectedModel(slug)}
                 />
@@ -954,23 +1183,26 @@ export function Sidebar({
                   open={archivedModelsOpen}
                   onOpenChange={onArchivedModelsOpenChange}
                 >
-                  <CollapsibleTrigger className="flex w-full cursor-pointer items-center justify-between rounded-md border border-1 border-dashed border-(--border) px-4 py-2 text-left">
-                    <span className="text-xs tracking-wide text-(--muted-foreground) uppercase">
-                      Archived Models
-                    </span>
-                    {archivedModelsOpen ? (
-                      <ChevronUp color="var(--muted-foreground)" size={16} />
-                    ) : (
-                      <ChevronDown color="var(--muted-foreground)" size={16} />
+                  <CollapsibleTrigger className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-xs outline-none focus-visible:ring-3">
+                    <ChevronDown
+                      className={cn(
+                        "size-3.5 transition-transform",
+                        archivedModelsOpen && "rotate-180",
+                      )}
+                    />
+                    {archivedModelsOpen ? "Hide" : "Show"} archived models (
+                    {archivedModels.length})
+                    {selectedArchivedCount > 0 && !archivedModelsOpen && (
+                      <CountBadge>{selectedArchivedCount} selected</CountBadge>
                     )}
                   </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-2 flex flex-col gap-2">
-                    {archivedModels.map(({ slug, name, kind }) => (
-                      <ModelCard
+                  <CollapsibleContent className="flex flex-col gap-0.5">
+                    {archivedModels.map(({ slug, name, provider }) => (
+                      <ModelRow
                         key={slug}
                         slug={slug}
                         name={name}
-                        kind={kind}
+                        provider={provider}
                         isSelected={selectedModels.includes(slug)}
                         onToggle={() => onToggleSelectedModel(slug)}
                       />
@@ -980,414 +1212,348 @@ export function Sidebar({
               )}
             </div>
           )}
-        </Field>
-        {mode === "image" && (
-          <Field className="w-full">
-            <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
-              Resolution
-            </FieldLabel>
-            <div className="flex flex-row gap-2">
-              {RESOLUTION_OPTIONS.map((resolutionOption) => {
-                return (
-                  <button
-                    key={resolutionOption}
-                    className={clsx(
-                      "grow cursor-pointer rounded-md border border-1 px-2 py-1 text-sm hover:bg-gray-900",
-                      resolution === resolutionOption
-                        ? "bg-blue-500 text-(--foreground)"
-                        : "text-(--muted-foreground)",
-                    )}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      onResolutionChange(resolutionOption);
-                    }}
-                  >
-                    {resolutionOption}
-                  </button>
-                );
-              })}
-            </div>
-            {(() => {
-              const models = [...activeModels, ...archivedModels];
-              const adjustments = selectedModels.flatMap((slug) => {
-                const effectiveResolution = getEffectiveImageResolution(
-                  slug,
-                  resolution,
-                );
-                if (!effectiveResolution || effectiveResolution === resolution) {
-                  return [];
-                }
-                return [
-                  `${models.find((model) => model.slug === slug)?.name ?? slug}: ${effectiveResolution}`,
-                ];
-              });
-              return adjustments.length > 0 ? (
-                <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-500">
-                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                  <span>
-                    Closest supported resolution will be used for{" "}
-                    {adjustments.join(", ")}.
-                  </span>
-                </p>
-              ) : null;
-            })()}
-          </Field>
-        )}
-        {mode === "video" && (
-          <>
-            <Field className="w-full">
-              <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
-                Duration
-              </FieldLabel>
-              <div className="flex flex-row gap-2">
-                {VIDEO_DURATION_OPTIONS.map((durationOption) => (
-                  <button
-                    key={durationOption}
-                    type="button"
-                    className={clsx(
-                      "grow cursor-pointer rounded-md border border-1 px-2 py-1 text-sm",
-                      duration === durationOption
-                        ? "bg-blue-500 text-(--foreground)"
-                        : "text-(--muted-foreground) hover:bg-gray-900",
-                    )}
-                    onClick={() => onDurationChange(durationOption)}
-                  >
-                    {durationOption}s
-                  </button>
-                ))}
-              </div>
-            </Field>
-            <Field className="w-full">
-              <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
-                Resolution
-              </FieldLabel>
-              <div className="flex flex-row gap-2">
-                {VIDEO_RESOLUTION_OPTIONS.map((videoResolutionOption) => {
-                  const isDisabled =
-                    videoResolutionOption === "1080p" &&
-                    hasOnlySeedanceFastSelected;
-                  return (
-                    <button
-                      key={videoResolutionOption}
-                      type="button"
-                      disabled={isDisabled}
-                      aria-disabled={isDisabled}
-                      title={
-                        isDisabled
-                          ? "1080p is not supported by Seedance 2.0 Fast"
-                          : undefined
-                      }
-                      className={clsx(
-                        "grow rounded-md border border-1 px-2 py-1 text-sm",
-                        videoResolution === videoResolutionOption
-                          ? "bg-blue-500 text-(--foreground)"
-                          : "text-(--muted-foreground)",
-                        isDisabled
-                          ? "cursor-not-allowed opacity-40"
-                          : "cursor-pointer hover:bg-gray-900",
-                      )}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        if (isDisabled) return;
-                        onVideoResolutionChange(videoResolutionOption);
-                      }}
-                    >
-                      {videoResolutionOption}
-                    </button>
-                  );
-                })}
-              </div>
-            </Field>
-            <p className="-mt-1 flex items-start gap-2 text-xs text-(--muted-foreground)">
-              {firstFrameRefImage?.url || lastFrameRefImage?.url ? (
-                <>
-                  <span className="inline-flex shrink-0 gap-1.5">
-                    {firstFrameRefImage?.url && (
-                      <span className="flex flex-col items-center">
-                        <span className="relative size-7 overflow-hidden rounded border border-(--border)">
-                          <Image
-                            src={firstFrameRefImage.url}
-                            alt="First frame reference"
-                            fill
-                            loading="lazy"
-                            sizes="28px"
-                            className="object-cover"
-                          />
-                        </span>
-                        <span className="mt-0.5 text-[8px] tracking-wide text-blue-400 uppercase">
-                          Start
-                        </span>
-                      </span>
-                    )}
-                    {lastFrameRefImage?.url && (
-                      <span className="flex flex-col items-center">
-                        <span className="relative size-7 overflow-hidden rounded border border-(--border)">
-                          <Image
-                            src={lastFrameRefImage.url}
-                            alt="Last frame reference"
-                            fill
-                            loading="lazy"
-                            sizes="28px"
-                            className="object-cover"
-                          />
-                        </span>
-                        <span className="mt-0.5 text-[8px] tracking-wide text-blue-400 uppercase">
-                          End
-                        </span>
-                      </span>
-                    )}
-                  </span>
-                  <span>
-                    <b className="text-(--foreground)">Image-to-video</b>{" "}
-                    {hasFirst && hasLast
-                      ? "— morphs from your first frame to your last frame."
-                      : hasFirst
-                        ? "— begins on your first frame."
-                        : "— ends on your last frame."}
-                  </span>
-                </>
-              ) : hasRefImg ? (
+        </Section>
+
+        {mode === "image" ? (
+          <Section title="Resolution">
+            <SegmentedControl
+              aria-label="Resolution"
+              value={resolution}
+              onValueChange={onResolutionChange}
+              options={RESOLUTION_OPTIONS.map((value) => ({
+                value,
+                label: value,
+              }))}
+            />
+            {resolutionAdjustments.length > 0 && (
+              <p className="flex items-start gap-1.5 text-xs text-amber-400">
+                <AlertTriangle className="mt-px size-3.5 shrink-0" />
                 <span>
-                  Reference images guide style and subject. Deselect them to
-                  use <b className="text-(--foreground)">image-to-video</b>.
+                  Closest supported resolution will be used for{" "}
+                  {resolutionAdjustments.join(", ")}.
                 </span>
-              ) : (
-                <span>
-                  Tag a reference image above as{" "}
-                  <b className="text-(--foreground)">first frame</b> to use{" "}
-                  <b className="text-(--foreground)">image-to-video</b>.
-                  Otherwise text-to-video.
-                </span>
-              )}
-            </p>
-          </>
-        )}
-        <Field className="w-full">
-          <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
-            Aspect Ratio
-          </FieldLabel>
-          <div className="flex flex-row flex-wrap gap-2">
-            {(mode === "video"
-              ? ["1:1", "4:3", "3:4", "16:9", "9:16", "21:9", "adaptive"]
-              : ["1:1", "4:3", "3:4", "16:9", "9:16"]
-            ).map((aspectOption) => (
-              <button
-                key={aspectOption}
-                className={clsx(
-                  "grow cursor-pointer rounded-md border border-1 px-2 py-1 text-sm",
-                  aspect === aspectOption
-                    ? "bg-blue-500 text-(--foreground)"
-                    : "text-(--muted-foreground) hover:bg-gray-900",
-                )}
-                onClick={(e) => {
-                  e.preventDefault();
-                  onAspectChange(aspectOption);
-                }}
-              >
-                {aspectOption}
-              </button>
-            ))}
-          </div>
-        </Field>
-        <Collapsible open={advancedOpen} onOpenChange={onAdvancedOpenChange}>
-          <CollapsibleTrigger className="flex w-full cursor-pointer flex-row items-baseline justify-between">
-            <div className="flex items-baseline gap-1.5">
-              <FieldLabel className="text-xxs cursor-pointer text-(--muted-foreground) uppercase">
-                Advanced
-              </FieldLabel>
-              {(quality !== "auto" ||
-                background !== "auto" ||
-                negativePrompt.trim().length > 0 ||
-                seed.trim().length > 0 ||
-                thinking !== "auto" ||
-                motion !== "auto" ||
-                cameraFixed) && (
-                <span className="text-xs text-(--muted-foreground)">
-                  (modified)
-                </span>
-              )}
-            </div>
-            {advancedOpen ? (
-              <ChevronUp color="var(--muted-foreground)" />
-            ) : (
-              <ChevronDown color="var(--muted-foreground)" />
+              </p>
             )}
-          </CollapsibleTrigger>
+          </Section>
+        ) : (
+          <div className="grid grid-cols-[2fr_3fr] gap-3">
+            <Section title="Duration">
+              <SegmentedControl
+                aria-label="Duration"
+                value={duration}
+                onValueChange={onDurationChange}
+                options={VIDEO_DURATION_OPTIONS.map((value) => ({
+                  value,
+                  label: `${value}s`,
+                }))}
+              />
+            </Section>
+            <Section title="Resolution">
+              <SegmentedControl
+                aria-label="Video resolution"
+                value={videoResolution}
+                onValueChange={onVideoResolutionChange}
+                options={VIDEO_RESOLUTION_OPTIONS.map((value) => {
+                  const disabled =
+                    value === "1080p" && hasOnlySeedanceFastSelected;
+                  return {
+                    value,
+                    label: value,
+                    disabled,
+                    title: disabled
+                      ? "1080p is not supported by Seedance 2.0 Fast"
+                      : undefined,
+                  };
+                })}
+              />
+            </Section>
+          </div>
+        )}
+
+        <Section title="Aspect ratio">
+          <SegmentedControl
+            aria-label="Aspect ratio"
+            value={aspect}
+            onValueChange={onAspectChange}
+            className={cn(
+              "grid-flow-row",
+              mode === "video" ? "grid-cols-7" : "grid-cols-5",
+            )}
+            itemClassName="h-12 flex-col gap-1 px-0 text-[11px]"
+            options={(mode === "video"
+              ? VIDEO_ASPECT_OPTIONS
+              : IMAGE_ASPECT_OPTIONS
+            ).map((value) => ({
+              value,
+              label: value === "adaptive" ? "Auto" : value,
+              icon: <AspectShape ratio={value} />,
+              title:
+                value === "adaptive"
+                  ? "Adaptive: the model picks the best ratio"
+                  : undefined,
+            }))}
+          />
+        </Section>
+
+        {mode === "video" && (
+          <div className="bg-muted/40 text-muted-foreground flex items-start gap-2.5 rounded-lg border p-3 text-xs leading-relaxed">
+            {firstFrameRefImage?.url || lastFrameRefImage?.url ? (
+              <>
+                <span className="inline-flex shrink-0 gap-1.5">
+                  {[
+                    { img: firstFrameRefImage, label: "Start" },
+                    { img: lastFrameRefImage, label: "End" },
+                  ].map(({ img, label }) =>
+                    img?.url ? (
+                      <span key={label} className="flex flex-col items-center">
+                        <span className="relative size-8 overflow-hidden rounded border">
+                          <Image
+                            src={img.url}
+                            alt={`${label} frame reference`}
+                            fill
+                            loading="lazy"
+                            sizes="32px"
+                            className="object-cover"
+                          />
+                        </span>
+                        <span className="text-primary mt-0.5 text-[9px] font-medium tracking-wide uppercase">
+                          {label}
+                        </span>
+                      </span>
+                    ) : null,
+                  )}
+                </span>
+                <span>
+                  <b className="text-foreground font-medium">Image-to-video</b>{" "}
+                  {hasFirst && hasLast
+                    ? "— morphs from your first frame to your last frame."
+                    : hasFirst
+                      ? "— begins on your first frame."
+                      : "— ends on your last frame."}
+                </span>
+              </>
+            ) : (
+              <>
+                <Info className="mt-0.5 size-3.5 shrink-0" />
+                {hasRefImg ? (
+                  <span>
+                    Reference images guide style and subject. Set one as{" "}
+                    <b className="text-foreground font-medium">First</b> frame
+                    instead to animate it (image-to-video).
+                  </span>
+                ) : (
+                  <span>
+                    Text-to-video. Select a reference image and set it as the{" "}
+                    <b className="text-foreground font-medium">First</b> frame
+                    to animate it instead.
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col">
+            <h2 className="text-muted-foreground text-xs font-medium">
+              Runs per model
+            </h2>
+            <span className="text-muted-foreground/70 text-[11px]">
+              Variations of each selected model
+            </span>
+          </div>
+          <div
+            role="group"
+            aria-label="Runs per model"
+            className="flex items-center rounded-lg border"
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Fewer runs"
+              disabled={runs <= 1}
+              onClick={() => onRunsChange(Math.max(1, runs - 1))}
+            >
+              <Minus />
+            </Button>
+            <output
+              aria-live="polite"
+              className="w-7 text-center text-sm font-medium tabular-nums"
+            >
+              {runs}
+            </output>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="More runs"
+              disabled={runs >= MAX_RUNS_PER_MODEL}
+              onClick={() =>
+                onRunsChange(Math.min(MAX_RUNS_PER_MODEL, runs + 1))
+              }
+            >
+              <Plus />
+            </Button>
+          </div>
+        </div>
+
+        <Collapsible
+          open={advancedOpen}
+          onOpenChange={onAdvancedOpenChange}
+          className="flex flex-col gap-2"
+        >
+          <SectionTrigger
+            title="Advanced"
+            open={advancedOpen}
+            badge={advancedModified ? <CountBadge>Modified</CountBadge> : null}
+          />
           <CollapsibleContent>
-            <div className="mt-3 flex flex-col gap-4">
+            <div className="flex flex-col gap-3 pt-1">
               {mode === "image" && (
                 <>
-                <div
-                  className={clsx(
-                    "flex flex-col gap-2 transition-opacity",
-                    !hasOpenAIModelSelected && "opacity-50",
-                  )}
-                >
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-[10px] font-medium tracking-wide text-(--muted-foreground) uppercase">
-                      OpenAI
-                    </span>
-                    {!hasOpenAIModelSelected && (
-                      <span className="text-[10px] text-(--muted-foreground)/70 italic">
-                        no OpenAI model selected
-                      </span>
-                    )}
-                  </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Field>
-                    <AdvancedControlLabel
-                      label="Quality"
-                      help="Image quality. Higher uses more credits but produces sharper results. Extra High and Max are only supported by GPT Image 2.5 models."
-                    />
-                    <Select
-                      value={quality}
-                      onValueChange={(value) =>
-                        onQualityChange(value ?? "auto")
-                      }
-                      disabled={!hasOpenAIModelSelected}
-                    >
-                      <SelectTrigger size="sm" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {QUALITY_OPTIONS.map((option) => (
-                          <SelectItem
-                            key={option.value}
-                            value={option.value}
-                            className="cursor-pointer"
-                            disabled={
-                              !extendedQualityAvailable &&
-                              isExtendedImageQuality(option.value)
-                            }
-                          >
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field>
-                    <AdvancedControlLabel
-                      label="Background"
-                      help="Transparent produces a PNG with no background. Auto lets the model decide."
-                    />
-                    <Select
-                      value={background}
-                      onValueChange={(value) =>
-                        onBackgroundChange(value ?? "auto")
-                      }
-                      disabled={!hasOpenAIModelSelected}
-                    >
-                      <SelectTrigger size="sm" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {BACKGROUND_OPTIONS.map((option) => (
-                          <SelectItem
-                            key={option.value}
-                            value={option.value}
-                            className="cursor-pointer"
-                          >
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                </div>
-              </div>
-              <div
-                className={clsx(
-                  "flex flex-col gap-2 transition-opacity",
-                  !hasGeminiModelSelected && "opacity-50",
-                )}
-              >
-                <div className="flex items-baseline justify-between">
-                  <span className="text-[10px] font-medium tracking-wide text-(--muted-foreground) uppercase">
-                    Gemini
-                  </span>
-                  {!hasGeminiModelSelected && (
-                    <span className="text-[10px] text-(--muted-foreground)/70 italic">
-                      no Gemini model selected
-                    </span>
-                  )}
-                </div>
-                <Field>
-                  <AdvancedControlLabel
-                    label="Negative Prompt"
-                    help="Describe what you don't want in the image (e.g. blurry, text)."
-                  />
-                  <Textarea
-                    rows={2}
-                    placeholder="e.g. blurry, low quality, text"
-                    value={negativePrompt}
-                    onChange={(e) => onNegativePromptChange(e.target.value)}
-                    disabled={!hasGeminiModelSelected}
-                  />
-                </Field>
-                <div className="grid grid-cols-2 gap-2">
-                  <Field>
-                    <AdvancedControlLabel
-                      label="Seed"
-                      help="Use the same seed to reproduce results. Leave blank for random."
-                    />
-                    <Input
-                      inputMode="numeric"
-                      placeholder="Random"
-                      value={seed}
-                      onChange={(e) =>
-                        onSeedChange(e.target.value.replace(/[^0-9]/g, ""))
-                      }
-                      disabled={!hasGeminiModelSelected}
-                    />
-                  </Field>
-                  <Field>
-                    <AdvancedControlLabel
-                      label="Thinking"
-                      help="How much the model reasons before generating. Costs extra tokens. Only Gemini 3 models support thinking."
-                    />
-                    <Select
-                      value={thinking}
-                      onValueChange={(value) =>
-                        onThinkingChange(value ?? "auto")
-                      }
-                      disabled={!hasGeminiModelSelected}
-                    >
-                      <SelectTrigger size="sm" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {THINKING_OPTIONS.map((option) => (
-                          <SelectItem
-                            key={option.value}
-                            value={option.value}
-                            className="cursor-pointer"
-                          >
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                </div>
-              </div>
-              </>
+                  <ProviderGroup name="OpenAI" active={hasOpenAIModelSelected}>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Field className="gap-1.5">
+                        <AdvancedControlLabel
+                          label="Quality"
+                          help="Image quality. Higher uses more credits but produces sharper results. Extra High and Max are only supported by GPT Image 2.5 models."
+                        />
+                        <Select
+                          value={quality}
+                          items={QUALITY_OPTIONS}
+                          onValueChange={(value) =>
+                            onQualityChange(value ?? "auto")
+                          }
+                          disabled={!hasOpenAIModelSelected}
+                        >
+                          <SelectTrigger size="sm" className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {QUALITY_OPTIONS.map((option) => (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                                className="cursor-pointer"
+                                disabled={
+                                  !extendedQualityAvailable &&
+                                  isExtendedImageQuality(option.value)
+                                }
+                              >
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field className="gap-1.5">
+                        <AdvancedControlLabel
+                          label="Background"
+                          help="Transparent produces a PNG with no background. Auto lets the model decide."
+                        />
+                        <Select
+                          value={background}
+                          items={BACKGROUND_OPTIONS}
+                          onValueChange={(value) =>
+                            onBackgroundChange(value ?? "auto")
+                          }
+                          disabled={!hasOpenAIModelSelected}
+                        >
+                          <SelectTrigger size="sm" className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {BACKGROUND_OPTIONS.map((option) => (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                                className="cursor-pointer"
+                              >
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                    </div>
+                  </ProviderGroup>
+                  <ProviderGroup name="Gemini" active={hasGeminiModelSelected}>
+                    <Field className="gap-1.5">
+                      <AdvancedControlLabel
+                        label="Negative prompt"
+                        help="Describe what you don't want in the image (e.g. blurry, text)."
+                      />
+                      <Textarea
+                        rows={2}
+                        placeholder="e.g. blurry, low quality, text"
+                        value={negativePrompt}
+                        onChange={(e) => onNegativePromptChange(e.target.value)}
+                        disabled={!hasGeminiModelSelected}
+                        className="min-h-14"
+                      />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Field className="gap-1.5">
+                        <AdvancedControlLabel
+                          label="Seed"
+                          help="Use the same seed to reproduce results. Leave blank for random."
+                        />
+                        <Input
+                          inputMode="numeric"
+                          placeholder="Random"
+                          value={seed}
+                          onChange={(e) =>
+                            onSeedChange(e.target.value.replace(/[^0-9]/g, ""))
+                          }
+                          disabled={!hasGeminiModelSelected}
+                          className="h-7"
+                        />
+                      </Field>
+                      <Field className="gap-1.5">
+                        <AdvancedControlLabel
+                          label="Thinking"
+                          help="How much the model reasons before generating. Costs extra tokens. Only Gemini 3 models support thinking."
+                        />
+                        <Select
+                          value={thinking}
+                          items={THINKING_OPTIONS}
+                          onValueChange={(value) =>
+                            onThinkingChange(value ?? "auto")
+                          }
+                          disabled={!hasGeminiModelSelected}
+                        >
+                          <SelectTrigger size="sm" className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {THINKING_OPTIONS.map((option) => (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                                className="cursor-pointer"
+                              >
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                    </div>
+                  </ProviderGroup>
+                </>
               )}
               {mode === "video" && (
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-[10px] font-medium tracking-wide text-blue-400 uppercase">
-                      Dreamina · Seedance
-                    </span>
-                  </div>
+                <ProviderGroup name="Seedance" active>
                   <div className="grid grid-cols-2 gap-2">
-                    <Field>
+                    <Field className="gap-1.5">
                       <AdvancedControlLabel
                         label="Motion"
                         help="How much motion the video should have. Subtle keeps things calm; Dynamic adds more movement."
                       />
                       <Select
                         value={motion}
+                        items={VIDEO_MOTION_OPTIONS}
                         onValueChange={(value) =>
                           onMotionChange(value ?? "auto")
                         }
@@ -1408,111 +1574,80 @@ export function Sidebar({
                         </SelectContent>
                       </Select>
                     </Field>
-                    <Field>
+                    <Field className="gap-1.5">
                       <AdvancedControlLabel
                         label="Camera"
-                        help="Fixed locks the camera in place. Free move lets the model add camera motion."
+                        help="Fixed locks the camera in place. Free lets the model add camera motion."
                       />
-                      <ButtonGroup className="w-full">
-                        <Button
-                          type="button"
-                          variant={cameraFixed ? "secondary" : "outline"}
-                          size="sm"
-                          aria-pressed={cameraFixed}
-                          onClick={() => onCameraFixedChange(true)}
-                          className="flex-1"
-                        >
-                          Fixed
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={!cameraFixed ? "secondary" : "outline"}
-                          size="sm"
-                          aria-pressed={!cameraFixed}
-                          onClick={() => onCameraFixedChange(false)}
-                          className="flex-1"
-                        >
-                          Free move
-                        </Button>
-                      </ButtonGroup>
+                      <SegmentedControl
+                        aria-label="Camera"
+                        value={cameraFixed ? "fixed" : "free"}
+                        onValueChange={(value) =>
+                          onCameraFixedChange(value === "fixed")
+                        }
+                        options={[
+                          { value: "free", label: "Free" },
+                          { value: "fixed", label: "Fixed" },
+                        ]}
+                      />
                     </Field>
                   </div>
-                </div>
+                </ProviderGroup>
               )}
             </div>
           </CollapsibleContent>
         </Collapsible>
-        <Field className="w-full">
-          <FieldLabel className="text-xxs text-(--muted-foreground) uppercase">
-            Runs per Model
-          </FieldLabel>
-          <div className="flex flex-row gap-2">
-            <button
-              className="cursor-pointer rounded-md border border-1 px-3 py-1 text-sm hover:bg-gray-900 active:bg-blue-500"
-              onClick={() => {
-                if (runs > 1) onRunsChange(runs - 1);
-              }}
-            >
-              -
-            </button>
-            <input
-              className="w-0 grow rounded-md border border-1 text-center text-sm"
-              disabled
-              value={runs}
-            />
-            <button
-              className="cursor-pointer rounded-md border border-1 px-3 py-1 text-sm hover:bg-gray-900 active:bg-blue-500"
-              onClick={() => {
-                if (runs < 8) onRunsChange(runs + 1);
-              }}
-            >
-              +
-            </button>
-          </div>
-          <span className="mt-1 text-xs text-(--muted-foreground)">
-            {totalGenerations} generation{totalGenerations !== 1 ? "s" : ""}{" "}
-            will be triggered
-          </span>
-        </Field>
-        {totalGenerations > 6 && (
-          <div className="flex flex-row items-start gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 p-3">
-            <AlertTriangle
-              size={16}
-              className="mt-0.5 shrink-0 text-amber-400"
-            />
-            <div className="text-sm text-amber-300">
-              Repeating prompts many times may lead to high usage.{" "}
-              <button
-                className="underline hover:text-amber-200"
-                onClick={() => onRunsChange(3)}
-              >
-                Reduce repeat count
-              </button>
-            </div>
-          </div>
-        )}
       </div>
-      <div className="flex flex-col items-center-safe gap-2 border-y border-(--border) py-4">
-        {usage?.isOverQuota && !bypassMonthlyQuota && (
-          <div className="mx-4 mb-1 flex w-[calc(100%-2rem)] items-start gap-3 rounded-md border border-red-500/40 bg-red-500/10 p-3">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-400" />
-            <div className="text-sm text-red-300">
-              Out of monthly credits. Resets on{" "}
-              {new Intl.DateTimeFormat(undefined, {
-                dateStyle: "medium",
-                timeZone: "UTC",
-              }).format(new Date(usage.periodEnd))}
-              .{" "}
+
+      {/* Footer: summary + primary action */}
+      <div className="flex shrink-0 flex-col gap-2.5 border-t px-4 py-3">
+        {isOverQuota && usage && (
+          <div className="flex items-start gap-2 rounded-md border border-red-500/40 bg-red-500/10 p-2.5 text-xs text-red-300">
+            <AlertTriangle className="mt-px size-3.5 shrink-0 text-red-400" />
+            <span>
+              Out of monthly credits until {formatShortDate(usage.periodEnd)}.{" "}
               <button
                 type="button"
-                className="cursor-pointer underline hover:text-red-200"
+                className="cursor-pointer underline underline-offset-2 hover:text-red-200"
                 onClick={() => setUsageOpen(true)}
               >
                 View usage
               </button>
-            </div>
+            </span>
           </div>
         )}
+        {!isOverQuota && totalGenerations > 6 && (
+          <div className="flex items-start gap-2 text-xs text-amber-300">
+            <AlertTriangle className="mt-px size-3.5 shrink-0 text-amber-400" />
+            <span>
+              {totalGenerations} generations at once can use a lot of credits.{" "}
+              {runs > 1 && (
+                <button
+                  type="button"
+                  className="cursor-pointer underline underline-offset-2 hover:text-amber-200"
+                  onClick={() => onRunsChange(1)}
+                >
+                  Use 1 run per model
+                </button>
+              )}
+            </span>
+          </div>
+        )}
+        <div className="text-muted-foreground flex items-center justify-between gap-2 text-xs tabular-nums">
+          <span>
+            {selectedModels.length === 0
+              ? "Select at least one model"
+              : `${totalGenerations} ${outputNoun}${totalGenerations === 1 ? "" : "s"} · ${selectedModels.length} model${selectedModels.length === 1 ? "" : "s"}`}
+          </span>
+          {selectedModels.length > 0 && (
+            <span>
+              <span className="text-foreground font-medium">
+                {currentRequestCost.toLocaleString()}
+              </span>{" "}
+              credits
+            </span>
+          )}
+        </div>
         <GenerateButton
           promptComposerRef={promptComposerRef}
           selectedModelsCount={selectedModels.length}
@@ -1520,34 +1655,23 @@ export function Sidebar({
           isOverQuota={Boolean(usage?.isOverQuota)}
           bypassMonthlyQuota={bypassMonthlyQuota}
           generateButtonLocked={generateButtonLocked}
+          isMacOS={isMacOS}
           onGenerate={onGenerate}
         />
-        <br />
-        <div className="flex w-full flex-row items-center-safe justify-start gap-4 px-4">
-          <UserButton>
-            <UserButton.MenuItems>
-              <UserButton.Action
-                label="Usage"
-                labelIcon={<Gauge className="size-4" />}
-                onClick={() => setUsageOpen(true)}
-              />
-            </UserButton.MenuItems>
-          </UserButton>
-          {userFullName}
-        </div>
-        {usageOpen && (
-          <UsageModal
-            open={usageOpen}
-            onOpenChange={setUsageOpen}
-            usage={usage}
-            isLoading={isLoadingUsage}
-            currentRequestCost={currentRequestCost}
-            canBypassLimits={canBypassLimits}
-            bypassMonthlyQuota={bypassMonthlyQuota}
-            onBypassMonthlyQuotaChange={onBypassMonthlyQuotaChange}
-          />
-        )}
       </div>
+
+      {usageOpen && (
+        <UsageModal
+          open={usageOpen}
+          onOpenChange={setUsageOpen}
+          usage={usage}
+          isLoading={isLoadingUsage}
+          currentRequestCost={currentRequestCost}
+          canBypassLimits={canBypassLimits}
+          bypassMonthlyQuota={bypassMonthlyQuota}
+          onBypassMonthlyQuotaChange={onBypassMonthlyQuotaChange}
+        />
+      )}
       {previewImage && (
         <ReferenceImageLightbox
           src={previewImage.url}

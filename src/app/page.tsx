@@ -833,6 +833,14 @@ export default function Home() {
     void handleGenerateRef.current();
   }, []);
 
+  const handleReusePrompt = useCallback((text: string) => {
+    const composer = promptComposerRef.current;
+    if (!composer) return;
+    composer.setValue(text);
+    composer.focus();
+    toast.success("Prompt added to the editor");
+  }, []);
+
   const handleReuseAsReference = useCallback(
     async (imageId: string) => {
       const { reuseAsReference, utils } = galleryActionRef.current;
@@ -1097,7 +1105,7 @@ export default function Home() {
   ]);
 
   return (
-    <main className="flex w-full grow flex-row text-gray-200">
+    <main className="flex h-screen w-full grow flex-row overflow-hidden">
       <AlertDialog
         open={pushPermissionDialogOpen}
         onOpenChange={setPushPermissionDialogOpen}
@@ -1128,9 +1136,17 @@ export default function Home() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this item?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {pendingDelete?.type === "prompt"
+                ? "Delete this generation?"
+                : pendingDelete?.type === "referenceImage"
+                  ? "Delete this reference image?"
+                  : "Delete this result?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone.
+              {pendingDelete?.type === "prompt"
+                ? "The prompt and every image or video it produced will be removed. Anything still generating is cancelled. This can't be undone."
+                : "This can't be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1138,7 +1154,7 @@ export default function Home() {
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              className="cursor-pointer"
+              className="bg-destructive hover:bg-destructive/90 cursor-pointer text-white"
               onClick={handleConfirmDelete}
             >
               Delete
@@ -1157,6 +1173,7 @@ export default function Home() {
         onVideoReferenceRolesChange={setVideoReferenceRoles}
         selectedModels={selectedModels}
         onToggleSelectedModel={toggleSelectedModel}
+        onSelectedModelsChange={setSelectedModels}
         mode={mode}
         onModeChange={setMode}
         resolution={resolution}
@@ -1223,7 +1240,6 @@ export default function Home() {
         activeModels={activeModels}
         archivedModels={archivedModels}
         totalGenerations={totalGenerations}
-        userFullName={user.user?.fullName}
         usage={usage}
         isLoadingUsage={isLoadingUsage}
         currentRequestCost={currentRequestCost}
@@ -1247,6 +1263,7 @@ export default function Home() {
         onDeleteMedia={handleDeleteMedia}
         onReuseAsReference={handleReuseAsReference}
         onRetryMedia={handleRetryImage}
+        onReusePrompt={handleReusePrompt}
       />
     </main>
   );

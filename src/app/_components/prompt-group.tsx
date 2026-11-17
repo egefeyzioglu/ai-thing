@@ -6,12 +6,39 @@ import { createPortal } from "react-dom";
 
 import { Card } from "src/components/ui/card";
 import { Button } from "src/components/ui/button";
-import { FolderInput, MoreHorizontal, Play, Trash2, Video } from "lucide-react";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "src/components/ui/popover";
+  AlertTriangle,
+  ChevronDown,
+  Copy,
+  Download,
+  FolderInput,
+  ImagePlus,
+  Loader2,
+  MoreHorizontal,
+  Pin,
+  PinOff,
+  Play,
+  RotateCw,
+  Trash2,
+  Video,
+  X,
+} from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "src/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "src/components/ui/tooltip";
 import { cn } from "src/lib/utils";
 import { toast } from "sonner";
 
@@ -64,6 +91,7 @@ export type PromptGroupProps = {
   onDeleteMedia?: (mediaId: string) => void;
   onRetryMedia?: (mediaId: string) => void;
   onReuseAsReference?: (mediaId: string) => Promise<void>;
+  onReusePrompt?: () => void;
   pinnedImages: PinnedImages;
   onPinnedImagesChange: SetPinnedImages;
 };
@@ -143,31 +171,20 @@ const fmtDate = (d: Date) =>
     minute: "2-digit",
   });
 
-function Spinner() {
+function PinIcon({
+  size = 12,
+  filled = false,
+}: {
+  size?: number;
+  filled?: boolean;
+}) {
   return (
-    <div className="size-[18px] rounded-full border-2 border-border border-t-blue-500 animate-spin" />
-  );
-}
-
-function PinIcon({ size = 12, filled = false }: { size?: number; filled?: boolean }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
-      <path
-        d="M10.5 1.5L14.5 5.5M9 3L13 7M9.5 6.5L4 12M5.5 8L2 11.5L4.5 14L8 10.5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill={filled ? "currentColor" : "none"}
-      />
-      <path
-        d="M10 2L14 6L11 9L7 5L10 2Z"
-        fill={filled ? "currentColor" : "none"}
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <Pin
+      width={size}
+      height={size}
+      strokeWidth={2}
+      className={cn(filled && "fill-current")}
+    />
   );
 }
 
@@ -271,7 +288,7 @@ function VideoRenderingState({
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6">
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-(--border)">
           <div
-            className="h-full bg-blue-500 transition-all duration-500"
+            className="h-full bg-primary transition-all duration-500"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -306,6 +323,45 @@ type GeneratedImageActionsProps = {
   onReuseAsReference?: () => Promise<void>;
 };
 
+const overlayButtonClass =
+  "flex size-7 cursor-pointer items-center justify-center rounded-md border border-white/10 bg-black/60 text-white backdrop-blur-sm transition-colors hover:bg-black/80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default disabled:opacity-50";
+
+function OverlayButton({
+  label,
+  onClick,
+  disabled,
+  className,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={label}
+            disabled={disabled}
+            onClick={(event) => {
+              event.stopPropagation();
+              onClick();
+            }}
+            className={cn(overlayButtonClass, className)}
+          />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function GeneratedImageActions({
   isPinned = false,
   onTogglePin,
@@ -316,75 +372,49 @@ function GeneratedImageActions({
   const [reusing, setReusing] = useState(false);
 
   return (
-    <div className="flex gap-1 items-center">
+    <div className="flex items-center gap-1">
       {onTogglePin && (
-        <button
-          onClick={(event) => {
-            event.stopPropagation();
-            onTogglePin();
-          }}
-          title={isPinned ? "Unpin" : "Pin as cover"}
+        <OverlayButton
+          label={isPinned ? "Unpin cover" : "Pin as album cover"}
+          onClick={onTogglePin}
           className={cn(
-            "h-6 px-2 rounded-full text-[11px] font-medium flex items-center gap-1 cursor-pointer border transition-colors",
-            isPinned
-              ? "bg-blue-500 border-blue-500 text-white"
-              : "bg-[oklch(0.09_0.012_258/0.82)] border-border text-foreground backdrop-blur-sm",
+            isPinned && "bg-primary border-primary hover:bg-primary/85",
           )}
         >
-          <PinIcon size={11} filled={isPinned} />
-          {isPinned ? "Pinned" : "Pin"}
-        </button>
+          {isPinned ? (
+            <PinOff className="size-3.5" />
+          ) : (
+            <Pin className="size-3.5" />
+          )}
+        </OverlayButton>
       )}
       {onReuseAsReference && (
-        <button
-          onClick={(event) => {
-            event.stopPropagation();
+        <OverlayButton
+          label={reusing ? "Saving as reference…" : "Use as reference image"}
+          disabled={reusing}
+          onClick={() => {
             if (reusing) return;
             setReusing(true);
             void onReuseAsReference().finally(() => setReusing(false));
           }}
-          disabled={reusing}
-          aria-label="Reuse as reference"
-          title={reusing ? "Saving as reference…" : "Reuse as reference image"}
-          className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm disabled:opacity-50"
         >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-            <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
-            <circle cx="5.5" cy="6.5" r="1.2" stroke="currentColor" strokeWidth="1" />
-            <path d="M2 11L5.5 8L8 10L11 7L14 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
+          {reusing ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <ImagePlus className="size-3.5" />
+          )}
+        </OverlayButton>
       )}
-      <button
-        onClick={(event) => {
-          event.stopPropagation();
-          onDownload();
-        }}
-        aria-label="Download"
-        title="Download"
-        className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm"
+      <OverlayButton label="Download" onClick={onDownload}>
+        <Download className="size-3.5" />
+      </OverlayButton>
+      <OverlayButton
+        label="Delete"
+        onClick={onDelete}
+        className="hover:bg-red-500/80"
       >
-        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-          <path
-            d="M6 1V8M6 8L3 5.5M6 8L9 5.5M2 10.5H10"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
-      <button
-        onClick={(event) => {
-          event.stopPropagation();
-          onDelete();
-        }}
-        aria-label="Delete image"
-        title="Delete image"
-        className="size-6 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-muted-foreground cursor-pointer flex items-center justify-center backdrop-blur-sm"
-      >
-        <Trash2 className="size-3.5" strokeWidth={2} />
-      </button>
+        <Trash2 className="size-3.5" />
+      </OverlayButton>
     </div>
   );
 }
@@ -415,17 +445,19 @@ function ImageCell({
       <VideoRenderingState ar={ar} createdAt={image.createdAt} />
     ) : (
       <div className="relative w-full bg-muted" style={{ aspectRatio: parseAspectRatio(ar) }}>
+        <div className="absolute inset-0 animate-pulse bg-linear-to-br from-white/[0.02] via-white/[0.06] to-white/[0.02]" />
         <div className="absolute inset-0 flex items-center justify-center gap-2">
-          <Spinner />
-          <span className="text-xs text-muted-foreground animate-pulse">Generating…</span>
+          <Loader2 className="size-4 animate-spin text-primary" />
+          <span className="text-xs text-muted-foreground">Generating…</span>
         </div>
       </div>
     );
   } else if (image.status === "failed") {
     body = (
       <div className="relative w-full bg-muted" style={{ aspectRatio: parseAspectRatio(ar) }}>
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 px-3 py-2">
-          <p className="text-xs text-destructive">Generation failed</p>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 py-2">
+          <AlertTriangle className="size-4 text-destructive" />
+          <p className="text-xs font-medium text-destructive">Generation failed</p>
           {image.error && (
             <p
               className="text-[10px] text-muted-foreground text-center line-clamp-4 break-words max-w-full"
@@ -435,7 +467,16 @@ function ImageCell({
             </p>
           )}
           {onRetry && (
-            <Button variant="outline" size="xs" onClick={onRetry} className="cursor-pointer">
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={(event) => {
+                event.stopPropagation();
+                onRetry();
+              }}
+              className="mt-0.5 cursor-pointer"
+            >
+              <RotateCw />
               Retry
             </Button>
           )}
@@ -472,11 +513,11 @@ function ImageCell({
         }
       }}
       className={cn(
-        "group/cell relative w-full rounded-md overflow-hidden [animation:promptGroupFadeIn_0.25s_ease_both]",
+        "group/cell relative w-full rounded-md overflow-hidden bg-muted [animation:promptGroupFadeIn_0.25s_ease_both] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
         canOpen && "cursor-pointer",
         isPinned
-          ? "outline-2 outline-[oklch(0.63_0.18_258)] outline"
-          : "outline outline-1 outline-border",
+          ? "outline-2 outline-primary outline"
+          : "outline outline-1 outline-white/5",
       )}
     >
       {body}
@@ -499,13 +540,13 @@ function ImageCell({
           </div>
         )}
       {isPinned && totalPinned > 1 && (
-        <div className="absolute top-1.5 left-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-500 text-white flex items-center gap-1 shadow-md">
+        <div className="absolute top-1.5 left-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground flex items-center gap-1 shadow-md">
           <PinIcon size={9} filled />
           {pinIndex + 1}/{totalPinned}
         </div>
       )}
       {isPinned && totalPinned === 1 && (
-        <div className="absolute top-1.5 left-1.5 size-5 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-md">
+        <div className="absolute top-1.5 left-1.5 size-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-md">
           <PinIcon size={10} filled />
         </div>
       )}
@@ -556,11 +597,9 @@ function VideoModal({
           onClose();
         }}
         aria-label="Close video preview"
-        className="absolute right-4 top-4 z-10 size-9 rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm cursor-pointer"
+        className="absolute right-4 top-4 z-10 size-9 rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm cursor-pointer hover:bg-black/70"
       >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="mx-auto">
-          <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
+        <X className="mx-auto size-4" />
       </button>
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
       <div className="relative z-10 flex h-[90vh] w-full items-center justify-center">
@@ -619,11 +658,9 @@ function ImageModal({
           onClose();
         }}
         aria-label="Close image preview"
-        className="absolute right-4 top-4 z-10 size-9 rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm cursor-pointer"
+        className="absolute right-4 top-4 z-10 size-9 rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm cursor-pointer hover:bg-black/70"
       >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="mx-auto">
-          <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
+        <X className="mx-auto size-4" />
       </button>
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
       <div className="relative z-10 flex h-[90vh] w-full items-center justify-center">
@@ -723,21 +760,21 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
   return (
     <Card
       className={cn(
-        "group/album rounded-lg gap-0 py-0 [animation:promptGroupFadeIn_0.3s_ease_both]",
+        "group/album rounded-xl gap-0 py-0 [animation:promptGroupFadeIn_0.3s_ease_both]",
         canExpand && !expanded && "cursor-pointer",
       )}
       onClick={handleAlbumClick}
     >
       {/* header */}
-      <div className="px-3 py-2.5 flex items-center justify-between gap-2 border-b border-border">
+      <div className="px-3 pt-2.5 pb-2 flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-xs font-semibold">{model?.name ?? modelId}</div>
-          <div className="flex items-center gap-1.5 mt-px text-[10px] text-muted-foreground">
+          <div className="truncate text-[13px] font-medium">{model?.name ?? modelId}</div>
+          <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
             <span>{model?.provider}</span>
             {isVideoAlbum && (
               <>
                 <span className="opacity-50">·</span>
-                <span className="text-blue-400">video</span>
+                <span className="text-primary">video</span>
               </>
             )}
             {successCount > 0 && (
@@ -752,7 +789,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
             {pinned.length > 0 && (
               <>
                 <span className="opacity-50">·</span>
-                <span className="text-blue-500 flex items-center gap-0.5">
+                <span className="text-primary flex items-center gap-0.5">
                   <PinIcon size={9} filled />
                   {pinned.length} pinned
                 </span>
@@ -768,36 +805,28 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
         </div>
         {images.length > 1 && (
           <Button
-            variant="outline"
+            variant="ghost"
             size="xs"
+            aria-expanded={expanded}
             onClick={(event) => {
               event.stopPropagation();
               setExpanded((e) => !e);
             }}
-            className="shrink-0 gap-1 cursor-pointer"
+            className="text-muted-foreground shrink-0 cursor-pointer gap-1"
           >
-            {expanded ? "Collapse" : `View all ${images.length}`}
-            <svg
-              width="9"
-              height="9"
-              viewBox="0 0 10 10"
-              fill="none"
-              className={cn("transition-transform duration-200", expanded && "rotate-180")}
-            >
-              <path
-                d="M2 4L5 7L8 4"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            {expanded ? "Stack" : `All ${images.length}`}
+            <ChevronDown
+              className={cn(
+                "transition-transform duration-200",
+                expanded && "rotate-180",
+              )}
+            />
           </Button>
         )}
       </div>
 
       {/* body */}
-      <div className="p-3.5">
+      <div className="px-3 pb-3">
         {!expanded ? (
           <div className="relative">
             <div className={cn("relative", FAN_PADDING[visibleStack.length])}>
@@ -839,20 +868,19 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
                 })
               )}
               {hiddenStackCount > 0 && (
-                <div className="absolute bottom-2 right-2 text-[11px] font-semibold px-2 py-1 rounded-full bg-[oklch(0.09_0.012_258/0.85)] border border-border text-foreground z-20 backdrop-blur-sm">
+                <div className="absolute bottom-2 right-2 text-[11px] font-semibold px-2 py-1 rounded-full bg-black/65 border border-white/10 text-white z-20 backdrop-blur-sm">
                   +{hiddenStackCount} more{pinned.length > 0 ? " pinned" : ""}
                 </div>
               )}
             </div>
             {pinned.length === 0 && images.length > 1 && (
-              <div className="absolute bottom-2 left-2 text-[11px] px-2 py-1 rounded-full bg-[oklch(0.09_0.012_258/0.82)] border border-border text-muted-foreground flex items-center gap-1 pointer-events-none z-20 backdrop-blur-sm opacity-0 transition-opacity group-hover/album:opacity-100 group-focus-within/album:opacity-100">
-                <PinIcon size={10} />
-                Pin to set cover · expand to see all
+              <div className="absolute bottom-2 left-2 text-[11px] px-2 py-1 rounded-full bg-black/65 border border-white/10 text-white/85 flex items-center gap-1 pointer-events-none z-20 backdrop-blur-sm opacity-0 transition-opacity group-hover/album:opacity-100 group-focus-within/album:opacity-100">
+                Click to see all {images.length}
               </div>
             )}
           </div>
         ) : (
-          <div className={cn("grid gap-2.5", images.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
+          <div className={cn("grid gap-2", images.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
             {allDisplay.map((img) => {
               const isPinned = pinnedMap.has(img.id);
               const pinIdx = pinned.findIndex((p) => p.id === img.id);
@@ -928,7 +956,7 @@ function CollapsiblePrompt({ text }: { text: string }) {
     const measure = () => {
       const lh = parseFloat(getComputedStyle(el).lineHeight);
       if (isNaN(lh)) return;
-      setOverflows(el.scrollHeight > lh * 4 + 1);
+      setOverflows(el.scrollHeight > lh * 3 + 1);
     };
 
     measure();
@@ -942,8 +970,8 @@ function CollapsiblePrompt({ text }: { text: string }) {
       <p
         ref={ref}
         className={cn(
-          "text-sm text-foreground leading-relaxed",
-          !expanded && "line-clamp-4",
+          "text-[15px] text-foreground leading-relaxed",
+          !expanded && "line-clamp-3",
         )}
       >
         {text}
@@ -953,9 +981,9 @@ function CollapsiblePrompt({ text }: { text: string }) {
           type="button"
           aria-expanded={expanded}
           onClick={() => setExpanded((e) => !e)}
-          className="mt-0.5 text-[11px] text-muted-foreground/80 hover:text-foreground cursor-pointer"
+          className="mt-0.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
         >
-          {expanded ? "see less" : "see more..."}
+          {expanded ? "Show less" : "Show more"}
         </button>
       )}
     </div>
@@ -963,8 +991,9 @@ function CollapsiblePrompt({ text }: { text: string }) {
 }
 
 export default function PromptGroup(props: PromptGroupProps) {
-  const [referenceModalImage, setReferenceModalImage] = useState<string | null>(null);
-  const [actionsOpen, setActionsOpen] = useState(false);
+  const [referenceModalImage, setReferenceModalImage] = useState<string | null>(
+    null,
+  );
   const modelOrder: string[] = [];
   const byModel: Record<string, MediaShape[]> = {};
   for (const img of props.images) {
@@ -979,112 +1008,168 @@ export default function PromptGroup(props: PromptGroupProps) {
   const destinationProjects =
     props.projects?.filter((project) => project.id !== props.currentProjectId) ??
     [];
-  const hasPromptActions = Boolean(props.onDeletePrompt ?? props.onMovePrompt);
+  const inProgressCount = props.images.filter(
+    (i) => i.status === "pending" || i.status === "running",
+  ).length;
+
+  const handleCopyPrompt = () => {
+    navigator.clipboard.writeText(props.prompt).then(
+      () => toast.success("Prompt copied"),
+      () => toast.error("Couldn't copy the prompt"),
+    );
+  };
 
   return (
-    <div
+    <section
+      aria-label="Generation"
       className="group/prompt flex flex-col gap-3 [animation:promptGroupFadeIn_0.4s_ease_both]"
     >
       {/* prompt header */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
+      <div className="flex items-start justify-between gap-4">
+        <div className="max-w-4xl min-w-0 flex-1">
           <CollapsiblePrompt text={props.prompt} />
-          <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
-            <p className="text-[11px] text-muted-foreground/60">{fmtDate(props.createdAt)}</p>
-            {refImages.length > 0 && (
-              <div className="flex items-center gap-1">
-                {refImages.map((r) => (
-                  <div
-                    key={r.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setReferenceModalImage(r.url!)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        setReferenceModalImage(r.url!);
-                      }
-                    }}
-                    className="relative size-[18px] rounded border border-border overflow-hidden shrink-0 cursor-pointer"
-                  >
-                    <Image
-                      src={r.url!}
-                      alt="Reference"
-                      fill
-                      loading="lazy"
-                      className="object-cover"
-                      sizes="18px"
-                    />
-                  </div>
-                ))}
-                <span className="text-[10px] text-muted-foreground/60 ml-0.5">
-                  {refImages.length} ref{refImages.length > 1 ? "s" : ""}
+          <div className="text-muted-foreground mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+            <time dateTime={props.createdAt.toISOString()}>
+              {fmtDate(props.createdAt)}
+            </time>
+            {props.aspectRatio && (
+              <>
+                <span aria-hidden className="opacity-40">
+                  ·
                 </span>
-              </div>
+                <span>
+                  {props.aspectRatio === "adaptive"
+                    ? "Auto ratio"
+                    : props.aspectRatio}
+                </span>
+              </>
+            )}
+            {inProgressCount > 0 && (
+              <>
+                <span aria-hidden className="opacity-40">
+                  ·
+                </span>
+                <span className="text-primary flex items-center gap-1">
+                  <Loader2 className="size-3 animate-spin" />
+                  {inProgressCount} in progress
+                </span>
+              </>
+            )}
+            {refImages.length > 0 && (
+              <>
+                <span aria-hidden className="opacity-40">
+                  ·
+                </span>
+                <div className="flex items-center gap-1">
+                  {refImages.map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      aria-label="View reference image"
+                      onClick={() => setReferenceModalImage(r.url!)}
+                      className="focus-visible:ring-ring relative size-5 shrink-0 cursor-pointer overflow-hidden rounded border outline-none hover:ring-1 hover:ring-white/40 focus-visible:ring-2"
+                    >
+                      <Image
+                        src={r.url!}
+                        alt=""
+                        fill
+                        loading="lazy"
+                        className="object-cover"
+                        sizes="20px"
+                      />
+                    </button>
+                  ))}
+                  <span className="ml-0.5">
+                    {refImages.length} reference
+                    {refImages.length > 1 ? "s" : ""}
+                  </span>
+                </div>
+              </>
             )}
           </div>
         </div>
-        {hasPromptActions && (
-          <Popover open={actionsOpen} onOpenChange={setActionsOpen}>
-            <PopoverTrigger
+        <div className="flex shrink-0 items-center gap-0.5">
+          {props.onReusePrompt && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground"
+                    onClick={props.onReusePrompt}
+                  />
+                }
+              >
+                <RotateCw />
+                Reuse
+              </TooltipTrigger>
+              <TooltipContent>Put this prompt back in the editor</TooltipContent>
+            </Tooltip>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger
               render={
-                <button
-                  type="button"
-                  className="border-border text-muted-foreground hover:text-foreground hover:border-foreground/40 focus-visible:ring-ring/50 size-7 shrink-0 cursor-pointer rounded-md border bg-transparent opacity-0 transition-colors group-hover/prompt:opacity-100 group-focus-within/prompt:opacity-100 focus-visible:opacity-100 focus-visible:ring-3"
-                  aria-label="Generation actions"
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground"
+                  aria-label="More actions"
                 />
               }
             >
-              <MoreHorizontal className="mx-auto size-4" />
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-56 gap-1 p-1.5">
-              {props.onMovePrompt && (
-                <div className="flex flex-col gap-1">
-                  <p className="text-muted-foreground px-2 py-1 text-[11px] font-medium">
-                    Move to project
-                  </p>
-                  {destinationProjects.length > 0 ? (
-                    destinationProjects.map((project) => (
-                      <button
-                        key={project.id}
-                        type="button"
-                        className="hover:bg-muted focus-visible:bg-muted focus-visible:ring-ring/50 flex min-h-8 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs outline-none focus-visible:ring-3"
-                        onClick={() => {
-                          props.onMovePrompt?.(project.id);
-                          setActionsOpen(false);
-                        }}
-                      >
-                        <FolderInput className="size-3.5 shrink-0" />
-                        <span className="truncate">{project.name}</span>
-                      </button>
-                    ))
-                  ) : (
-                    <p className="text-muted-foreground px-2 py-1.5 text-xs">
-                      No other projects
-                    </p>
-                  )}
-                </div>
-              )}
+              <MoreHorizontal />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuGroup>
+                <DropdownMenuItem onClick={handleCopyPrompt}>
+                  <Copy />
+                  Copy prompt
+                </DropdownMenuItem>
+                {props.onMovePrompt && (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <FolderInput />
+                      Move to project
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-52">
+                      {destinationProjects.length > 0 ? (
+                        destinationProjects.map((project) => (
+                          <DropdownMenuItem
+                            key={project.id}
+                            onClick={() => props.onMovePrompt?.(project.id)}
+                          >
+                            <span className="truncate">{project.name}</span>
+                          </DropdownMenuItem>
+                        ))
+                      ) : (
+                        <DropdownMenuItem disabled>
+                          No other projects
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                )}
+              </DropdownMenuGroup>
               {props.onDeletePrompt && (
-                <button
-                  type="button"
-                  className="hover:bg-destructive/10 text-destructive focus-visible:bg-destructive/10 focus-visible:ring-ring/50 flex min-h-8 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs outline-none focus-visible:ring-3"
-                  onClick={() => {
-                    setActionsOpen(false);
-                    props.onDeletePrompt?.();
-                  }}
-                >
-                  <Trash2 className="size-3.5 shrink-0" />
-                  Delete
-                </button>
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={props.onDeletePrompt}
+                  >
+                    <Trash2 />
+                    Delete generation
+                  </DropdownMenuItem>
+                </>
               )}
-            </PopoverContent>
-          </Popover>
-        )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
-      {/* model albums — 3-column grid */}
-      <div className="grid grid-cols-3 gap-3.5 items-start">
+      {/* one album per model */}
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] items-start gap-3">
         {modelOrder.map((modelId) => (
           <ModelAlbum
             key={modelId}
@@ -1107,6 +1192,6 @@ export default function PromptGroup(props: PromptGroupProps) {
           onClose={() => setReferenceModalImage(null)}
         />
       )}
-    </div>
+    </section>
   );
 }
