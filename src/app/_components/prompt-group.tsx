@@ -408,7 +408,7 @@ function FailureDetails({ error }: { error: string }) {
       <p className="text-muted-foreground line-clamp-3 max-w-full text-center text-xs break-words">
         {message}
       </p>
-      {(message !== error || message.length > 120) && (
+      {error.trim() !== "" && (
         <Popover>
           <PopoverTrigger
             render={
@@ -682,6 +682,8 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
     images[0];
   const stackDepth = Math.min(2, images.length - 1);
   const canExpand = images.length > 1;
+  // Deleting down to one result leaves nothing to expand.
+  const isExpanded = expanded && canExpand;
 
   const handleDownload = (img: MediaShape) => {
     void downloadImage(img.url, img.mimeType).catch((err) => {
@@ -714,7 +716,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
     <Card
       className={cn(
         "group/album gap-0 rounded-xl py-0 [animation:promptGroupFadeIn_0.3s_ease_both]",
-        expanded && "col-span-full",
+        isExpanded && "col-span-full",
       )}
     >
       {/* header */}
@@ -755,15 +757,15 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
           <Button
             variant="ghost"
             size="xs"
-            aria-expanded={expanded}
+            aria-expanded={isExpanded}
             onClick={() => setExpanded((e) => !e)}
             className="text-muted-foreground shrink-0 cursor-pointer gap-1"
           >
-            {expanded ? "Collapse" : `Show all ${images.length}`}
+            {isExpanded ? "Collapse" : `Show all ${images.length}`}
             <ChevronDown
               className={cn(
                 "transition-transform duration-200",
-                expanded && "rotate-180",
+                isExpanded && "rotate-180",
               )}
             />
           </Button>
@@ -772,7 +774,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
 
       {/* body */}
       <div className="px-3 pb-3">
-        {!expanded ? (
+        {!isExpanded ? (
           <div className={cn("relative", stackDepth > 0 && "pb-2")}>
             {/* Page edges peeking out below the cover signal more results. */}
             {stackDepth >= 2 && (
