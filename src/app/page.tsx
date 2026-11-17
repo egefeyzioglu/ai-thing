@@ -217,6 +217,7 @@ export default function Home() {
 
   const generateButtonLockedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingRefImageUploads, setPendingRefImageUploads] = useState(0);
   const promptComposerRef = useRef<PromptComposerHandle>(null);
   const generateButtonTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -525,6 +526,7 @@ export default function Home() {
     const files = e.target.files;
     if (!files?.length) return;
     const filesToUpload = Array.from(files);
+    setPendingRefImageUploads((n) => n + filesToUpload.length);
     try {
       const res = await startUpload(filesToUpload);
       if (res?.length) {
@@ -643,6 +645,7 @@ export default function Home() {
       console.error("Failed to upload reference image", error);
       toast.error("Reference image upload failed");
     } finally {
+      setPendingRefImageUploads((n) => Math.max(0, n - filesToUpload.length));
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
@@ -1210,6 +1213,7 @@ export default function Home() {
         onGenerate={handleGenerateStable}
         fileInputRef={fileInputRef}
         onFileUpload={handleFileUpload}
+        pendingRefImageUploads={pendingRefImageUploads}
         onDeleteReferenceImage={(id) =>
           setPendingDelete({ type: "referenceImage", id })
         }

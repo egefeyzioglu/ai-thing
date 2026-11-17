@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
 import { UserButton } from "@clerk/nextjs";
@@ -535,6 +535,7 @@ type SidebarProps = {
   onGenerate: () => void;
   fileInputRef: RefObject<HTMLInputElement | null>;
   onFileUpload: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  pendingRefImageUploads: number;
   onDeleteReferenceImage: (id: string) => void;
   referenceImages:
     | RouterOutputs["referenceImage"]["getReferenceImages"]
@@ -604,6 +605,7 @@ export function Sidebar({
   onGenerate,
   fileInputRef,
   onFileUpload,
+  pendingRefImageUploads,
   onDeleteReferenceImage,
   referenceImages,
   isLoadingRefImages,
@@ -624,6 +626,15 @@ export function Sidebar({
     id: string;
     url: string;
   } | null>(null);
+
+  // Uploads land at the top of the grid (newest first), so bring the top
+  // into view when one starts in case the grid was scrolled down.
+  const refImagesScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (pendingRefImageUploads > 0) {
+      refImagesScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [pendingRefImageUploads]);
 
   const hasFirst = selectedReferenceImages.some(
     (id) => videoReferenceRoles[id] === "first",
@@ -796,8 +807,35 @@ export function Sidebar({
               <ChevronDown color="var(--muted-foreground)" />
             )}
           </CollapsibleTrigger>
-          <CollapsibleContent className="max-h-80 overflow-scroll">
+          <CollapsibleContent
+            ref={refImagesScrollRef}
+            className="max-h-80 overflow-scroll"
+          >
             <div className="my-2 grid grid-cols-3 gap-2 p-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Add reference images"
+                className="flex aspect-square cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-1 border-dashed border-(--muted-foreground) hover:bg-gray-900"
+              >
+                <Upload size={16} className="text-(--muted-foreground)" />
+                <span className="text-xs text-(--muted-foreground)">Add</span>
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={onFileUpload}
+              />
+              {Array.from({ length: pendingRefImageUploads }).map((_, i) => (
+                <Skeleton
+                  key={`pending-${i}`}
+                  aria-label="Uploading reference image"
+                  className="aspect-square rounded-md"
+                />
+              ))}
               {isLoadingRefImages
                 ? Array.from({ length: 6 }).map((_, i) => (
                     <Skeleton key={i} className="aspect-square rounded-md" />
@@ -831,22 +869,6 @@ export function Sidebar({
                       />
                     );
                   })}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="col-span-3 flex cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-1 border-dashed border-(--muted-foreground) py-2 hover:bg-gray-900"
-              >
-                <Upload size={16} className="text-(--muted-foreground)" />
-                <span className="text-xs text-(--muted-foreground)">Add</span>
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={onFileUpload}
-              />
             </div>
             {mode === "video" && (
               <div className="flex items-center gap-3 px-2 pb-1 text-[11px] text-(--muted-foreground)">
