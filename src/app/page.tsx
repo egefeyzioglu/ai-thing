@@ -841,6 +841,10 @@ export default function Home() {
       const composer = promptComposerRef.current;
       if (!composer) return;
       const previous = composer.getValue();
+      const previousSettings = {
+        mode: generationDetails.mode,
+        aspect: generationDetails.aspect,
+      };
       composer.setValue(text);
       composer.focus();
       updateGenerationDetails({
@@ -851,14 +855,17 @@ export default function Home() {
         toast("Prompt replaced in the editor", {
           action: {
             label: "Undo",
-            onClick: () => composer.setValue(previous),
+            onClick: () => {
+              composer.setValue(previous);
+              updateGenerationDetails(previousSettings);
+            },
           },
         });
       } else {
         toast.success("Prompt loaded into the editor");
       }
     },
-    [updateGenerationDetails],
+    [generationDetails.mode, generationDetails.aspect, updateGenerationDetails],
   );
 
   const handleReuseAsReference = useCallback(

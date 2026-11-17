@@ -49,7 +49,7 @@ function PromptGroupSkeleton() {
         </div>
         <Skeleton className="size-7 rounded-md" />
       </div>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
         {Array.from({ length: 3 }).map((_, index) => (
           <div
             key={index}
@@ -95,7 +95,7 @@ export const MediaGallery = memo(function MediaGallery({
 
   return (
     <div className="flex h-screen min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
-      <header className="bg-background/85 sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-3 border-b px-6 backdrop-blur-md lg:px-8">
+      <header className="bg-background sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-3 border-b px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-3">
           <ProjectSwitcher
             projects={projects}

@@ -157,18 +157,21 @@ function PinIcon({
 }
 
 async function downloadImage(url: string, expectedMimeType?: string) {
-  const res = await fetch(url, { headers: { Accept: "image/png,*/*;q=0.8" } });
+  const res = await fetch(url);
   if(!res.ok) throw new Error(`Download failed: Got ${res.status} from UploadThing`);
 
+  // Prefer the response type, then the stored type, then a generic fallback.
   const extension = extensionFor(
-    res.headers.get("Content-Type")?.split(';')[0],
-    expectedMimeType ?? "dat");
+    res.headers.get("Content-Type")?.split(";")[0],
+    extensionFor(expectedMimeType, "dat"),
+  );
 
   const blob = await res.blob();
   const blobUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = blobUrl;
-  a.download = `generated-${Date.now()}.${extension}`;
+  const prefix = expectedMimeType?.startsWith("video/") ? "video" : "image";
+  a.download = `${prefix}-${Date.now()}.${extension}`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -404,7 +407,7 @@ function FailureDetails({ error }: { error: string }) {
       <p className="text-muted-foreground line-clamp-3 max-w-full text-center text-xs break-words">
         {message}
       </p>
-      {message !== error && (
+      {(message !== error || message.length > 120) && (
         <Popover>
           <PopoverTrigger
             render={
@@ -442,7 +445,10 @@ function ImageCell({
   openLabel,
 }: ImageCellProps) {
   const isVideo = image.mediaType === "video";
-  const canOpen = image.status === "succeeded" && Boolean(onOpen);
+  // A stack cover always opens (it expands the album), even if that run
+  // failed; a single result opens only once it has media to show.
+  const canOpen =
+    Boolean(onOpen) && (image.status === "succeeded" || Boolean(openLabel));
   const [hovered, setHovered] = useState(false);
 
   let body: React.ReactNode;
@@ -467,7 +473,7 @@ function ImageCell({
         className="bg-muted relative min-h-40 w-full"
         style={{ aspectRatio: parseAspectRatio(ar) }}
       >
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-4 py-3">
+        <div className="pointer-events-none absolute inset-0 z-[2] flex flex-col items-center justify-center gap-1.5 px-4 py-3 *:pointer-events-auto">
           <AlertTriangle className="text-destructive size-4 shrink-0" />
           <p className="text-foreground text-xs font-medium">
             Generation failed
@@ -570,6 +576,17 @@ function ImageCell({
           />
         </div>
       )}
+      {image.status === "failed" && (
+        <div className="absolute top-1.5 right-1.5 z-20 opacity-0 transition-opacity group-focus-within/cell:opacity-100 group-hover/cell:opacity-100">
+          <OverlayButton
+            label="Delete"
+            onClick={onDelete}
+            className="hover:bg-red-500/80"
+          >
+            <Trash2 className="size-3.5" />
+          </OverlayButton>
+        </div>
+      )}
     </div>
   );
 }
@@ -623,7 +640,13 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
   const successCount = images.filter((i) => i.status === "succeeded").length;
   const failedCount = images.filter((i) => i.status === "failed").length;
 
-  const cover = pinned[0] ?? images[0];
+  // Prefer something worth looking at as the cover: a pin, then a success,
+  // then work in progress, and only then a failure.
+  const cover =
+    pinned[0] ??
+    images.find((i) => i.status === "succeeded") ??
+    images.find((i) => i.status === "pending" || i.status === "running") ??
+    images[0];
   const stackDepth = Math.min(2, images.length - 1);
   const canExpand = images.length > 1;
 
@@ -742,7 +765,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
                   )
                 : null}
               {canExpand && (
-                <div className="pointer-events-none absolute right-2 bottom-2 z-10 rounded-full border border-white/10 bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
+                <div className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-full border border-white/10 bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
                   +{images.length - 1}
                 </div>
               )}
@@ -797,7 +820,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
   );
 }
 
-function CollapsiblePrompt({ text }: { text: string }) {
+function CollapsiblePrompt({ text, id }: { text: string; id?: string }) {
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const ref = useRef<HTMLParagraphElement>(null);
@@ -822,6 +845,7 @@ function CollapsiblePrompt({ text }: { text: string }) {
     <div>
       <p
         ref={ref}
+        id={id}
         className={cn(
           "text-[15px] text-foreground leading-relaxed",
           !expanded && "line-clamp-3",
@@ -861,6 +885,7 @@ export default function PromptGroup(props: PromptGroupProps) {
   const destinationProjects =
     props.projects?.filter((project) => project.id !== props.currentProjectId) ??
     [];
+  const promptId = `prompt-${props.id}`;
   const inProgressCount = props.images.filter(
     (i) => i.status === "pending" || i.status === "running",
   ).length;
@@ -874,13 +899,13 @@ export default function PromptGroup(props: PromptGroupProps) {
 
   return (
     <section
-      aria-label="Generation"
+      aria-labelledby={promptId}
       className="group/prompt flex flex-col gap-3 [animation:promptGroupFadeIn_0.4s_ease_both]"
     >
       {/* prompt header */}
       <div className="flex items-start justify-between gap-4">
         <div className="max-w-4xl min-w-0 flex-1">
-          <CollapsiblePrompt text={props.prompt} />
+          <CollapsiblePrompt text={props.prompt} id={promptId} />
           <div className="text-muted-foreground mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
             <time dateTime={props.createdAt.toISOString()}>
               {fmtDate(props.createdAt)}

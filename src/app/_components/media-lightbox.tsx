@@ -37,7 +37,7 @@ export function MediaLightbox({
       }}
     >
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className="data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 fixed inset-0 z-50 bg-black/85 backdrop-blur-sm duration-150" />
+        <DialogPrimitive.Backdrop className="data-open:animate-in data-open:fade-in-0 fixed inset-0 z-50 bg-black/85 backdrop-blur-sm duration-150" />
         <DialogPrimitive.Popup
           aria-label={label}
           className="data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.98] fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 p-4 outline-none sm:p-8"

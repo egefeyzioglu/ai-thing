@@ -22,8 +22,10 @@ type GenerateButtonProps = {
   generateButtonLocked: boolean;
   isMacOS: boolean | null;
   onGenerate: () => void;
-  /** What will be generated and what it costs, shown above the button. */
+  /** What will be generated, shown above the button. */
   summary: ReactNode;
+  /** What it will cost; stays visible even while generation is blocked. */
+  cost: ReactNode;
 };
 
 export const GenerateButton = memo(function GenerateButton({
@@ -36,6 +38,7 @@ export const GenerateButton = memo(function GenerateButton({
   isMacOS,
   onGenerate,
   summary,
+  cost,
 }: GenerateButtonProps) {
   const statusId = useId();
   const [hasContent, setHasContent] = useState(false);
@@ -78,8 +81,9 @@ export const GenerateButton = memo(function GenerateButton({
         {disabledReason ? (
           <span className="text-foreground/90">{disabledReason}</span>
         ) : (
-          summary
+          <span>{summary}</span>
         )}
+        {cost}
       </p>
       <Button
         type="button"

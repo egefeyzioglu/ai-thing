@@ -986,7 +986,7 @@ export function Sidebar({
               ref={refImagesScrollRef}
               className="-m-1 max-h-72 overflow-y-auto p-1"
             >
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
@@ -1190,6 +1190,12 @@ export function Sidebar({
                 })}
               />
             </Section>
+            {hasOnlySeedanceFastSelected && (
+              <p className="text-muted-foreground col-span-2 -mt-1 flex items-start gap-1.5 text-xs">
+                <Info className="mt-px size-3.5 shrink-0" />
+                Seedance 2.0 Fast renders up to 720p.
+              </p>
+            )}
           </div>
         )}
 
@@ -1224,8 +1230,8 @@ export function Sidebar({
               <>
                 <span className="inline-flex shrink-0 gap-1.5">
                   {[
-                    { img: firstFrameRefImage, label: "Start" },
-                    { img: lastFrameRefImage, label: "End" },
+                    { img: firstFrameRefImage, label: "First" },
+                    { img: lastFrameRefImage, label: "Last" },
                   ].map(({ img, label }) =>
                     img?.url ? (
                       <span key={label} className="flex flex-col items-center">
@@ -1572,18 +1578,16 @@ export function Sidebar({
           generateButtonLocked={generateButtonLocked}
           isMacOS={isMacOS}
           onGenerate={onGenerate}
-          summary={
-            <>
-              <span>
-                {`${totalGenerations} ${outputNoun}${totalGenerations === 1 ? "" : "s"} · ${selectedModels.length} model${selectedModels.length === 1 ? "" : "s"}`}
-              </span>
+          summary={`${totalGenerations} ${outputNoun}${totalGenerations === 1 ? "" : "s"} · ${selectedModels.length} model${selectedModels.length === 1 ? "" : "s"}`}
+          cost={
+            selectedModels.length > 0 ? (
               <span>
                 <span className="text-foreground font-medium">
                   {currentRequestCost.toLocaleString()}
                 </span>{" "}
                 credits
               </span>
-            </>
+            ) : null
           }
         />
       </div>
