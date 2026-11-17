@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { createPortal } from "react-dom";
 
 import { UserButton } from "@clerk/nextjs";
 import {
@@ -19,7 +18,6 @@ import {
   Trash2,
   Upload,
   Video as VideoIcon,
-  X,
 } from "lucide-react";
 import Image from "next/image";
 import { toast } from "sonner";
@@ -39,7 +37,6 @@ import {
   CollapsibleTrigger,
 } from "src/components/ui/collapsible";
 import { Button } from "src/components/ui/button";
-import { Checkbox } from "src/components/ui/checkbox";
 import { Field, FieldLabel } from "src/components/ui/field";
 import { Input } from "src/components/ui/input";
 import {
@@ -64,6 +61,7 @@ import {
 import { cn } from "src/lib/utils";
 import type { RouterInputs, RouterOutputs } from "src/trpc/react";
 import { GenerateButton } from "./generate-button";
+import { MediaLightbox } from "./media-lightbox";
 import { PromptComposer, type PromptComposerHandle } from "./prompt-composer";
 import { SegmentedControl } from "./segmented-control";
 import { UsageModal } from "./usage-modal";
@@ -225,7 +223,7 @@ function SectionTrigger({
 
 function CountBadge({ children }: { children: React.ReactNode }) {
   return (
-    <span className="bg-primary/15 text-primary rounded-full px-1.5 py-px text-[10px] leading-4 font-semibold tabular-nums">
+    <span className="bg-primary/15 text-primary-text rounded-full px-1.5 py-px text-[10px] leading-4 font-semibold tabular-nums">
       {children}
     </span>
   );
@@ -253,9 +251,8 @@ function ModelRow({
       title={slug}
       className={cn(
         "focus-visible:ring-ring/50 flex h-9 cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-sm outline-none select-none focus-visible:ring-3",
-        isSelected
-          ? "bg-primary/10 text-foreground"
-          : "text-foreground/80 hover:bg-muted/60",
+        "hover:bg-muted/60",
+        isSelected ? "text-foreground" : "text-foreground/75",
       )}
       onClick={onToggle}
       onKeyDown={(e) => {
@@ -265,12 +262,18 @@ function ModelRow({
         }
       }}
     >
-      <Checkbox
-        checked={isSelected}
-        tabIndex={-1}
+      {/* Visual-only box: the row itself is the checkbox. */}
+      <span
         aria-hidden
-        className="pointer-events-none"
-      />
+        className={cn(
+          "flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+          isSelected
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-input bg-input/30",
+        )}
+      >
+        {isSelected && <Check className="size-3" strokeWidth={3} />}
+      </span>
       <span id={`model-select-${slug}-label`} className="min-w-0 truncate">
         {name}
       </span>
@@ -304,20 +307,27 @@ function AspectShape({ ratio }: { ratio: string }) {
 function AdvancedControlLabel({
   label,
   help,
+  htmlFor,
 }: {
   label: string;
   help: string;
+  htmlFor?: string;
 }) {
   return (
-    <FieldLabel className="text-muted-foreground flex items-center gap-1 text-xs font-normal">
-      <span>{label}</span>
+    <div className="flex items-center gap-1">
+      <FieldLabel
+        htmlFor={htmlFor}
+        className="text-muted-foreground text-xs font-normal"
+      >
+        {label}
+      </FieldLabel>
       <Tooltip>
         <TooltipTrigger
           render={
             <button
               type="button"
               aria-label={`What does ${label} do?`}
-              className="text-muted-foreground/60 hover:text-muted-foreground focus-visible:outline-ring inline-flex cursor-help items-center justify-center focus-visible:outline focus-visible:outline-1"
+              className="text-muted-foreground/60 hover:text-muted-foreground focus-visible:outline-ring inline-flex size-4 cursor-help items-center justify-center rounded-sm focus-visible:outline focus-visible:outline-1"
             >
               <HelpCircle size={12} />
             </button>
@@ -325,7 +335,7 @@ function AdvancedControlLabel({
         />
         <TooltipContent className="max-w-64">{help}</TooltipContent>
       </Tooltip>
-    </FieldLabel>
+    </div>
   );
 }
 
@@ -423,18 +433,18 @@ function ReferenceImage(props: ReferenceImageProps) {
           aria-label="Preview reference image"
           title="Preview"
           onClick={props.onPreview}
-          className="focus-visible:outline-ring flex size-5 cursor-pointer items-center justify-center rounded-[4px] bg-black/60 text-white hover:bg-black/80 focus-visible:outline-2"
+          className="focus-visible:outline-ring flex size-6 cursor-pointer items-center justify-center rounded-[5px] bg-black/60 text-white hover:bg-black/80 focus-visible:outline-2"
         >
-          <Maximize2 className="size-3" strokeWidth={2} />
+          <Maximize2 className="size-3.5" strokeWidth={2} />
         </button>
         <button
           type="button"
           aria-label="Delete reference image"
           title="Delete"
           onClick={props.onDelete}
-          className="focus-visible:outline-ring flex size-5 cursor-pointer items-center justify-center rounded-[4px] bg-black/60 text-white hover:bg-red-500/80 focus-visible:outline-2"
+          className="focus-visible:outline-ring flex size-6 cursor-pointer items-center justify-center rounded-[5px] bg-black/60 text-white hover:bg-red-500/80 focus-visible:outline-2"
         >
-          <Trash2 className="size-3" strokeWidth={2} />
+          <Trash2 className="size-3.5" strokeWidth={2} />
         </button>
       </div>
 
@@ -447,7 +457,7 @@ function ReferenceImage(props: ReferenceImageProps) {
                 className={cn(
                   "focus-visible:outline-ring absolute right-1 bottom-1 left-1 z-20 flex cursor-pointer items-center justify-center gap-0.5 rounded-full border px-1 py-0.5 text-[10px] leading-none font-medium backdrop-blur-md transition-colors focus-visible:outline focus-visible:outline-2",
                   roleInfo.accent
-                    ? "border-primary/50 text-primary bg-black/60 hover:bg-black/75"
+                    ? "border-primary/50 text-primary-text bg-black/60 hover:bg-black/75"
                     : "border-border text-foreground bg-black/60 hover:bg-black/75",
                 )}
                 aria-label={`Role: ${roleInfo.label}. Click to change.`}
@@ -495,7 +505,7 @@ function ReferenceImage(props: ReferenceImageProps) {
                   </span>
                   {selected && (
                     <Check
-                      className="text-primary ml-auto size-3 shrink-0"
+                      className="text-primary-text ml-auto size-3 shrink-0"
                       strokeWidth={3}
                     />
                   )}
@@ -526,62 +536,11 @@ function ReferenceImageLightbox({
   onToggleSelected: () => void;
   onClose: () => void;
 }) {
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    setLoaded(false);
-  }, [src]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
-  return createPortal(
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Reference image preview"
-      onClick={onClose}
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6"
-    >
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-
-      <button
-        type="button"
-        aria-label="Close preview"
-        onClick={(e) => {
-          e.stopPropagation();
-          onClose();
-        }}
-        className="absolute top-4 right-4 z-10 flex size-9 cursor-pointer items-center justify-center rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm hover:bg-black/70"
-      >
-        <X className="size-4" strokeWidth={2} />
-      </button>
-
-      <div
-        className="relative z-10 flex max-h-[90vh] max-w-[90vw] flex-col items-center gap-3"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Reserved-height image slot keeps the button still while loading. */}
-        <div className="relative flex h-[75vh] w-[80vw] max-w-[1100px] items-center justify-center">
-          {!loaded && (
-            <Skeleton className="absolute inset-0 size-full rounded-lg" />
-          )}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={src}
-            alt={alt}
-            onLoad={() => setLoaded(true)}
-            className={cn(
-              "relative block h-auto max-h-full w-auto max-w-full rounded-lg border border-white/10 shadow-2xl transition-opacity duration-150",
-              loaded ? "opacity-100" : "opacity-0",
-            )}
-          />
-        </div>
+  return (
+    <MediaLightbox
+      label="Reference image"
+      onClose={onClose}
+      footer={
         <Button
           type="button"
           size="lg"
@@ -592,9 +551,15 @@ function ReferenceImageLightbox({
           <Check className={cn(!isSelected && "opacity-40")} strokeWidth={3} />
           {isSelected ? "Selected as reference" : "Use as reference"}
         </Button>
-      </div>
-    </div>,
-    document.body,
+      }
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        className="block h-auto max-h-[calc(100vh-7.5rem)] w-auto max-w-[calc(100vw-4rem)]"
+      />
+    </MediaLightbox>
   );
 }
 
@@ -860,74 +825,37 @@ export function Sidebar({
     onSelectedReferenceImagesChange([...selectedReferenceImages, id]);
   };
 
+  // First/last frames can't be mixed with reference images. Rather than hide
+  // roles, picking one resolves the rest of the selection into a legal state.
   const handleChangeRole = (id: string, role: VideoReferenceRole) => {
-    onVideoReferenceRolesChange((prev) => {
-      const next = { ...prev };
-      if (role === "first" || role === "last") {
-        for (const otherId of selectedReferenceImages) {
-          if (otherId !== id && next[otherId] === role) {
-            next[otherId] = "refimg";
-          }
-        }
-      }
-      next[id] = role;
-      const hasFrame = selectedReferenceImages.some(
-        (sid) => next[sid] === "first" || next[sid] === "last",
+    const next: Record<string, VideoReferenceRole> = { ...videoReferenceRoles };
+    if (role === "refimg") {
+      for (const sid of selectedReferenceImages) next[sid] = "refimg";
+      onVideoReferenceRolesChange(next);
+      return;
+    }
+    const others = selectedReferenceImages.filter((sid) => sid !== id);
+    const otherSlot: VideoReferenceRole = role === "first" ? "last" : "first";
+    // Keep (or swap into) the other frame slot; a lone second image fills it.
+    const partner =
+      others.find(
+        (sid) =>
+          videoReferenceRoles[sid] === otherSlot ||
+          videoReferenceRoles[sid] === role,
+      ) ?? (others.length === 1 ? others[0] : undefined);
+    next[id] = role;
+    if (partner) next[partner] = otherSlot;
+    const dropped = others.filter((sid) => sid !== partner);
+    for (const sid of dropped) delete next[sid];
+    onVideoReferenceRolesChange(next);
+    if (dropped.length > 0) {
+      onSelectedReferenceImagesChange(
+        selectedReferenceImages.filter((sid) => !dropped.includes(sid)),
       );
-      const hasRefimgNow = selectedReferenceImages.some(
-        (sid) => (next[sid] ?? "refimg") === "refimg",
+      toast.info(
+        `${dropped.length} reference image${dropped.length === 1 ? " was" : "s were"} deselected — first/last frames can't be combined with reference images.`,
       );
-      if (hasFrame && hasRefimgNow) {
-        // Demoting a frame → refimg means the user wants refimg-only mode;
-        // sweep the remaining frame(s) along instead of blocking.
-        if (role === "refimg") {
-          for (const otherId of selectedReferenceImages) {
-            if (next[otherId] === "first" || next[otherId] === "last") {
-              next[otherId] = "refimg";
-            }
-          }
-          return next;
-        }
-        toast.error(
-          "First/last frames can't be combined with reference images",
-        );
-        return prev;
-      }
-      return next;
-    });
-  };
-
-  const availableRolesFor = (id: string): VideoReferenceRole[] => {
-    const ownRole = videoReferenceRoles[id] ?? "refimg";
-    const otherHasFrame = selectedReferenceImages.some(
-      (sid) =>
-        sid !== id &&
-        (videoReferenceRoles[sid] === "first" ||
-          videoReferenceRoles[sid] === "last"),
-    );
-    const otherHasRefimg = selectedReferenceImages.some(
-      (sid) =>
-        sid !== id && (videoReferenceRoles[sid] ?? "refimg") === "refimg",
-    );
-    return VIDEO_REFERENCE_ROLE_OPTIONS.map((opt) => opt.value).filter(
-      (role) => {
-        if (role === ownRole) return true;
-        // Demoting first/last → refimg is always allowed: handleChangeRole
-        // sweeps the sibling frame along to keep the state legal.
-        if (
-          role === "refimg" &&
-          otherHasFrame &&
-          ownRole !== "first" &&
-          ownRole !== "last"
-        ) {
-          return false;
-        }
-        if ((role === "first" || role === "last") && otherHasRefimg) {
-          return false;
-        }
-        return true;
-      },
-    );
+    }
   };
 
   const firstFrameRefImage =
@@ -1107,11 +1035,6 @@ export function Sidebar({
                             setPreviewImage({ id: img.id, url: img.url ?? "" })
                           }
                           role={role}
-                          availableRoles={
-                            mode === "video"
-                              ? availableRolesFor(img.id)
-                              : undefined
-                          }
                           onChangeRole={
                             mode === "video"
                               ? (newRole) => handleChangeRole(img.id, newRole)
@@ -1226,10 +1149,10 @@ export function Sidebar({
               }))}
             />
             {resolutionAdjustments.length > 0 && (
-              <p className="flex items-start gap-1.5 text-xs text-amber-400">
-                <AlertTriangle className="mt-px size-3.5 shrink-0" />
+              <p className="text-muted-foreground flex items-start gap-1.5 text-xs">
+                <Info className="mt-px size-3.5 shrink-0" />
                 <span>
-                  Closest supported resolution will be used for{" "}
+                  Rendered at the closest supported size:{" "}
                   {resolutionAdjustments.join(", ")}.
                 </span>
               </p>
@@ -1316,7 +1239,7 @@ export function Sidebar({
                             className="object-cover"
                           />
                         </span>
-                        <span className="text-primary mt-0.5 text-[9px] font-medium tracking-wide uppercase">
+                        <span className="text-primary-text mt-0.5 text-[9px] font-medium tracking-wide uppercase">
                           {label}
                         </span>
                       </span>
@@ -1417,6 +1340,7 @@ export function Sidebar({
                       <Field className="gap-1.5">
                         <AdvancedControlLabel
                           label="Quality"
+                          htmlFor="adv-quality"
                           help="Image quality. Higher uses more credits but produces sharper results. Extra High and Max are only supported by GPT Image 2.5 models."
                         />
                         <Select
@@ -1427,7 +1351,7 @@ export function Sidebar({
                           }
                           disabled={!hasOpenAIModelSelected}
                         >
-                          <SelectTrigger size="sm" className="w-full">
+                          <SelectTrigger id="adv-quality" className="w-full">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -1450,6 +1374,7 @@ export function Sidebar({
                       <Field className="gap-1.5">
                         <AdvancedControlLabel
                           label="Background"
+                          htmlFor="adv-background"
                           help="Transparent produces a PNG with no background. Auto lets the model decide."
                         />
                         <Select
@@ -1460,7 +1385,7 @@ export function Sidebar({
                           }
                           disabled={!hasOpenAIModelSelected}
                         >
-                          <SelectTrigger size="sm" className="w-full">
+                          <SelectTrigger id="adv-background" className="w-full">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -1482,9 +1407,11 @@ export function Sidebar({
                     <Field className="gap-1.5">
                       <AdvancedControlLabel
                         label="Negative prompt"
+                        htmlFor="adv-negative-prompt"
                         help="Describe what you don't want in the image (e.g. blurry, text)."
                       />
                       <Textarea
+                        id="adv-negative-prompt"
                         rows={2}
                         placeholder="e.g. blurry, low quality, text"
                         value={negativePrompt}
@@ -1497,9 +1424,11 @@ export function Sidebar({
                       <Field className="gap-1.5">
                         <AdvancedControlLabel
                           label="Seed"
+                          htmlFor="adv-seed"
                           help="Use the same seed to reproduce results. Leave blank for random."
                         />
                         <Input
+                          id="adv-seed"
                           inputMode="numeric"
                           placeholder="Random"
                           value={seed}
@@ -1507,12 +1436,12 @@ export function Sidebar({
                             onSeedChange(e.target.value.replace(/[^0-9]/g, ""))
                           }
                           disabled={!hasGeminiModelSelected}
-                          className="h-7"
                         />
                       </Field>
                       <Field className="gap-1.5">
                         <AdvancedControlLabel
                           label="Thinking"
+                          htmlFor="adv-thinking"
                           help="How much the model reasons before generating. Costs extra tokens. Only Gemini 3 models support thinking."
                         />
                         <Select
@@ -1523,7 +1452,7 @@ export function Sidebar({
                           }
                           disabled={!hasGeminiModelSelected}
                         >
-                          <SelectTrigger size="sm" className="w-full">
+                          <SelectTrigger id="adv-thinking" className="w-full">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -1549,6 +1478,7 @@ export function Sidebar({
                     <Field className="gap-1.5">
                       <AdvancedControlLabel
                         label="Motion"
+                        htmlFor="adv-motion"
                         help="How much motion the video should have. Subtle keeps things calm; Dynamic adds more movement."
                       />
                       <Select
@@ -1558,7 +1488,7 @@ export function Sidebar({
                           onMotionChange(value ?? "auto")
                         }
                       >
-                        <SelectTrigger size="sm" className="w-full">
+                        <SelectTrigger id="adv-motion" className="w-full">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -1633,21 +1563,6 @@ export function Sidebar({
             </span>
           </div>
         )}
-        <div className="text-muted-foreground flex items-center justify-between gap-2 text-xs tabular-nums">
-          <span>
-            {selectedModels.length === 0
-              ? "Select at least one model"
-              : `${totalGenerations} ${outputNoun}${totalGenerations === 1 ? "" : "s"} · ${selectedModels.length} model${selectedModels.length === 1 ? "" : "s"}`}
-          </span>
-          {selectedModels.length > 0 && (
-            <span>
-              <span className="text-foreground font-medium">
-                {currentRequestCost.toLocaleString()}
-              </span>{" "}
-              credits
-            </span>
-          )}
-        </div>
         <GenerateButton
           promptComposerRef={promptComposerRef}
           selectedModelsCount={selectedModels.length}
@@ -1657,6 +1572,19 @@ export function Sidebar({
           generateButtonLocked={generateButtonLocked}
           isMacOS={isMacOS}
           onGenerate={onGenerate}
+          summary={
+            <>
+              <span>
+                {`${totalGenerations} ${outputNoun}${totalGenerations === 1 ? "" : "s"} · ${selectedModels.length} model${selectedModels.length === 1 ? "" : "s"}`}
+              </span>
+              <span>
+                <span className="text-foreground font-medium">
+                  {currentRequestCost.toLocaleString()}
+                </span>{" "}
+                credits
+              </span>
+            </>
+          }
         />
       </div>
 

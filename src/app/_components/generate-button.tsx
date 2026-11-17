@@ -1,6 +1,13 @@
 "use client";
 
-import { memo, useEffect, useState, type RefObject } from "react";
+import {
+  memo,
+  useEffect,
+  useId,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Loader2, Sparkles } from "lucide-react";
 
 import { Button } from "src/components/ui/button";
@@ -15,6 +22,8 @@ type GenerateButtonProps = {
   generateButtonLocked: boolean;
   isMacOS: boolean | null;
   onGenerate: () => void;
+  /** What will be generated and what it costs, shown above the button. */
+  summary: ReactNode;
 };
 
 export const GenerateButton = memo(function GenerateButton({
@@ -26,7 +35,9 @@ export const GenerateButton = memo(function GenerateButton({
   generateButtonLocked,
   isMacOS,
   onGenerate,
+  summary,
 }: GenerateButtonProps) {
+  const statusId = useId();
   const [hasContent, setHasContent] = useState(false);
 
   useEffect(() => {
@@ -58,33 +69,46 @@ export const GenerateButton = memo(function GenerateButton({
             : undefined;
 
   return (
-    <Button
-      type="button"
-      size="lg"
-      aria-busy={generateButtonLocked}
-      className="h-10 w-full text-sm"
-      disabled={!canGenerate}
-      title={disabledReason}
-      onClick={onGenerate}
-    >
-      {generateButtonLocked ? (
-        <>
-          <Loader2 className="animate-spin" />
-          Starting…
-        </>
-      ) : blockedByQuota ? (
-        "Out of credits"
-      ) : (
-        <>
-          <Sparkles />
-          Generate
-          {isMacOS !== null && (
-            <kbd className="bg-primary-foreground/15 ml-1 rounded px-1.5 py-px font-sans text-[11px] font-medium">
-              {isMacOS ? "⌘" : "Ctrl"} ↵
-            </kbd>
-          )}
-        </>
-      )}
-    </Button>
+    <>
+      <p
+        id={statusId}
+        aria-live="polite"
+        className="text-muted-foreground flex min-h-4 items-center justify-between gap-2 text-xs tabular-nums"
+      >
+        {disabledReason ? (
+          <span className="text-foreground/90">{disabledReason}</span>
+        ) : (
+          summary
+        )}
+      </p>
+      <Button
+        type="button"
+        size="lg"
+        aria-busy={generateButtonLocked}
+        className="h-10 w-full text-sm"
+        disabled={!canGenerate}
+        aria-describedby={statusId}
+        onClick={onGenerate}
+      >
+        {generateButtonLocked ? (
+          <>
+            <Loader2 className="animate-spin" />
+            Starting…
+          </>
+        ) : blockedByQuota ? (
+          "Out of credits"
+        ) : (
+          <>
+            <Sparkles />
+            Generate
+            {isMacOS !== null && (
+              <kbd className="bg-primary-foreground/15 ml-1 rounded px-1.5 py-px font-sans text-[11px] font-medium">
+                {isMacOS ? "⌘" : "Ctrl"} ↵
+              </kbd>
+            )}
+          </>
+        )}
+      </Button>
+    </>
   );
 });

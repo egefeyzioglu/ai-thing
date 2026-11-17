@@ -41,7 +41,7 @@ function thresholdBg(percent: number) {
 function thresholdText(percent: number) {
   if (percent >= 100) return "text-red-400";
   if (percent > 70) return "text-amber-400";
-  return "text-primary";
+  return "text-primary-text";
 }
 
 function formatMediumDate(date: Date | string | undefined) {
@@ -147,10 +147,10 @@ export function UsageModal({
             <div className="mb-2 flex items-baseline justify-between gap-3">
               <div className="flex items-baseline gap-2">
                 <span className="font-heading text-3xl font-semibold tabular-nums">
-                  {used}
+                  {used.toLocaleString()}
                 </span>
                 <span className="text-sm text-(--muted-foreground)">
-                  / {limit} credits
+                  / {limit.toLocaleString()} credits
                 </span>
               </div>
               <span
@@ -191,7 +191,7 @@ export function UsageModal({
               )}
             </div>
             <div className="mt-2 flex items-baseline justify-between gap-3 text-xs text-(--muted-foreground)">
-              <span className="tabular-nums">{remaining} remaining</span>
+              <span className="tabular-nums">{remaining.toLocaleString()} remaining</span>
               <span className="tabular-nums">
                 next request:{" "}
                 <span
@@ -200,7 +200,7 @@ export function UsageModal({
                     currentRequestCost > remaining && "text-amber-400",
                   )}
                 >
-                  {currentRequestCost}
+                  {currentRequestCost.toLocaleString()}
                 </span>{" "}
                 credits
               </span>
@@ -247,7 +247,7 @@ export function UsageModal({
                       className={cn(
                         "w-6 text-xs font-medium tabular-nums",
                         bypassMonthlyQuota
-                          ? "text-primary"
+                          ? "text-primary-text"
                           : "text-(--muted-foreground)",
                       )}
                     >
@@ -260,7 +260,7 @@ export function UsageModal({
           </div>
 
           <div>
-            <h3 className="mb-2 text-xs font-medium tracking-wide text-(--muted-foreground) uppercase">
+            <h3 className="mb-2 text-xs font-medium text-(--muted-foreground)">
               Recent activity
             </h3>
             {usage?.recent.length ? (

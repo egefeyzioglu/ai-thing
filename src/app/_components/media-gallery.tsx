@@ -32,7 +32,10 @@ type MediaGalleryProps = {
   onDeleteMedia: (mediaId: string) => void;
   onReuseAsReference: (mediaId: string) => Promise<void>;
   onRetryMedia: (mediaId: string) => void;
-  onReusePrompt: (text: string) => void;
+  onReusePrompt: (
+    text: string,
+    options: { mode: "image" | "video"; aspectRatio?: string },
+  ) => void;
 };
 
 function PromptGroupSkeleton() {
@@ -187,7 +190,14 @@ export const MediaGallery = memo(function MediaGallery({
               onDeleteMedia={onDeleteMedia}
               onReuseAsReference={onReuseAsReference}
               onRetryMedia={onRetryMedia}
-              onReusePrompt={() => onReusePrompt(prompt.text)}
+              onReusePrompt={() =>
+                onReusePrompt(prompt.text, {
+                  mode: prompt.media.some((m) => m.type === "video")
+                    ? "video"
+                    : "image",
+                  aspectRatio: prompt.aspectRatio ?? undefined,
+                })
+              }
               pinnedImages={pinnedImages}
               onPinnedImagesChange={setPinnedImages}
             />

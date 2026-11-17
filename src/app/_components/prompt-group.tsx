@@ -2,7 +2,6 @@
 
 import Image from "next/image";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 
 import { Card } from "src/components/ui/card";
 import { Button } from "src/components/ui/button";
@@ -10,6 +9,7 @@ import {
   AlertTriangle,
   ChevronDown,
   Copy,
+  CornerUpLeft,
   Download,
   FolderInput,
   ImagePlus,
@@ -21,7 +21,6 @@ import {
   RotateCw,
   Trash2,
   Video,
-  X,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -35,6 +34,11 @@ import {
   DropdownMenuTrigger,
 } from "src/components/ui/dropdown-menu";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "src/components/ui/popover";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -46,6 +50,8 @@ import { extensionFor } from "src/lib/utils";
 import type { LocalStorageSetter, LocalStorageValue } from "src/lib/localStorage";
 
 import type { MEDIA_STATUSES, MEDIA_TYPES } from "src/server/db/schema";
+
+import { MediaLightbox } from "./media-lightbox";
 
 export type ModelInfo = {
   slug: string;
@@ -125,44 +131,6 @@ function parseProviderErrorMessage(rawError: string): string {
   return rawError;
 }
 
-// Fan stack padding for n visible cards. Values: pt = (n-1)*4px, pr/pb = (n-1)*14+4px.
-const FAN_PADDING = [
-  "p-0",
-  "p-0",
-  "pt-1 pr-[18px] pb-[18px] pl-1",
-  "pt-2 pr-8 pb-8 pl-2",
-  "pt-3 pr-[46px] pb-[46px] pl-3",
-];
-
-// Per-depth Tailwind classes for fanned card items (depth 0 = top).
-// sign = depth%2===0 ? +1 : -1. tx=depth*14*sign, ty=depth*7.7, rot=depth*2.2*sign.
-const FAN_DEPTH = [
-  {
-    pos:    "relative",
-    xform:  "",
-    z:      "z-10",
-    shadow: "shadow-[0_6px_20px_oklch(0_0_0/0.5),0_1px_3px_oklch(0_0_0/0.4)]",
-  },
-  {
-    pos:    "absolute inset-0",
-    xform:  "-translate-x-[14px] translate-y-[7.7px] -rotate-[2.2deg]",
-    z:      "z-[9]",
-    shadow: "shadow-[0_3px_10px_oklch(0_0_0/0.4)]",
-  },
-  {
-    pos:    "absolute inset-0",
-    xform:  "translate-x-[28px] translate-y-[15.4px] rotate-[4.4deg]",
-    z:      "z-[8]",
-    shadow: "shadow-[0_3px_10px_oklch(0_0_0/0.4)]",
-  },
-  {
-    pos:    "absolute inset-0",
-    xform:  "-translate-x-[42px] translate-y-[23.1px] -rotate-[6.6deg]",
-    z:      "z-[7]",
-    shadow: "shadow-[0_3px_10px_oklch(0_0_0/0.4)]",
-  },
-];
-
 const fmtDate = (d: Date) =>
   d.toLocaleString(undefined, {
     month: "short",
@@ -217,29 +185,30 @@ const VideoPreview = memo(
   function VideoPreview({
     src,
     ar,
+    playing,
   }: {
     src: string;
     mediaKey: string;
     ar: string;
+    playing: boolean;
   }) {
     const videoRef = useRef<HTMLVideoElement>(null);
+    useEffect(() => {
+      const el = videoRef.current;
+      if (!el) return;
+      if (playing) {
+        void el.play().catch((err) => {
+          console.debug("video hover-play interrupted:", err);
+        });
+      } else {
+        el.pause();
+        el.currentTime = 0;
+      }
+    }, [playing]);
     return (
       <div
         className="relative w-full"
         style={{ aspectRatio: parseAspectRatio(ar) }}
-        onMouseEnter={() => {
-          const el = videoRef.current;
-          if (!el) return;
-          void el.play().catch((err) => {
-            console.debug("video hover-play interrupted:", err);
-          });
-        }}
-        onMouseLeave={() => {
-          const el = videoRef.current;
-          if (!el) return;
-          el.pause();
-          el.currentTime = 0;
-        }}
       >
         <video
           ref={videoRef}
@@ -250,7 +219,12 @@ const VideoPreview = memo(
           loop
           preload="metadata"
         />
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 transition-opacity group-hover/cell:opacity-0">
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 transition-opacity",
+            playing && "opacity-0",
+          )}
+        >
           <div className="flex size-12 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm">
             <Play className="ml-0.5 size-5 fill-white text-white" strokeWidth={0} />
           </div>
@@ -259,7 +233,9 @@ const VideoPreview = memo(
     );
   },
   (prev, next) =>
-    prev.mediaKey === next.mediaKey && prev.ar === next.ar,
+    prev.mediaKey === next.mediaKey &&
+    prev.ar === next.ar &&
+    prev.playing === next.playing,
 );
 
 function VideoRenderingState({
@@ -313,6 +289,8 @@ type ImageCellProps = {
   onRetry?: () => void;
   onReuseAsReference?: () => Promise<void>;
   onOpen?: () => void;
+  /** Accessible label for the open action, e.g. "Show all 4 images". */
+  openLabel?: string;
 };
 
 type GeneratedImageActionsProps = {
@@ -419,6 +397,36 @@ function GeneratedImageActions({
   );
 }
 
+function FailureDetails({ error }: { error: string }) {
+  const message = parseProviderErrorMessage(error);
+  return (
+    <>
+      <p className="text-muted-foreground line-clamp-3 max-w-full text-center text-xs break-words">
+        {message}
+      </p>
+      {message !== error && (
+        <Popover>
+          <PopoverTrigger
+            render={
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring cursor-pointer rounded text-[11px] underline underline-offset-2 outline-none focus-visible:ring-2"
+              />
+            }
+          >
+            Details
+          </PopoverTrigger>
+          <PopoverContent className="w-80">
+            <pre className="max-h-60 overflow-auto font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap select-text">
+              {error}
+            </pre>
+          </PopoverContent>
+        </Popover>
+      )}
+    </>
+  );
+}
+
 function ImageCell({
   image,
   ar,
@@ -431,50 +439,46 @@ function ImageCell({
   onRetry,
   onReuseAsReference,
   onOpen,
+  openLabel,
 }: ImageCellProps) {
   const isVideo = image.mediaType === "video";
   const canOpen = image.status === "succeeded" && Boolean(onOpen);
-
-  const handleRootClick = () => {
-    if (canOpen) onOpen?.();
-  };
+  const [hovered, setHovered] = useState(false);
 
   let body: React.ReactNode;
   if (image.status === "pending" || image.status === "running") {
     body = isVideo ? (
       <VideoRenderingState ar={ar} createdAt={image.createdAt} />
     ) : (
-      <div className="relative w-full bg-muted" style={{ aspectRatio: parseAspectRatio(ar) }}>
+      <div
+        className="bg-muted relative min-h-32 w-full"
+        style={{ aspectRatio: parseAspectRatio(ar) }}
+      >
         <div className="absolute inset-0 animate-pulse bg-linear-to-br from-white/[0.02] via-white/[0.06] to-white/[0.02]" />
         <div className="absolute inset-0 flex items-center justify-center gap-2">
-          <Loader2 className="size-4 animate-spin text-primary" />
-          <span className="text-xs text-muted-foreground">Generating…</span>
+          <Loader2 className="text-primary-text size-4 animate-spin" />
+          <span className="text-muted-foreground text-xs">Generating…</span>
         </div>
       </div>
     );
   } else if (image.status === "failed") {
     body = (
-      <div className="relative w-full bg-muted" style={{ aspectRatio: parseAspectRatio(ar) }}>
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 py-2">
-          <AlertTriangle className="size-4 text-destructive" />
-          <p className="text-xs font-medium text-destructive">Generation failed</p>
-          {image.error && (
-            <p
-              className="text-[10px] text-muted-foreground text-center line-clamp-4 break-words max-w-full"
-              title={image.error}
-            >
-              {parseProviderErrorMessage(image.error)}
-            </p>
-          )}
+      <div
+        className="bg-muted relative min-h-40 w-full"
+        style={{ aspectRatio: parseAspectRatio(ar) }}
+      >
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-4 py-3">
+          <AlertTriangle className="text-destructive size-4 shrink-0" />
+          <p className="text-foreground text-xs font-medium">
+            Generation failed
+          </p>
+          {image.error && <FailureDetails error={image.error} />}
           {onRetry && (
             <Button
               variant="outline"
               size="xs"
-              onClick={(event) => {
-                event.stopPropagation();
-                onRetry();
-              }}
-              className="mt-0.5 cursor-pointer"
+              onClick={onRetry}
+              className="mt-1 cursor-pointer"
             >
               <RotateCw />
               Retry
@@ -485,16 +489,24 @@ function ImageCell({
     );
   } else {
     body = isVideo ? (
-      <VideoPreview src={image.url} mediaKey={image.key} ar={ar} />
+      <VideoPreview
+        src={image.url}
+        mediaKey={image.key}
+        ar={ar}
+        playing={hovered}
+      />
     ) : (
-      <div className="relative w-full" style={{ aspectRatio: parseAspectRatio(ar) }}>
+      <div
+        className="relative w-full"
+        style={{ aspectRatio: parseAspectRatio(ar) }}
+      >
         <Image
           src={image.url}
           alt="Generated image"
           fill
           loading="lazy"
           className="object-cover"
-          sizes="(max-width: 768px) 100vw, 33vw"
+          sizes="(max-width: 1280px) 50vw, 33vw"
         />
       </div>
     );
@@ -502,56 +514,53 @@ function ImageCell({
 
   return (
     <div
-      role={canOpen ? "button" : undefined}
-      tabIndex={canOpen ? 0 : undefined}
-      onClick={handleRootClick}
-      onKeyDown={(event) => {
-        if (!canOpen) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpen?.();
-        }
-      }}
+      onMouseEnter={isVideo ? () => setHovered(true) : undefined}
+      onMouseLeave={isVideo ? () => setHovered(false) : undefined}
       className={cn(
-        "group/cell relative w-full rounded-md overflow-hidden bg-muted [animation:promptGroupFadeIn_0.25s_ease_both] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-        canOpen && "cursor-pointer",
+        "group/cell bg-muted relative w-full overflow-hidden rounded-md [animation:promptGroupFadeIn_0.25s_ease_both]",
         isPinned
-          ? "outline-2 outline-primary outline"
+          ? "outline-primary outline outline-2"
           : "outline outline-1 outline-white/5",
       )}
     >
       {body}
+      {canOpen && (
+        // Sibling of the action buttons (not their parent) so each control
+        // gets its own keyboard activation.
+        <button
+          type="button"
+          aria-label={openLabel ?? (isVideo ? "Play video" : "Open image")}
+          onClick={onOpen}
+          onFocus={isVideo ? () => setHovered(true) : undefined}
+          onBlur={isVideo ? () => setHovered(false) : undefined}
+          className="focus-visible:ring-ring absolute inset-0 z-[1] cursor-pointer rounded-md outline-none focus-visible:ring-2 focus-visible:ring-inset"
+        />
+      )}
       {isVideo && image.status === "succeeded" && (
         <div
           className={cn(
-            "absolute left-1.5 z-10 flex items-center gap-1 rounded-full bg-black/55 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-white backdrop-blur-sm",
+            "pointer-events-none absolute left-1.5 z-10 flex items-center gap-1 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-white backdrop-blur-sm",
             isPinned ? "top-8" : "top-1.5",
           )}
         >
           <Video className="size-2.5" strokeWidth={2.5} />
-          VIDEO
+          Video
         </div>
       )}
-      {isVideo &&
-        image.status === "succeeded" &&
-        image.durationMs != null && (
-          <div className="absolute right-1.5 bottom-1.5 z-10 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-            {Math.round(image.durationMs / 1000)}s
-          </div>
-        )}
-      {isPinned && totalPinned > 1 && (
-        <div className="absolute top-1.5 left-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground flex items-center gap-1 shadow-md">
-          <PinIcon size={9} filled />
-          {pinIndex + 1}/{totalPinned}
+      {isVideo && image.status === "succeeded" && image.durationMs != null && (
+        <div className="pointer-events-none absolute right-1.5 bottom-1.5 z-10 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+          {Math.round(image.durationMs / 1000)}s
         </div>
       )}
-      {isPinned && totalPinned === 1 && (
-        <div className="absolute top-1.5 left-1.5 size-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-md">
+      {isPinned && (
+        <div className="bg-primary text-primary-foreground pointer-events-none absolute top-1.5 left-1.5 z-10 flex h-5 items-center gap-1 rounded-full px-1.5 text-[10px] font-semibold shadow-md">
           <PinIcon size={10} filled />
+          {totalPinned > 1 && `${pinIndex + 1}/${totalPinned}`}
+          <span className="sr-only">Pinned cover</span>
         </div>
       )}
       {image.status === "succeeded" && (
-        <div className="absolute top-1.5 right-1.5 flex gap-1 items-center opacity-0 transition-opacity group-hover/cell:opacity-100 group-focus-within/cell:opacity-100">
+        <div className="absolute top-1.5 right-1.5 z-20 flex items-center gap-1 opacity-0 transition-opacity group-focus-within/cell:opacity-100 group-hover/cell:opacity-100">
           <GeneratedImageActions
             isPinned={isPinned}
             onTogglePin={onTogglePin}
@@ -562,127 +571,6 @@ function ImageCell({
         </div>
       )}
     </div>
-  );
-}
-
-function VideoModal({
-  src,
-  actions,
-  onClose,
-}: {
-  src: string;
-  actions?: React.ReactNode;
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Expanded video preview"
-      onClick={onClose}
-    >
-      <button
-        onClick={(event) => {
-          event.stopPropagation();
-          onClose();
-        }}
-        aria-label="Close video preview"
-        className="absolute right-4 top-4 z-10 size-9 rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm cursor-pointer hover:bg-black/70"
-      >
-        <X className="mx-auto size-4" />
-      </button>
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-      <div className="relative z-10 flex h-[90vh] w-full items-center justify-center">
-        <div
-          className="relative overflow-hidden rounded-lg border border-white/10 bg-black/30 shadow-2xl"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <video
-            src={src}
-            controls
-            autoPlay
-            playsInline
-            className="block max-h-[90vh] max-w-full"
-          />
-          {actions && (
-            <div className="absolute top-3 right-3 z-10">{actions}</div>
-          )}
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
-function ImageModal({
-  src,
-  alt,
-  actions,
-  onClose,
-}: {
-  src: string;
-  alt: string;
-  actions?: React.ReactNode;
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Expanded image preview"
-      onClick={onClose}
-    >
-      <button
-        onClick={(event) => {
-          event.stopPropagation();
-          onClose();
-        }}
-        aria-label="Close image preview"
-        className="absolute right-4 top-4 z-10 size-9 rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm cursor-pointer hover:bg-black/70"
-      >
-        <X className="mx-auto size-4" />
-      </button>
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-      <div className="relative z-10 flex h-[90vh] w-full items-center justify-center">
-        <div
-          className="relative overflow-hidden rounded-lg border border-white/10 bg-black/30 shadow-2xl"
-          onClick={(event) => event.stopPropagation()}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={src}
-            alt={alt}
-            className="block max-h-[90vh] max-w-full h-auto w-auto"
-          />
-          {actions && (
-            <div className="absolute top-3 right-3 z-10">
-              {actions}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>,
-    document.body,
   );
 }
 
@@ -735,48 +623,52 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
   const successCount = images.filter((i) => i.status === "succeeded").length;
   const failedCount = images.filter((i) => i.status === "failed").length;
 
-  const coverStack = pinned.length > 0 ? pinned : images;
-  const visibleStack = coverStack.slice(0, 4);
-  const hiddenStackCount = Math.max(0, coverStack.length - visibleStack.length);
+  const cover = pinned[0] ?? images[0];
+  const stackDepth = Math.min(2, images.length - 1);
   const canExpand = images.length > 1;
 
   const handleDownload = (img: MediaShape) => {
-    void downloadImage(img.url).catch((err) => {
-      console.error("Failed to download image", err);
-      toast.error("Image download failed");
+    void downloadImage(img.url, img.mimeType).catch((err) => {
+      console.error("Failed to download media", err);
+      toast.error("Download failed");
     });
   };
 
-  const handleAlbumClick = (event: React.MouseEvent) => {
-    if (!canExpand || expanded) return;
-
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-    if (target.closest("button, a, input, textarea, select, [role='button']")) return;
-
-    setExpanded(true);
-  };
+  const renderCell = (img: MediaShape, onOpen: () => void, openLabel?: string) => (
+    <ImageCell
+      key={img.id}
+      image={img}
+      ar={ar}
+      isPinned={pinnedMap.has(img.id)}
+      pinIndex={pinned.findIndex((p) => p.id === img.id)}
+      totalPinned={pinned.length}
+      onTogglePin={() => togglePin(img.id)}
+      onDownload={() => handleDownload(img)}
+      onDelete={() => onDeleteMedia?.(img.id)}
+      onRetry={onRetryMedia ? () => onRetryMedia(img.id) : undefined}
+      onReuseAsReference={
+        onReuseAsReference ? () => onReuseAsReference(img.id) : undefined
+      }
+      onOpen={onOpen}
+      openLabel={openLabel}
+    />
+  );
 
   return (
     <Card
       className={cn(
-        "group/album rounded-xl gap-0 py-0 [animation:promptGroupFadeIn_0.3s_ease_both]",
-        canExpand && !expanded && "cursor-pointer",
+        "group/album gap-0 rounded-xl py-0 [animation:promptGroupFadeIn_0.3s_ease_both]",
+        expanded && "col-span-full",
       )}
-      onClick={handleAlbumClick}
     >
       {/* header */}
-      <div className="px-3 pt-2.5 pb-2 flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 px-3 pt-2.5 pb-2">
         <div className="min-w-0">
-          <div className="truncate text-[13px] font-medium">{model?.name ?? modelId}</div>
-          <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
+          <div className="truncate text-[13px] font-medium">
+            {model?.name ?? modelId}
+          </div>
+          <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-[11px]">
             <span>{model?.provider}</span>
-            {isVideoAlbum && (
-              <>
-                <span className="opacity-50">·</span>
-                <span className="text-primary">video</span>
-              </>
-            )}
             {successCount > 0 && (
               <>
                 <span className="opacity-50">·</span>
@@ -789,7 +681,7 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
             {pinned.length > 0 && (
               <>
                 <span className="opacity-50">·</span>
-                <span className="text-primary flex items-center gap-0.5">
+                <span className="text-primary-text flex items-center gap-0.5">
                   <PinIcon size={9} filled />
                   {pinned.length} pinned
                 </span>
@@ -803,18 +695,15 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
             )}
           </div>
         </div>
-        {images.length > 1 && (
+        {canExpand && (
           <Button
             variant="ghost"
             size="xs"
             aria-expanded={expanded}
-            onClick={(event) => {
-              event.stopPropagation();
-              setExpanded((e) => !e);
-            }}
+            onClick={() => setExpanded((e) => !e)}
             className="text-muted-foreground shrink-0 cursor-pointer gap-1"
           >
-            {expanded ? "Stack" : `All ${images.length}`}
+            {expanded ? "Collapse" : `Show all ${images.length}`}
             <ChevronDown
               className={cn(
                 "transition-transform duration-200",
@@ -828,118 +717,82 @@ function ModelAlbum({ modelId, images, ar, models, onDeleteMedia, onRetryMedia, 
       {/* body */}
       <div className="px-3 pb-3">
         {!expanded ? (
-          <div className="relative">
-            <div className={cn("relative", FAN_PADDING[visibleStack.length])}>
-              {visibleStack.length === 0 ? (
-                <div className="rounded-md bg-muted" style={{ aspectRatio: parseAspectRatio(ar) }} />
-              ) : (
-                [...visibleStack].reverse().map((img, idx) => {
-                  const depth = visibleStack.length - 1 - idx; // 0 = top
-                  const dc = FAN_DEPTH[depth]!;
-                  const isPinned = pinnedMap.has(img.id);
-                  const pinIdx = pinned.findIndex((p) => p.id === img.id);
-                  return (
-                    <div
-                      key={img.id}
-                      inert={depth !== 0 ? true : undefined}
-                      className={cn(
-                        "rounded-md transition-transform duration-[250ms]",
-                        dc.pos,
-                        dc.xform,
-                        dc.z,
-                        dc.shadow,
-                      )}
-                    >
-                      <ImageCell
-                        image={img}
-                        ar={ar}
-                        isPinned={isPinned}
-                        pinIndex={pinIdx}
-                        totalPinned={pinned.length}
-                        onTogglePin={() => togglePin(img.id)}
-                        onDownload={() => handleDownload(img)}
-                        onDelete={() => onDeleteMedia?.(img.id)}
-                        onRetry={onRetryMedia ? () => onRetryMedia(img.id) : undefined}
-                        onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(img.id) : undefined}
-                        onOpen={images.length === 1 ? () => setModalImage(img) : undefined}
-                      />
-                    </div>
-                  );
-                })
-              )}
-              {hiddenStackCount > 0 && (
-                <div className="absolute bottom-2 right-2 text-[11px] font-semibold px-2 py-1 rounded-full bg-black/65 border border-white/10 text-white z-20 backdrop-blur-sm">
-                  +{hiddenStackCount} more{pinned.length > 0 ? " pinned" : ""}
+          <div className={cn("relative", stackDepth > 0 && "pb-2")}>
+            {/* Page edges peeking out below the cover signal more results. */}
+            {stackDepth >= 2 && (
+              <div
+                aria-hidden
+                className="bg-muted/50 absolute inset-x-4 bottom-0 h-8 rounded-b-md border border-t-0"
+              />
+            )}
+            {stackDepth >= 1 && (
+              <div
+                aria-hidden
+                className="bg-muted absolute inset-x-2 bottom-1 h-8 rounded-b-md border border-t-0"
+              />
+            )}
+            <div className="relative z-[1]">
+              {cover
+                ? renderCell(
+                    cover,
+                    canExpand
+                      ? () => setExpanded(true)
+                      : () => setModalImage(cover),
+                    canExpand ? `Show all ${images.length} ${itemNoun}s` : undefined,
+                  )
+                : null}
+              {canExpand && (
+                <div className="pointer-events-none absolute right-2 bottom-2 z-10 rounded-full border border-white/10 bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
+                  +{images.length - 1}
                 </div>
               )}
             </div>
-            {pinned.length === 0 && images.length > 1 && (
-              <div className="absolute bottom-2 left-2 text-[11px] px-2 py-1 rounded-full bg-black/65 border border-white/10 text-white/85 flex items-center gap-1 pointer-events-none z-20 backdrop-blur-sm opacity-0 transition-opacity group-hover/album:opacity-100 group-focus-within/album:opacity-100">
-                Click to see all {images.length}
-              </div>
-            )}
           </div>
         ) : (
-          <div className={cn("grid gap-2", images.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
-            {allDisplay.map((img) => {
-              const isPinned = pinnedMap.has(img.id);
-              const pinIdx = pinned.findIndex((p) => p.id === img.id);
-              return (
-                <ImageCell
-                  key={img.id}
-                  image={img}
-                  ar={ar}
-                  isPinned={isPinned}
-                  pinIndex={pinIdx}
-                  totalPinned={pinned.length}
-                  onTogglePin={() => togglePin(img.id)}
-                  onDownload={() => handleDownload(img)}
-                  onDelete={() => onDeleteMedia?.(img.id)}
-                  onRetry={onRetryMedia ? () => onRetryMedia(img.id) : undefined}
-                  onReuseAsReference={onReuseAsReference ? () => onReuseAsReference(img.id) : undefined}
-                  onOpen={() => setModalImage(img)}
-                />
-              );
-            })}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-2">
+            {allDisplay.map((img) => renderCell(img, () => setModalImage(img)))}
           </div>
         )}
       </div>
-      {modalImage &&
-        (modalImage.mediaType === "video" ? (
-          <VideoModal
-            src={modalImage.url}
-            onClose={() => setModalImage(null)}
-            actions={
-              <GeneratedImageActions
-                onDownload={() => handleDownload(modalImage)}
-                onDelete={() => {
-                  setModalImage(null);
-                  onDeleteMedia?.(modalImage.id);
-                }}
-              />
-            }
-          />
-        ) : (
-          <ImageModal
-            src={modalImage.url}
-            alt="Expanded generated image"
-            onClose={() => setModalImage(null)}
-            actions={
-              <GeneratedImageActions
-                onDownload={() => handleDownload(modalImage)}
-                onDelete={() => {
-                  setModalImage(null);
-                  onDeleteMedia?.(modalImage.id);
-                }}
-                onReuseAsReference={
-                  onReuseAsReference
-                    ? () => onReuseAsReference(modalImage.id)
-                    : undefined
-                }
-              />
-            }
-          />
-        ))}
+      {modalImage && (
+        <MediaLightbox
+          label={
+            modalImage.mediaType === "video" ? "Generated video" : "Generated image"
+          }
+          onClose={() => setModalImage(null)}
+          actions={
+            <GeneratedImageActions
+              onDownload={() => handleDownload(modalImage)}
+              onDelete={() => {
+                setModalImage(null);
+                onDeleteMedia?.(modalImage.id);
+              }}
+              onReuseAsReference={
+                modalImage.mediaType !== "video" && onReuseAsReference
+                  ? () => onReuseAsReference(modalImage.id)
+                  : undefined
+              }
+            />
+          }
+        >
+          {modalImage.mediaType === "video" ? (
+            <video
+              src={modalImage.url}
+              controls
+              autoPlay
+              playsInline
+              className="block max-h-[calc(100vh-4rem)] max-w-[calc(100vw-4rem)]"
+            />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={modalImage.url}
+              alt="Generated image"
+              className="block h-auto max-h-[calc(100vh-4rem)] w-auto max-w-[calc(100vw-4rem)]"
+            />
+          )}
+        </MediaLightbox>
+      )}
     </Card>
   );
 }
@@ -1049,7 +902,7 @@ export default function PromptGroup(props: PromptGroupProps) {
                 <span aria-hidden className="opacity-40">
                   ·
                 </span>
-                <span className="text-primary flex items-center gap-1">
+                <span className="text-primary-text flex items-center gap-1">
                   <Loader2 className="size-3 animate-spin" />
                   {inProgressCount} in progress
                 </span>
@@ -1101,10 +954,13 @@ export default function PromptGroup(props: PromptGroupProps) {
                   />
                 }
               >
-                <RotateCw />
-                Reuse
+                <CornerUpLeft />
+                Reuse prompt
               </TooltipTrigger>
-              <TooltipContent>Put this prompt back in the editor</TooltipContent>
+              <TooltipContent>
+                Load this prompt and its output type and aspect ratio into the
+                editor
+              </TooltipContent>
             </Tooltip>
           )}
           <DropdownMenu>
@@ -1169,7 +1025,7 @@ export default function PromptGroup(props: PromptGroupProps) {
       </div>
 
       {/* one album per model */}
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] items-start gap-3">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] items-start gap-3">
         {modelOrder.map((modelId) => (
           <ModelAlbum
             key={modelId}
@@ -1186,11 +1042,17 @@ export default function PromptGroup(props: PromptGroupProps) {
         ))}
       </div>
       {referenceModalImage && (
-        <ImageModal
-          src={referenceModalImage}
-          alt="Expanded reference image"
+        <MediaLightbox
+          label="Reference image"
           onClose={() => setReferenceModalImage(null)}
-        />
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={referenceModalImage}
+            alt="Reference image"
+            className="block h-auto max-h-[calc(100vh-4rem)] w-auto max-w-[calc(100vw-4rem)]"
+          />
+        </MediaLightbox>
       )}
     </section>
   );

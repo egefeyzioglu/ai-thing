@@ -833,13 +833,33 @@ export default function Home() {
     void handleGenerateRef.current();
   }, []);
 
-  const handleReusePrompt = useCallback((text: string) => {
-    const composer = promptComposerRef.current;
-    if (!composer) return;
-    composer.setValue(text);
-    composer.focus();
-    toast.success("Prompt added to the editor");
-  }, []);
+  const handleReusePrompt = useCallback(
+    (
+      text: string,
+      options: { mode: GenerationDetails["mode"]; aspectRatio?: string },
+    ) => {
+      const composer = promptComposerRef.current;
+      if (!composer) return;
+      const previous = composer.getValue();
+      composer.setValue(text);
+      composer.focus();
+      updateGenerationDetails({
+        mode: options.mode,
+        ...(options.aspectRatio ? { aspect: options.aspectRatio } : {}),
+      });
+      if (previous.trim() && previous !== text) {
+        toast("Prompt replaced in the editor", {
+          action: {
+            label: "Undo",
+            onClick: () => composer.setValue(previous),
+          },
+        });
+      } else {
+        toast.success("Prompt loaded into the editor");
+      }
+    },
+    [updateGenerationDetails],
+  );
 
   const handleReuseAsReference = useCallback(
     async (imageId: string) => {
@@ -966,6 +986,28 @@ export default function Home() {
   useEffect(() => {
     setIsMacOS(navigator?.userAgent.toLowerCase().includes("mac"));
   }, []);
+
+  // Ctrl/⌘+Enter generates from anywhere on the page, not just the prompt
+  // box (which handles it itself), unless another field or a dialog has focus.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
+      if (event.defaultPrevented) return;
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLElement &&
+        (active.isContentEditable ||
+          ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName) ||
+          active.closest("[role='dialog'], [role='alertdialog']"))
+      ) {
+        return;
+      }
+      event.preventDefault();
+      handleGenerateStable();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [handleGenerateStable]);
 
   const lastInitializedModeRef = useRef<typeof mode | null>(null);
 
