@@ -14,6 +14,12 @@ export function extensionFor(mimeType?: string | null, defaultValue?: string): s
       return "png";
     case "image/webp":
       return "webp";
+    case "video/mp4":
+      return "mp4";
+    case "video/webm":
+      return "webm";
+    case "video/quicktime":
+      return "mov";
     default:
       if(defaultValue !== null && defaultValue !== undefined) return defaultValue;
       throw new Error(`Unknown MIME type ${mimeType}`);

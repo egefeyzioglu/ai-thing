@@ -196,9 +196,13 @@ export default function Home() {
       ? 14
       : undefined;
   const modeRef = useRef(mode);
+  const generationDetailsRef = useRef(generationDetails);
+  const selectedReferenceImagesRef = useRef(selectedReferenceImages);
   const maxImageReferenceImagesRef = useRef(maxImageReferenceImages);
   useLayoutEffect(() => {
     modeRef.current = mode;
+    generationDetailsRef.current = generationDetails;
+    selectedReferenceImagesRef.current = selectedReferenceImages;
     maxImageReferenceImagesRef.current = maxImageReferenceImages;
   });
   const [advanced, setAdvanced] = useSessionStorage("imageGenerationAdvanced");
@@ -833,6 +837,60 @@ export default function Home() {
     void handleGenerateRef.current();
   }, []);
 
+  const handleReusePrompt = useCallback(
+    (
+      text: string,
+      options: { mode: GenerationDetails["mode"]; aspectRatio?: string },
+    ) => {
+      const composer = promptComposerRef.current;
+      if (!composer) return;
+      const previous = composer.getValue();
+      const {
+        mode: previousMode,
+        aspect: previousAspect,
+        selectedModels: previousModels,
+      } = generationDetailsRef.current;
+      // Switching mode replaces the model selection and can trim reference
+      // images, so Undo restores those too.
+      const previousSettings = {
+        mode: previousMode,
+        aspect: previousAspect,
+        selectedModels: previousModels,
+      };
+      const previousReferenceImages = selectedReferenceImagesRef.current;
+      const nextAspect = options.aspectRatio ?? previousAspect;
+      composer.setValue(text);
+      composer.focus();
+      updateGenerationDetails({
+        mode: options.mode,
+        ...(options.aspectRatio ? { aspect: options.aspectRatio } : {}),
+      });
+      const replacedDraft = previous.trim() !== "" && previous !== text;
+      const changedSettings =
+        options.mode !== previousMode || nextAspect !== previousAspect;
+      if (replacedDraft || changedSettings) {
+        toast(
+          replacedDraft
+            ? "Prompt replaced in the editor"
+            : "Prompt and settings loaded into the editor",
+          {
+            action: {
+              label: "Undo",
+              onClick: () => {
+                composer.setValue(previous);
+                updateGenerationDetails(previousSettings);
+                setSelectedReferenceImages(previousReferenceImages);
+              },
+            },
+          },
+        );
+      } else {
+        toast.success("Prompt loaded into the editor");
+      }
+    },
+    [updateGenerationDetails],
+  );
+
   const handleReuseAsReference = useCallback(
     async (imageId: string) => {
       const { reuseAsReference, utils } = galleryActionRef.current;
@@ -958,6 +1016,28 @@ export default function Home() {
   useEffect(() => {
     setIsMacOS(navigator?.userAgent.toLowerCase().includes("mac"));
   }, []);
+
+  // Ctrl/⌘+Enter generates from anywhere on the page, not just the prompt
+  // box (which handles it itself), unless another field or a dialog has focus.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
+      if (event.defaultPrevented) return;
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLElement &&
+        (active.isContentEditable ||
+          ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName) ||
+          active.closest("[role='dialog'], [role='alertdialog']"))
+      ) {
+        return;
+      }
+      event.preventDefault();
+      handleGenerateStable();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [handleGenerateStable]);
 
   const lastInitializedModeRef = useRef<typeof mode | null>(null);
 
@@ -1097,7 +1177,7 @@ export default function Home() {
   ]);
 
   return (
-    <main className="flex w-full grow flex-row text-gray-200">
+    <main className="flex h-screen w-full grow flex-row overflow-hidden">
       <AlertDialog
         open={pushPermissionDialogOpen}
         onOpenChange={setPushPermissionDialogOpen}
@@ -1128,9 +1208,17 @@ export default function Home() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this item?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {pendingDelete?.type === "prompt"
+                ? "Delete this generation?"
+                : pendingDelete?.type === "referenceImage"
+                  ? "Delete this reference image?"
+                  : "Delete this result?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone.
+              {pendingDelete?.type === "prompt"
+                ? "The prompt and every image or video it produced will be removed. This can't be undone."
+                : "This can't be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1138,7 +1226,7 @@ export default function Home() {
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              className="cursor-pointer"
+              className="bg-destructive hover:bg-destructive/90 cursor-pointer text-white"
               onClick={handleConfirmDelete}
             >
               Delete
@@ -1157,6 +1245,7 @@ export default function Home() {
         onVideoReferenceRolesChange={setVideoReferenceRoles}
         selectedModels={selectedModels}
         onToggleSelectedModel={toggleSelectedModel}
+        onSelectedModelsChange={setSelectedModels}
         mode={mode}
         onModeChange={setMode}
         resolution={resolution}
@@ -1223,7 +1312,6 @@ export default function Home() {
         activeModels={activeModels}
         archivedModels={archivedModels}
         totalGenerations={totalGenerations}
-        userFullName={user.user?.fullName}
         usage={usage}
         isLoadingUsage={isLoadingUsage}
         currentRequestCost={currentRequestCost}
@@ -1247,6 +1335,7 @@ export default function Home() {
         onDeleteMedia={handleDeleteMedia}
         onReuseAsReference={handleReuseAsReference}
         onRetryMedia={handleRetryImage}
+        onReusePrompt={handleReusePrompt}
       />
     </main>
   );

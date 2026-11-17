@@ -61,6 +61,8 @@ export const env = createEnv({
     NEXT_PUBLIC_POSTHOG_API_HOST: z.string().min(1),
     NEXT_PUBLIC_POSTHOG_UI_HOST: z.string().min(1),
     NEXT_PUBLIC_REFRESH_NOTIFY_DEBUG: z.enum(["true", "false"]).optional(),
+    // The prompt workshop is replaced by the desktop app. Off unless "true".
+    NEXT_PUBLIC_ENABLE_WORKSHOP: z.enum(["true", "false"]).optional(),
   },
 
   /**
@@ -89,6 +91,7 @@ export const env = createEnv({
     NEXT_PUBLIC_POSTHOG_UI_HOST: process.env.NEXT_PUBLIC_POSTHOG_UI_HOST,
     NEXT_PUBLIC_REFRESH_NOTIFY_DEBUG:
       process.env.NEXT_PUBLIC_REFRESH_NOTIFY_DEBUG,
+    NEXT_PUBLIC_ENABLE_WORKSHOP: process.env.NEXT_PUBLIC_ENABLE_WORKSHOP,
     // NEXT_PUBLIC_CLIENTVAR: process.env.NEXT_PUBLIC_CLIENTVAR,
   },
   /**

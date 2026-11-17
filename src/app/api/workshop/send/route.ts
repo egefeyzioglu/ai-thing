@@ -8,6 +8,7 @@ import {
   createTraceContext,
   parseTraceparent,
 } from "src/lib/observability/trace";
+import { isWorkshopEnabled } from "src/lib/feature-flags";
 import { createWideEvent } from "src/server/observability/event";
 
 function encodeEvent(event: string, data: unknown) {
@@ -15,6 +16,9 @@ function encodeEvent(event: string, data: unknown) {
 }
 
 export async function POST(req: Request) {
+  if (!isWorkshopEnabled) {
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
   const incomingRequestId = req.headers.get("x-request-id")?.trim();
   const requestId =
     incomingRequestId && incomingRequestId.length > 0

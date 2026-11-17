@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { env } from "src/env";
 import { MONTHLY_CREDIT_LIMIT } from "src/lib/credits";
+import { isWorkshopEnabled } from "src/lib/feature-flags";
 import { createTRPCRouter, protectedProcedure } from "src/server/api/trpc";
 import { db } from "src/server/db";
 import {
@@ -1533,8 +1534,16 @@ export async function sendWorkshopMessage(args: {
   };
 }
 
+// The workshop is disabled unless NEXT_PUBLIC_ENABLE_WORKSHOP is "true".
+const workshopProcedure = protectedProcedure.use(({ next }) => {
+  if (!isWorkshopEnabled) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Workshop is disabled" });
+  }
+  return next();
+});
+
 export const workshopRouter = createTRPCRouter({
-  listThreads: protectedProcedure
+  listThreads: workshopProcedure
     .input(z.object({ projectId: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
       await verifyProjectOwnership(ctx.user, input.projectId);
@@ -1551,7 +1560,7 @@ export const workshopRouter = createTRPCRouter({
         .orderBy(desc(workshopThreads.updatedAt));
     }),
 
-  createThread: protectedProcedure
+  createThread: workshopProcedure
     .input(
       z.object({
         projectId: z.string().min(1),
@@ -1568,7 +1577,7 @@ export const workshopRouter = createTRPCRouter({
       });
     }),
 
-  renameThread: protectedProcedure
+  renameThread: workshopProcedure
     .input(
       z.object({
         projectId: z.string().min(1),
@@ -1598,7 +1607,7 @@ export const workshopRouter = createTRPCRouter({
       return thread;
     }),
 
-  deleteThread: protectedProcedure
+  deleteThread: workshopProcedure
     .input(
       z.object({
         projectId: z.string().min(1),
@@ -1621,7 +1630,7 @@ export const workshopRouter = createTRPCRouter({
       return { success: true };
     }),
 
-  list: protectedProcedure
+  list: workshopProcedure
     .input(
       z.object({
         projectId: z.string().min(1),
@@ -1646,13 +1655,13 @@ export const workshopRouter = createTRPCRouter({
       return hydrateWorkshopMessages(messages);
     }),
 
-  sendMessage: protectedProcedure
+  sendMessage: workshopProcedure
     .input(workshopSendInputSchema)
     .mutation(async ({ ctx, input }) => {
       return sendWorkshopMessage({ userId: ctx.user, input });
     }),
 
-  clear: protectedProcedure
+  clear: workshopProcedure
     .input(
       z.object({
         projectId: z.string().min(1),
