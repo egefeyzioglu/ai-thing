@@ -197,10 +197,12 @@ export default function Home() {
       : undefined;
   const modeRef = useRef(mode);
   const generationDetailsRef = useRef(generationDetails);
+  const selectedReferenceImagesRef = useRef(selectedReferenceImages);
   const maxImageReferenceImagesRef = useRef(maxImageReferenceImages);
   useLayoutEffect(() => {
     modeRef.current = mode;
     generationDetailsRef.current = generationDetails;
+    selectedReferenceImagesRef.current = selectedReferenceImages;
     maxImageReferenceImagesRef.current = maxImageReferenceImages;
   });
   const [advanced, setAdvanced] = useSessionStorage("imageGenerationAdvanced");
@@ -843,9 +845,19 @@ export default function Home() {
       const composer = promptComposerRef.current;
       if (!composer) return;
       const previous = composer.getValue();
-      const { mode: previousMode, aspect: previousAspect } =
-        generationDetailsRef.current;
-      const previousSettings = { mode: previousMode, aspect: previousAspect };
+      const {
+        mode: previousMode,
+        aspect: previousAspect,
+        selectedModels: previousModels,
+      } = generationDetailsRef.current;
+      // Switching mode replaces the model selection and can trim reference
+      // images, so Undo restores those too.
+      const previousSettings = {
+        mode: previousMode,
+        aspect: previousAspect,
+        selectedModels: previousModels,
+      };
+      const previousReferenceImages = selectedReferenceImagesRef.current;
       const nextAspect = options.aspectRatio ?? previousAspect;
       composer.setValue(text);
       composer.focus();
@@ -867,6 +879,7 @@ export default function Home() {
               onClick: () => {
                 composer.setValue(previous);
                 updateGenerationDetails(previousSettings);
+                setSelectedReferenceImages(previousReferenceImages);
               },
             },
           },
@@ -1204,7 +1217,7 @@ export default function Home() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingDelete?.type === "prompt"
-                ? "The prompt and every image or video it produced will be removed. Anything still generating is cancelled. This can't be undone."
+                ? "The prompt and every image or video it produced will be removed. This can't be undone."
                 : "This can't be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
